@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Shield,
+  Route,
 } from 'lucide-react'
 import './Sidebar.css'
 
@@ -103,11 +104,16 @@ export default function Sidebar() {
       {/* Top Logo */}
       <div className="sidebar-rebuilt__header">
         <div className="sidebar-rebuilt__brand">
-          <Shield className="sidebar-rebuilt__logo-icon" size={20} style={{ color: '#4F8EF7' }} />
+          <Route className="sidebar-rebuilt__logo-icon" size={20} style={{ color: '#7C8573' }} />
           {!isCollapsed && (
-            <span className="sidebar-rebuilt__brand-full font-bold">
-              RoadVision <span style={{ color: '#4F8EF7' }}>AI</span>
-            </span>
+            <div className="sidebar-rebuilt__brand-text" style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, gap: '2px' }}>
+              <span className="sidebar-rebuilt__brand-title" style={{ fontSize: '22px', fontWeight: 800, color: 'var(--sidebar-text)', letterSpacing: '-0.03em' }}>
+                THAPAR - AKCM
+              </span>
+              <span className="sidebar-rebuilt__brand-subtitle" style={{ fontSize: '11px', fontWeight: 600, color: '#7C8573', letterSpacing: '2px', textTransform: 'uppercase' }}>
+                AI POWERED VENTURE
+              </span>
+            </div>
           )}
         </div>
         <button
