@@ -53,10 +53,55 @@ def get_detection_analytics(db: Session) -> Dict[str, Any]:
         filename = video.filename if video else f"Video ID {vid_id}"
         detections_per_video[filename] = count
 
+    # Compute extended Phase 2 metrics (Task 8)
+    from app.services.ai.utils import calculate_road_health_score
+    from app.core.pipeline_config import AREA_THRESHOLDS
+
+    distresses = db.query(RoadDistress).all()
+    total_area = 0.0
+    total_severity_value = 0.0
+    severity_ranks = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+    damage_distribution = {"very_small": 0, "small": 0, "medium": 0, "large": 0}
+    affected_areas = []
+
+    for d in distresses:
+        pct = d.damage_percentage_of_frame
+        total_area += pct
+
+        if pct < AREA_THRESHOLDS["very_small"]:
+            damage_distribution["very_small"] += 1
+        elif pct < AREA_THRESHOLDS["small"]:
+            damage_distribution["small"] += 1
+        elif pct < AREA_THRESHOLDS["medium"]:
+            damage_distribution["medium"] += 1
+        else:
+            damage_distribution["large"] += 1
+
+        total_severity_value += severity_ranks.get(d.severity.lower(), 1)
+        affected_areas.append(d.affected_area)
+
+    avg_damaged_area = round(total_area / len(distresses), 4) if distresses else 0.0
+    avg_severity_score = round(total_severity_value / len(distresses), 2) if distresses else 0.0
+    road_health_score = calculate_road_health_score(distresses)
+
+    # Calculate requested metrics
+    average_damage_area = round(sum(affected_areas) / len(affected_areas), 4) if affected_areas else 0.0
+    maximum_damage_area = round(max(affected_areas), 4) if affected_areas else 0.0
+    total_damaged_area = round(sum(affected_areas), 4) if affected_areas else 0.0
+
     return {
         "total_detections": total_detections,
         "distress_type_distribution": distress_type_distribution,
         "severity_distribution": severity_distribution,
         "average_confidence": average_confidence,
-        "detections_per_video": detections_per_video
+        "detections_per_video": detections_per_video,
+        # Enhanced keys (Task 8)
+        "average_damaged_area": avg_damaged_area,
+        "average_severity_score": avg_severity_score,
+        "road_health_score": road_health_score,
+        "damage_distribution": damage_distribution,
+        # Real YOLO damage metrics requested
+        "average_damage_area": average_damage_area,
+        "maximum_damage_area": maximum_damage_area,
+        "total_damaged_area": total_damaged_area
     }

@@ -20,6 +20,17 @@ from app.models.maintenance import MaintenanceTask
 logger = logging.getLogger(__name__)
 
 
+def format_class_name(name: str) -> str:
+    """
+    Replaces underscores with spaces and capitalizes every word.
+    Example: longitudinal_crack -> Longitudinal Crack
+    """
+    if not name:
+        return ""
+    words = name.replace("_", " ").split()
+    return " ".join(word.capitalize() for word in words)
+
+
 def generate_video_pdf_report(db: Session, video_id: int) -> str:
     """
     Compiles a comprehensive PDF report for a processed video session.
@@ -32,9 +43,11 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
         str: Relative path of the generated PDF file.
     """
     # 1. Fetch data from DB
+    db.commit()  # Flush session and ensure latest database status is pulled
     video = db.query(UploadedVideo).filter(UploadedVideo.id == video_id).first()
     if not video:
         raise ValueError(f"Video with ID {video_id} not found.")
+    db.refresh(video)  # Refresh to capture latest committed status
 
     distresses = db.query(RoadDistress).filter(RoadDistress.video_id == video_id).all()
     
@@ -173,29 +186,47 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
     categories = {}
     total_rehab_cost = 0
     
+    from app.services.ai.utils import calculate_road_health_score, estimate_damage_metrics
+    
+    total_area = 0.0
+    sev_weights = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+    total_sev_index = 0
+    
     for d in distresses:
         sev = d.severity.lower()
         if sev in severities:
             severities[sev] += 1
             
-        dtype = d.distress_type.capitalize()
+        dtype = format_class_name(d.distress_type)
         categories[dtype] = categories.get(dtype, 0) + 1
+        
+        # Use actual frame coverage percentage from YOLO detection
+        pct = d.damage_percentage_of_frame
+        total_area += pct
+        total_sev_index += sev_weights.get(sev, 1)
         
         # Query repair task
         task = db.query(MaintenanceTask).filter(MaintenanceTask.distress_id == d.id).first()
         if task and task.estimated_cost:
             total_rehab_cost += task.estimated_cost
 
+    road_health_score = calculate_road_health_score(distresses)
+    avg_damage_area = total_area / len(distresses) if distresses else 0.0
+    avg_sev_index = total_sev_index / len(distresses) if distresses else 0.0
+
     summary_text = (
-        f"A total of <b>{len(distresses)} road distress anomalies</b> were identified during the automated processing of "
-        f"surveillance feed <i>{video.filename}</i>. Based on the model classification results, "
-        f"{severities['critical']} distresses require immediate <b>Critical/Emergency (P1)</b> response, "
-        f"{severities['high']} are classified as <b>High (P2)</b> severity, and {severities['medium'] + severities['low']} "
-        f"fall under routine maintenance parameters."
+        f"A safety audit of road corridor <i>{video.filename}</i> was conducted using the dynamic engineering-based "
+        f"severity pipeline. A total of <b>{len(distresses)} distress anomalies</b> were identified, resulting in a "
+        f"computed <b>Road Health Score of {road_health_score}/100</b>.<br/><br/>"
+        f"The analysis indicates an average severity index of <b>{avg_sev_index:.2f}/4.0</b> with an average damaged "
+        f"area of <b>{avg_damage_area:.2f}% per frame</b>. Action plan highlights: "
+        f"<b>{severities['critical']} Critical (P1)</b> emergencies, <b>{severities['high']} High (P2)</b> repairs, "
+        f"<b>{severities['medium']} Medium (P3)</b> tasks, and <b>{severities['low']} Low (P4)</b> surface monitors. "
+        f"Total dynamic rehabilitation budget is estimated at <b>₹{total_rehab_cost:,}</b>."
     )
     story.append(Paragraph(summary_text, body_style))
     
-    # Stats Summary Table Cards
+    # Stats Summary Table Cards (extended to 4 rows for Phase 2)
     stats_card_data = [
         [
             Paragraph("<b>Total Distress count</b>", body_style),
@@ -206,6 +237,16 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
             Paragraph(f"<font size=14 color='#1e3a8a'><b>{len(distresses)}</b></font>", body_style),
             Paragraph(f"<font size=14 color='#ef4444'><b>{severities['critical']}</b></font>", body_style),
             Paragraph(f"<font size=14 color='#22c55e'><b>₹{total_rehab_cost:,}</b></font>", body_style)
+        ],
+        [
+            Paragraph("<b>Road Health Score</b>", body_style),
+            Paragraph("<b>Avg Damage Area</b>", body_style),
+            Paragraph("<b>Avg Severity Index</b>", body_style)
+        ],
+        [
+            Paragraph(f"<font size=14 color='#1e3a8a'><b>{road_health_score}/100</b></font>", body_style),
+            Paragraph(f"<font size=14 color='#eab308'><b>{avg_damage_area:.2f}%</b></font>", body_style),
+            Paragraph(f"<font size=14 color='#4f46e5'><b>{avg_sev_index:.2f}/4.0</b></font>", body_style)
         ]
     ]
     stats_table = Table(stats_card_data, colWidths=[173, 173, 174])
@@ -251,8 +292,37 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
         # Color coding priority rankings
         priority_color = "#ef4444" if rec_priority == "P1" else ("#f97316" if rec_priority == "P2" else ("#eab308" if rec_priority == "P3" else "#3b82f6"))
         
+        from app.services.ai.utils import format_seconds_to_hhmmss_mmm
+        formatted_ts = format_seconds_to_hhmmss_mmm(d.video_timestamp)
+        frame_val = d.frame_number if d.frame_number is not None else 0
+
+        # Construct size estimates caption (Task 5)
+        if getattr(d, "pothole_diameter", None) is not None:
+            size_caption = f"<b>Diameter:</b> {d.pothole_diameter:.2f}m<br/><b>Area:</b> {d.affected_area:.4f}㎡"
+        elif getattr(d, "crack_length", None) is not None:
+            size_caption = f"<b>Length:</b> {d.crack_length:.2f}m<br/><b>Area:</b> {d.affected_area:.4f}㎡"
+        else:
+            size_caption = f"<b>Area:</b> {d.affected_area:.4f}㎡"
+
+        tracking_info = ""
+        if getattr(d, "tracking_id", None) is not None:
+            tracking_info += f"<b>Track ID:</b> {d.tracking_id}<br/>"
+        if getattr(d, "first_frame", None) is not None:
+            tracking_info += f"<b>First Frame:</b> {d.first_frame}<br/>"
+        if getattr(d, "last_frame", None) is not None:
+            tracking_info += f"<b>Last Frame:</b> {d.last_frame}<br/>"
+        if getattr(d, "frames_visible", None) is not None:
+            tracking_info += f"<b>Frames Visible:</b> {d.frames_visible}<br/>"
+
         row = [
-            Paragraph(f"<b>{d.distress_type.capitalize()}</b><br/><font size=7 color='#64748b'>{d.severity.upper()}</font>", table_cell_style),
+            Paragraph(
+                f"<b>{format_class_name(d.distress_type)}</b><br/>"
+                f"<font size=7 color='#64748b'>{d.severity.upper()}</font><br/>"
+                f"<font size=7.5 color='#475569'><b>Timestamp:</b><br/>{formatted_ts}<br/><b>Frame:</b><br/>{frame_val}</font><br/>"
+                f"<font size=7 color='#0369a1'>{size_caption}</font>"
+                f"{f'<br/><font size=7 color=\"#475569\">{tracking_info}</font>' if tracking_info else ''}",
+                table_cell_style
+            ),
             Paragraph(f"Lat: {d.latitude:.5f}<br/>Lon: {d.longitude:.5f}", table_cell_style),
             Paragraph(f"{d.confidence_score * 100:.1f}%", table_cell_style),
             Paragraph(f"{rec_action}", table_cell_style),

@@ -7,7 +7,7 @@ import cv2
 import logging
 from typing import List, Dict, Any
 from app.services.ai.model_loader import ModelLoader
-from app.services.ai.utils import map_class_id_to_name, map_confidence_to_severity
+from app.services.ai.utils import map_class_id_to_name, map_confidence_to_severity, calculate_engineering_severity
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +21,16 @@ CLASS_COLORS = {
 }
 
 
-def run_inference(frame_path: str, video_id: int) -> List[Dict[str, Any]]:
+def run_inference(frame_path_or_img, video_id: int, frame_number: getattr(None, "int", None) or object = None) -> List[Dict[str, Any]]:
     """
     Executes deep learning (or mock) YOLO inference on a target frame.
     If detections are found, an annotated copy containing bounding boxes
     and prediction labels is saved under uploads/detections/{video_id}/.
 
     Args:
-        frame_path (str): Relative path to the raw frame JPG file.
+        frame_path_or_img (str or ndarray): Path to JPG file or numpy image array in memory.
         video_id (int): Database ID of the video record.
+        frame_number (int, optional): The frame sequence number.
 
     Returns:
         List[Dict[str, Any]]: List of dictionary detections containing:
@@ -40,18 +41,23 @@ def run_inference(frame_path: str, video_id: int) -> List[Dict[str, Any]]:
             - 'annotated_path': relative path to the annotated image frame, or None if no detections
     """
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-    full_frame_path = os.path.join(base_dir, frame_path)
 
-    if not os.path.exists(full_frame_path):
-        raise FileNotFoundError(f"Source frame file not found: {full_frame_path}")
+    # Determine if frame is loaded in memory or from disk path
+    if isinstance(frame_path_or_img, str):
+        full_frame_path = os.path.join(base_dir, frame_path_or_img)
+        if not os.path.exists(full_frame_path):
+            raise FileNotFoundError(f"Source frame file not found: {full_frame_path}")
+        img = cv2.imread(full_frame_path)
+        frame_filename = os.path.basename(frame_path_or_img)
+    else:
+        img = frame_path_or_img
+        frame_filename = f"frame_{frame_number:06d}.jpg" if frame_number is not None else "frame_000000.jpg"
+
+    if img is None:
+        raise ValueError("Image object is None.")
 
     # Lazily fetch model from model loader singleton
     model = ModelLoader().load_model()
-
-    # Read image from file for drawing bounding boxes
-    img = cv2.imread(full_frame_path)
-    if img is None:
-        raise ValueError(f"OpenCV failed to read image frame: {full_frame_path}")
 
     # Execute YOLO model prediction
     results = model(img)
@@ -100,8 +106,15 @@ def run_inference(frame_path: str, video_id: int) -> List[Dict[str, Any]]:
             continue
 
         class_name = map_class_id_to_name(cls_id)
-        severity = map_confidence_to_severity(conf)
         x1, y1, x2, y2 = xyxy
+        h, w = img.shape[:2]
+        severity, metrics = calculate_engineering_severity(
+            class_name=class_name,
+            box=[x1, y1, x2, y2],
+            frame_width=w,
+            frame_height=h,
+            confidence=conf
+        )
 
         # Ensure values are integer coordinates for OpenCV drawing functions
         ix1, iy1, ix2, iy2 = int(x1), int(y1), int(x2), int(y2)
@@ -120,11 +133,14 @@ def run_inference(frame_path: str, video_id: int) -> List[Dict[str, Any]]:
             "confidence": round(conf, 4),
             "severity": severity,
             "box": [round(c, 2) for c in xyxy],
-            "annotated_path": None  # Will fill in after saving image
+            "annotated_path": None,  # Will fill in after saving image
+            "damage_width_pixels": metrics["damage_width_pixels"],
+            "damage_height_pixels": metrics["damage_height_pixels"],
+            "damage_area_pixels": metrics["damage_area_pixels"],
+            "damage_percentage_of_frame": metrics["damage_percentage_of_frame"]
         })
 
     # Save the composite annotated image frame to disk
-    frame_filename = os.path.basename(frame_path)
     annotated_filename = f"annotated_{frame_filename}"
     annotated_filepath = os.path.join(detections_dir, annotated_filename)
     cv2.imwrite(annotated_filepath, img)

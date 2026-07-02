@@ -174,4 +174,14 @@ def remove_video(db: Session, video_id: int) -> UploadedVideo:
         else:
             logger.warning(f"Video file not found on disk during deletion: {full_path}")
 
+    # Delete processed annotated video file from disk
+    if getattr(video, "processed_filepath", None):
+        processed_full_path = os.path.join(BASE_DIR, video.processed_filepath)
+        if os.path.exists(processed_full_path):
+            try:
+                os.remove(processed_full_path)
+                logger.info(f"Successfully deleted processed video file from disk: {processed_full_path}")
+            except Exception as e:
+                logger.error(f"Failed to delete processed video file {processed_full_path} from disk: {e}")
+
     return video

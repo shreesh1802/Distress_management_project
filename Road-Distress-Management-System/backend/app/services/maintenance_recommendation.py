@@ -21,7 +21,8 @@ def recommend_maintenance(
     distress_type: str,
     severity: str,
     confidence: float,
-    frequency: int = 1
+    frequency: int = 1,
+    damage_percentage: float = None
 ) -> Dict[str, Any]:
     """
     Core algorithm of the Maintenance Recommendation Engine.
@@ -31,6 +32,7 @@ def recommend_maintenance(
         severity (str): Distress severity level (critical, high, medium, low)
         confidence (float): AI model confidence score (0.0 to 1.0)
         frequency (int): Number of duplicate/spatially near distresses in the vicinity
+        damage_percentage (float): Bounding box percentage area of the frame (optional)
         
     Outputs:
         Dict: Contains recommended_action, priority, estimated_response_time,
@@ -39,92 +41,83 @@ def recommend_maintenance(
     dtype = distress_type.lower()
     sev = severity.lower()
     
-    # 1. Base rule mappings by type and severity
+    # 1. Fallback / dynamic area estimation if not passed
+    if damage_percentage is None:
+        from app.services.ai.utils import estimate_damage_metrics
+        metrics = estimate_damage_metrics(severity, distress_type)
+        damage_percentage = metrics["damage_percentage_of_frame"]
+        
+    from app.core.pipeline_config import REHABILITATION_COST_CONFIG
+    
+    # Base category mapping
+    if sev == "critical":
+        category = "Emergency"
+    elif sev == "high":
+        category = "Structural"
+    elif sev == "medium":
+        category = "Preventative"
+    else:
+        category = "Routine"
+
+    # Action selection based on distress type and size
     if "pothole" in dtype:
-        if sev == "critical":
-            action = "Emergency Road Patching & Asphalt Filling"
-            category = "Emergency"
-            priority = "P1"
-            response_time = "within 24 hours"
-            cost = 75000
-        elif sev == "high":
-            action = "Structural Hot-Mix Asphalt Patching"
-            category = "Structural"
-            priority = "P2"
-            response_time = "within 7 days"
-            cost = 55000
-        elif sev == "medium":
-            action = "Preventative Cold-Mix Patching & Sealing"
-            category = "Preventative"
-            priority = "P3"
-            response_time = "within 30 days"
-            cost = 30000
+        if damage_percentage < 3.5:
+            action = "Preventative Cold-Mix Patch Repair"
         else:
-            action = "Routine Surface Monitoring & Minor Repair"
-            category = "Routine"
-            priority = "P4"
-            response_time = "routine next cycle"
-            cost = 15000
-            
+            action = "Full-Depth Patching & Hot-Mix Asphalt Filling"
     elif "crack" in dtype:
-        if sev in ["critical", "high"]:
-            action = "Structural Joint Crack Sealing & Routing"
-            category = "Structural"
-            priority = "P2"
-            response_time = "within 7 days"
-            cost = 120000
-        elif sev == "medium":
-            action = "Preventative Slurry Seal Crack Application"
-            category = "Preventative"
-            priority = "P3"
-            response_time = "within 30 days"
-            cost = 45000
-        else:
-            action = "Routine Surface Dressing & Inspection"
-            category = "Routine"
-            priority = "P4"
-            response_time = "routine next cycle"
-            cost = 20000
-
+        if "alligator" in dtype:
+            if damage_percentage >= 5.0:
+                action = "Structural Milling & Overlay Reconstruction"
+            else:
+                action = "Asphalt Patching & Base Joint Sealing"
+        else: # longitudinal or transverse
+            if damage_percentage < 5.0:
+                action = "Preventative Joint Crack Sealing"
+            else:
+                action = "Structural Milling & Overlay Repair"
     elif "rut" in dtype:
-        if sev in ["critical", "high"]:
+        if damage_percentage >= 5.0:
             action = "Structural Milling & Asphalt Overlay Replacement"
-            category = "Structural"
-            priority = "P2"
-            response_time = "within 7 days"
-            cost = 210000
-        elif sev == "medium":
-            action = "Preventative Micro-Surfacing Correction"
-            category = "Preventative"
-            priority = "P3"
-            response_time = "within 30 days"
-            cost = 90000
         else:
-            action = "Routine Leveling Treatment"
-            category = "Routine"
-            priority = "P4"
-            response_time = "routine next cycle"
-            cost = 40000
-
-    else:  # Raveling, Edge Break, or other distresses
+            action = "Micro-Surfacing Rut Fill Correction"
+    else: # Raveling, edge break, or others
         if sev in ["critical", "high"]:
-            action = "Structural Patching & Edge Rebuilding"
-            category = "Structural"
-            priority = "P2"
-            response_time = "within 7 days"
-            cost = 95000
-        elif sev == "medium":
-            action = "Preventative Seal Coat Re-surfacing"
-            category = "Preventative"
-            priority = "P3"
-            response_time = "within 30 days"
-            cost = 35000
+            action = "Structural Patching & Surface Dressing"
         else:
-            action = "Routine Maintenance Sweeping & Monitoring"
-            category = "Routine"
-            priority = "P4"
-            response_time = "routine next cycle"
-            cost = 10000
+            action = "Routine Surface Sweeping & Monitoring"
+
+    # Priority mapping P1 to P4 based on severity & area size
+    if sev == "critical" or (sev == "high" and damage_percentage >= 8.0):
+        priority = "P1"
+        response_time = "within 24 hours"
+        category = "Emergency"
+    elif sev == "high" or (sev == "medium" and damage_percentage >= 5.0):
+        priority = "P2"
+        response_time = "within 7 days"
+        category = "Structural"
+    elif sev == "medium":
+        priority = "P3"
+        response_time = "within 30 days"
+        category = "Preventative"
+    else:
+        priority = "P4"
+        response_time = "routine next cycle"
+        category = "Routine"
+
+    # Dynamic Cost Estimation (Task 5)
+    cost_cfg = REHABILITATION_COST_CONFIG.get(dtype, REHABILITATION_COST_CONFIG["default"])
+    if dtype not in REHABILITATION_COST_CONFIG:
+        for key in REHABILITATION_COST_CONFIG:
+            if key in dtype:
+                cost_cfg = REHABILITATION_COST_CONFIG[key]
+                break
+                
+    base = cost_cfg["base"]
+    multiplier = cost_cfg.get(f"multiplier_{sev}", 1.0)
+    area_factor = cost_cfg.get("cost_per_percentage_area", 10000)
+    
+    cost = int(base * multiplier + damage_percentage * area_factor)
 
     # 2. Intelligence: Escalation based on spatial recurrence frequency (cluster size)
     if frequency >= 3:
@@ -190,11 +183,16 @@ def generate_recommendations_for_pending_distresses(db: Session) -> List[Mainten
             frequency = calculate_spatial_frequency(db, distress)
             
             # 4. Generate recommendation
+            from app.services.ai.utils import estimate_damage_metrics
+            metrics = estimate_damage_metrics(distress.severity, distress.distress_type)
+            damage_percentage = metrics["damage_percentage_of_frame"]
+
             rec = recommend_maintenance(
                 distress_type=distress.distress_type,
                 severity=distress.severity,
                 confidence=distress.confidence_score,
-                frequency=frequency
+                frequency=frequency,
+                damage_percentage=damage_percentage
             )
             
             # 5. Compute due date based on response time

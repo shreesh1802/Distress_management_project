@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.crud.video import get_video
 from app.models.distress import RoadDistress
 from app.schemas.distress import RoadDistressResponse
-from app.services.ai.detection_service import process_video_pipeline
+from app.services.pipeline.pipeline_manager import process_video
 from app.services.ai.analytics_service import get_detection_analytics
 
 router = APIRouter()
@@ -33,14 +33,9 @@ def trigger_video_detection(
             detail=f"Video upload log with ID {video_id} not found."
         )
 
-    if db_video.processing_status == "processing":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Video with ID {video_id} is already being processed."
-        )
-
-    # Dispatch to FastAPI background runner threadpool
-    background_tasks.add_task(process_video_pipeline, video_id=video_id)
+    # Idempotent start: if not already running or completed, launch task
+    if db_video.processing_status not in ["processing", "completed"]:
+        background_tasks.add_task(process_video, video_id=video_id)
 
     return {
         "status": "processing",

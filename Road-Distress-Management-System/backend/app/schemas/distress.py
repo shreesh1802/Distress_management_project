@@ -23,6 +23,9 @@ class RoadDistressBase(BaseModel):
     video_timestamp: Optional[float] = Field(None, description="Timestamp offset in seconds within video")
     source_type: Optional[str] = Field("manual", max_length=50, description="Source: video, image, manual")
     detection_image_path: Optional[str] = Field(None, max_length=512, description="Path to bounding box detection image file")
+    first_frame: Optional[int] = Field(None, description="First frame number where distress was seen")
+    last_frame: Optional[int] = Field(None, description="Last frame number where distress was seen")
+    frames_visible: Optional[int] = Field(None, description="Total frames distress was visible")
 
 
 class RoadDistressCreate(RoadDistressBase):
@@ -54,5 +57,20 @@ class RoadDistressResponse(RoadDistressBase):
     detected_at: datetime
     created_at: datetime
     updated_at: datetime
+    video_timestamp_formatted: Optional[str] = None
+    tracking_id: Optional[int] = None
+    box_width: Optional[float] = None
+    box_height: Optional[float] = None
+    box_area: Optional[float] = None
+    crack_length: Optional[float] = None
+    pothole_diameter: Optional[float] = None
+    affected_area: Optional[float] = None
+    first_frame: Optional[int] = None
+    last_frame: Optional[int] = None
+    first_timestamp: Optional[float] = None
+    last_timestamp: Optional[float] = None
+    detection_count: Optional[int] = None
+    frames_visible: Optional[int] = None
+    damage_percentage_of_frame: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)

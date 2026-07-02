@@ -10,18 +10,19 @@ from typing import List, Dict, Any
 logger = logging.getLogger(__name__)
 
 
-def extract_frames(video_path: str, video_id: int, frame_interval: int = 30) -> List[Dict[str, Any]]:
+def extract_frames(video_path: str, video_id: int, frame_interval: int = 30, in_memory: bool = False) -> List[Dict[str, Any]]:
     """
-    OpenCV frame extractor. Reads a video file and saves every Nth frame to disk.
+    OpenCV frame extractor. Reads a video file and saves every Nth frame to disk, or keeps them in memory.
     
     Args:
         video_path (str): Relative or absolute path to the video file.
         video_id (int): Database ID of the video record (used in folder pathing).
         frame_interval (int): Capture interval count (e.g. 30 extracts every 30th frame).
+        in_memory (bool): If True, returns image array directly in frame_path without writing to disk.
 
     Returns:
         List[Dict[str, Any]]: List of dicts representing extracted frames:
-            - 'frame_path': path relative to backend root directory
+            - 'frame_path': path relative to backend root directory (or numpy array if in_memory=True)
             - 'frame_number': index integer of the frame
             - 'timestamp': timestamp offset in seconds from start of video
     """
@@ -29,7 +30,8 @@ def extract_frames(video_path: str, video_id: int, frame_interval: int = 30) -> 
     
     # Target frame storage directory
     frames_dir = os.path.join(base_dir, "uploads", "frames", str(video_id))
-    os.makedirs(frames_dir, exist_ok=True)
+    if not in_memory:
+        os.makedirs(frames_dir, exist_ok=True)
 
     # Determine absolute path to video file
     full_video_path = os.path.join(base_dir, video_path)
@@ -60,18 +62,20 @@ def extract_frames(video_path: str, video_id: int, frame_interval: int = 30) -> 
                 break
 
             if frame_count % frame_interval == 0:
-                frame_filename = f"frame_{frame_count:06d}.jpg"
-                frame_filepath = os.path.join(frames_dir, frame_filename)
-                
-                # Write frame to disk
-                cv2.imwrite(frame_filepath, frame)
+                if in_memory:
+                    frame_data = frame.copy()
+                else:
+                    frame_filename = f"frame_{frame_count:06d}.jpg"
+                    frame_filepath = os.path.join(frames_dir, frame_filename)
+                    # Write frame to disk
+                    cv2.imwrite(frame_filepath, frame)
+                    # Store relative filepath for backend schema updates
+                    frame_data = os.path.relpath(frame_filepath, base_dir).replace("\\", "/")
 
-                # Store relative filepath for backend schema updates
-                relative_path = os.path.relpath(frame_filepath, base_dir).replace("\\", "/")
                 timestamp = round(frame_count / fps, 3)
 
                 extracted_frames.append({
-                    "frame_path": relative_path,
+                    "frame_path": frame_data,
                     "frame_number": frame_count,
                     "timestamp": timestamp
                 })

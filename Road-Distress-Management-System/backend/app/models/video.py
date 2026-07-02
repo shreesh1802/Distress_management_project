@@ -42,6 +42,8 @@ class UploadedVideo(Base):
     processing_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     processing_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     processing_duration: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    processed_filepath: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    processed_video_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
     uploader_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), 

@@ -203,6 +203,15 @@ def generate_video_excel_report(db: Session, video_id: int) -> str:
         "Distress ID", "Distress Type", "Severity", "Confidence Score",
         "Latitude", "Longitude", "Video Timestamp (s)", "Frame Number", "Prescribed Recommendation"
     ]
+    has_tracking = len(distresses) > 0 and any(
+        getattr(d, "tracking_id", None) is not None or
+        getattr(d, "first_frame", None) is not None or
+        getattr(d, "last_frame", None) is not None or
+        getattr(d, "frames_visible", None) is not None
+        for d in distresses
+    )
+    if has_tracking:
+        rec_headers.extend(["Tracking ID", "First Frame", "Last Frame", "Frames Visible"])
     
     # Headers formatting
     for col_idx, text in enumerate(rec_headers):
@@ -245,6 +254,12 @@ def generate_video_excel_report(db: Session, video_id: int) -> str:
         f_cell.alignment = Alignment(horizontal="right")
         
         ws2.cell(row=r, column=9, value=rec_text).alignment = Alignment(horizontal="left")
+        
+        if has_tracking:
+            ws2.cell(row=r, column=10, value=getattr(d, "tracking_id", None)).alignment = Alignment(horizontal="center")
+            ws2.cell(row=r, column=11, value=getattr(d, "first_frame", None)).alignment = Alignment(horizontal="right")
+            ws2.cell(row=r, column=12, value=getattr(d, "last_frame", None)).alignment = Alignment(horizontal="right")
+            ws2.cell(row=r, column=13, value=getattr(d, "frames_visible", None)).alignment = Alignment(horizontal="right")
         
         # Zebra striping & borders
         for c in range(1, len(rec_headers) + 1):

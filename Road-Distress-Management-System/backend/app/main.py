@@ -49,14 +49,28 @@ logger = logging.getLogger(__name__)
 @app.on_event("startup")
 def startup_event() -> None:
     """
-    FastAPI startup hook to validate connection to PostgreSQL.
+    FastAPI startup hook to validate connection to PostgreSQL and auto-run dynamic migrations.
     """
     logger.info("Validating database connection on startup...")
     try:
         db = SessionLocal()
         db.execute(text("SELECT 1"))
-        db.close()
         logger.info("Database connection validated successfully.")
+        
+        # Self-healing migration for processed_filepath column
+        try:
+            db.execute(text("SELECT processed_filepath FROM uploaded_videos LIMIT 1"))
+            logger.info("Database Schema Check: processed_filepath column already exists.")
+        except Exception:
+            db.rollback()
+            try:
+                db.execute(text("ALTER TABLE uploaded_videos ADD COLUMN processed_filepath VARCHAR(512)"))
+                db.commit()
+                logger.info("Database Schema Migration: Added processed_filepath column to uploaded_videos table.")
+            except Exception as alt_err:
+                logger.warning(f"ALTER TABLE query for processed_filepath failed: {alt_err}")
+                
+        db.close()
     except Exception as e:
         logger.critical(f"Database connection validation failed: {e}")
 

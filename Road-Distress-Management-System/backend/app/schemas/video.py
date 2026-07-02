@@ -19,6 +19,8 @@ class UploadedVideoBase(BaseModel):
     processing_started_at: Optional[datetime] = Field(None, description="Start timestamp of video AI pipeline")
     processing_completed_at: Optional[datetime] = Field(None, description="End timestamp of video AI pipeline")
     processing_duration: Optional[float] = Field(None, description="Duration in seconds of video AI pipeline")
+    processed_filepath: Optional[str] = Field(None, max_length=512, description="Physical path of the generated processed annotated video file")
+    processed_video_path: Optional[str] = Field(None, max_length=512, description="Physical path of the final annotated MP4 video file")
 
 
 class UploadedVideoCreate(UploadedVideoBase):
@@ -39,6 +41,8 @@ class UploadedVideoUpdate(BaseModel):
     processing_started_at: Optional[datetime] = None
     processing_completed_at: Optional[datetime] = None
     processing_duration: Optional[float] = None
+    processed_filepath: Optional[str] = Field(None, max_length=512)
+    processed_video_path: Optional[str] = Field(None, max_length=512)
 
 
 class UploadedVideoResponse(UploadedVideoBase):
@@ -91,6 +95,8 @@ class LegacyUploadedVideoResponse(BaseModel):
     processing_started_at: Optional[datetime] = None
     processing_completed_at: Optional[datetime] = None
     processing_duration: Optional[float] = None
+    processed_filepath: Optional[str] = None
+    processed_video_path: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
