@@ -15,6 +15,8 @@ import UploadVideo from "../pages/UploadVideo/UploadVideo";
 import RoadDistresses from "../pages/RoadDistresses/RoadDistresses";
 import History from "../pages/History/History";
 import Notifications from "../pages/Notifications/Notifications";
+import LiveProcessingDashboard from "../pages/LiveProcessing/LiveProcessingDashboard";
+import VideoReview from "../pages/VideoReview/VideoReview";
 
 export default function AppRoutes() {
   return (
@@ -24,9 +26,12 @@ export default function AppRoutes() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/live-monitoring" element={<LiveMonitoring />} />
+          <Route path="/live-processing" element={<LiveProcessingDashboard />} />
           <Route path="/upload-video" element={<UploadVideo />} />
           <Route path="/gis-map" element={<GISMap />} />
           <Route path="/road-distresses" element={<RoadDistresses />} />
+          <Route path="/video-review" element={<VideoReview />} />
+          <Route path="/video-review/:id" element={<VideoReview />} />
           <Route path="/maintenance" element={<Maintenance />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/analytics" element={<Analytics />} />

@@ -23,17 +23,17 @@ import {
 import './MaintenanceDashboard.css';
 
 const STATUS_COLORS: Record<string, string> = {
-  Pending: '#818CF8',
-  Assigned: '#3B82F6',
-  'In Progress': '#F59E0B',
-  Completed: '#10B981',
+  Pending: '#6B88C7',
+  Assigned: '#6B88C7',
+  'In Progress': '#D6A23A',
+  Completed: '#8FA06A',
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  Critical: '#EF4444',
-  High: '#F97316',
-  Medium: '#FACC15',
-  Low: '#3B82F6',
+  Critical: '#C45C45',
+  High: '#C87B35',
+  Medium: '#D6A23A',
+  Low: '#6B88C7',
 };
 
 function formatCost(amount: number): string {

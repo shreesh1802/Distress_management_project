@@ -1,38 +1,38 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 :root {
-  /* Master Color Palette - Light enterprise theme */
-  --primary-bg: #F8F8F5; /* Background */
+  /* Master Color Palette - Warm Ivory enterprise theme */
+  --primary-bg: #F7F5EF; /* Background */
   --card-bg: #FFFFFF;    /* Cards */
-  --card-border: #E7E7E5; /* Borders */
+  --card-border: #E8E4DA; /* Borders */
   
-  /* Sidebar Variables - Pure White Theme */
-  --sidebar-bg: #FFFFFF;
-  --sidebar-selected: #F3F4F6;
-  --sidebar-hover: #F9FAFB;
-  --sidebar-text: #1F2937;
-  --sidebar-text-secondary: #4B5563;
+  /* Sidebar Variables - Warm Olive Green Theme */
+  --sidebar-bg: #3E4331;
+  --sidebar-selected: #808565;
+  --sidebar-hover: #565E47;
+  --sidebar-text: #ECE9DD;
+  --sidebar-text-secondary: #C9C7BA;
   
-  --primary-text: #1F2937;
-  --secondary-text: #6B7280;
+  --primary-text: #4B4B4B;
+  --secondary-text: #9A998F;
   
-  --accent-blue: #3B82F6; /* Info */
-  --accent-blue-hover: #2563EB;
-  --accent-blue-light: rgba(59, 130, 246, 0.08);
+  --accent-blue: #6B88C7; /* Info */
+  --accent-blue-hover: #5A77B6;
+  --accent-blue-light: rgba(107, 136, 199, 0.08);
   
-  --success: #4CAF50;
-  --success-light: rgba(76, 175, 80, 0.08);
+  --success: #8FA06A;
+  --success-light: rgba(143, 160, 106, 0.08);
   
-  --warning: #F59E0B;
-  --warning-light: rgba(245, 158, 11, 0.08);
+  --warning: #D6A23A;
+  --warning-light: rgba(214, 162, 58, 0.08);
   
-  --danger: #EF4444;
-  --danger-light: rgba(239, 68, 68, 0.08);
+  --danger: #C45C45;
+  --danger-light: rgba(196, 92, 69, 0.08);
   
-  --info: #3B82F6;
+  --info: #6B88C7;
   
   /* Proportions, Shadows and Radii */
-  --shadow: 0 8px 30px rgba(0,0,0,.04);
+  --shadow: 0 8px 24px rgba(0,0,0,0.06);
   --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.02);
   --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.06);
   
@@ -149,18 +149,22 @@ input, select, textarea {
   font-family: var(--font-sans);
   font-size: 16px;
   color: var(--primary-text);
-  background-color: var(--primary-bg);
-  border: 1px solid var(--card-border);
+  background-color: #FFFFFF;
+  border: 1px solid #DDD8CC;
   border-radius: var(--radius-md);
   padding: 8px 14px;
   outline: none;
   transition: all var(--transition-fast);
 }
 
+input::placeholder {
+  color: #9A998F;
+}
+
 input:focus, select:focus, textarea:focus {
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
-  background-color: var(--card-bg);
+  border-color: #808565;
+  box-shadow: 0 0 0 3px rgba(128, 133, 101, 0.15);
+  background-color: #FFFFFF;
 }
 
 button {
@@ -194,7 +198,7 @@ button:hover {
 
 .premium-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
 }
 
 /* Fade animation preset */
@@ -225,5 +229,68 @@ button:hover {
   text-transform: uppercase;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
+}
+
+/* Global Recolor Button Presets */
+.settings-btn--primary,
+.start-monitoring-btn,
+.history-btn--primary,
+.btn-primary,
+.btn-report-run,
+.btn-control--capture {
+  background-color: #6C7354 !important;
+  color: #FFFFFF !important;
+}
+
+.settings-btn--primary:hover,
+.start-monitoring-btn:hover,
+.history-btn--primary:hover,
+.btn-primary:hover,
+.btn-report-run:hover,
+.btn-control--capture:hover {
+  background-color: #7A8160 !important;
+}
+
+.settings-btn--secondary,
+.upload-feed-btn,
+.history-btn--secondary,
+.btn-secondary,
+.btn-control:not(.btn-control--capture):not(.btn-report-run) {
+  background-color: #F1EEE5 !important;
+  color: #444444 !important;
+  border: 1px solid #DDD8CC !important;
+}
+
+.settings-btn--secondary:hover,
+.upload-feed-btn:hover,
+.history-btn--secondary:hover,
+.btn-secondary:hover,
+.btn-control:not(.btn-control--capture):not(.btn-report-run):hover {
+  background-color: #ECE8DC !important;
+}
+
+/* Table Overrides */
+.history-data-table th,
+.live-mon-history-table th,
+.notifications-data-table th,
+table th {
+  background-color: #FAF8F2 !important;
+  color: #4B4B4B !important;
+  border-bottom: 1px solid #ECE8DF !important;
+}
+
+.history-data-table td,
+.live-mon-history-table td,
+.notifications-data-table td,
+table td {
+  background-color: #FFFFFF !important;
+  border-bottom: 1px solid #ECE8DF !important;
+  color: var(--primary-text) !important;
+}
+
+.history-data-table tbody tr:hover td,
+.live-mon-history-table tbody tr:hover td,
+table tbody tr:hover td {
+  background-color: #F6F5F0 !important;
 }
 

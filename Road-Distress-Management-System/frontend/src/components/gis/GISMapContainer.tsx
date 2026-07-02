@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import { Map, Layers, ZoomIn, ZoomOut, Compass, X, ShieldAlert } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { Map, Layers, ZoomIn, ZoomOut, Compass, X, ShieldAlert, Maximize, Minimize } from 'lucide-react';
 import type { RoadDistress } from '../../types/gis';
 import './GISMapContainer.css';
+import LeafletMap from './LeafletMap';
+import L from 'leaflet';
 
 interface GISMapContainerProps {
   distresses: RoadDistress[];
@@ -16,30 +18,107 @@ export default function GISMapContainer({
   onSelect,
   isLoading = false,
 }: GISMapContainerProps) {
-  const [zoom, setZoom] = useState<number>(1.0);
-  const [hoveredDistress, setHoveredDistress] = useState<RoadDistress | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const [zoomLevel, setZoomLevel] = useState<number>(5);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  
+  // Custom interactive overlay states
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [selectedSeverities, setSelectedSeverities] = useState<string[]>(['critical', 'high', 'medium', 'low']);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(['pothole', 'crack', 'rutting', 'edge_break', 'patch', 'raveling']);
+  const [mouseCoords, setMouseCoords] = useState<[number, number] | null>(null);
+  const [mapCenter, setMapCenter] = useState<[number, number]>([18.75, 73.40]);
 
-  // Zoom controls (bound between 0.8x and 2.0x)
+  // Sync center coordinates on map panning
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (mapRef.current) {
+        const center = mapRef.current.getCenter();
+        setMapCenter([center.lat, center.lng]);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Filter markers list dynamically on client side
+  const displayDistresses = useMemo(() => {
+    return distresses.filter((d) => {
+      // 1. Severity check
+      if (!selectedSeverities.includes(d.severity.toLowerCase())) return false;
+
+      // 2. Type check
+      let mappedType = d.distressType.toLowerCase();
+      if (mappedType.includes('pothole')) mappedType = 'pothole';
+      else if (mappedType.includes('crack')) mappedType = 'crack';
+      else if (mappedType.includes('rutting')) mappedType = 'rutting';
+      else if (mappedType.includes('edge')) mappedType = 'edge_break';
+      else if (mappedType.includes('patch')) mappedType = 'patch';
+      
+      const matchesType = selectedTypes.some(t => mappedType.includes(t));
+      if (!matchesType) return false;
+
+      // 3. Search query match
+      if (searchQuery.trim() !== '') {
+        const query = searchQuery.toLowerCase().trim();
+        const matchesId = d.id.toLowerCase().includes(query);
+        const matchesTypeLabel = d.distressType.toLowerCase().includes(query);
+        const matchesLat = d.coordinates[0].toString().includes(query);
+        const matchesLon = d.coordinates[1].toString().includes(query);
+        return matchesId || matchesTypeLabel || matchesLat || matchesLon;
+      }
+
+      return true;
+    });
+  }, [distresses, searchQuery, selectedSeverities, selectedTypes]);
+
+  // Calculate local health score of filtered section
+  const localHealthScore = useMemo(() => {
+    const penalty = displayDistresses.reduce((sum: number, d: RoadDistress) => {
+      const w = d.severity === 'critical' ? 5.0 : d.severity === 'high' ? 3.0 : d.severity === 'medium' ? 1.5 : 0.5;
+      return sum + w;
+    }, 0);
+    return Math.max(0, 100 - penalty);
+  }, [displayDistresses]);
+
+  // Sync fullscreen state based on document event
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = () => {
+    const element = document.querySelector('.gis-map-container__canvas-wrapper');
+    if (!element) return;
+    if (!document.fullscreenElement) {
+      element.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  };
+
+  // Zoom controls linking to Leaflet map instance
   const handleZoomIn = () => {
-    setZoom((prev) => Math.min(2.0, Number((prev + 0.2).toFixed(1))));
+    if (mapRef.current) {
+      mapRef.current.zoomIn();
+    }
   };
 
   const handleZoomOut = () => {
-    setZoom((prev) => Math.max(0.8, Number((prev - 0.2).toFixed(1))));
+    if (mapRef.current) {
+      mapRef.current.zoomOut();
+    }
   };
 
-  // Projected coordinate helper updated to cover India coordinates (Lat 8.0 - 30.0, Lng 68.0 - 88.0)
-  const projectCoordinates = (coords: [number, number]): { x: number; y: number } => {
-    const [lat, lng] = coords;
-    const minLat = 8.0;
-    const maxLat = 30.0;
-    const minLng = 68.0;
-    const maxLng = 88.0;
-
-    const x = ((lng - minLng) / (maxLng - minLng)) * 660 + 70;
-    const y = 450 - ((lat - minLat) / (maxLat - minLat)) * 310 - 70;
-
-    return { x, y };
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (displayDistresses.length > 0) {
+      onSelect(displayDistresses[0]);
+    }
   };
 
   const getSeverityColor = (severity: string) => {
@@ -51,7 +130,7 @@ export default function GISMapContainer({
       case 'medium':
         return '#eab308'; // Yellow
       case 'low':
-        return '#3b82f6'; // Blue
+        return '#22c55e'; // Green
       default:
         return '#a855f7';
     }
@@ -62,8 +141,8 @@ export default function GISMapContainer({
   };
 
   // Calculate counts for Active Filter Summary Bar
-  const summaryCounts = distresses.reduce(
-    (acc, d) => {
+  const summaryCounts = displayDistresses.reduce(
+    (acc: any, d: RoadDistress) => {
       acc.total += 1;
       if (d.severity in acc.severities) {
         acc.severities[d.severity as keyof typeof acc.severities] += 1;
@@ -93,17 +172,25 @@ export default function GISMapContainer({
         </div>
         <div className="gis-map-container__actions">
           <span className="gis-map-container__zoom-level">
-            Zoom: {Math.round(zoom * 100)}%
+            Zoom: {zoomLevel}
           </span>
           <button className="gis-map-container__action-btn" title="Map Layers" type="button">
             <Layers size={16} />
           </button>
           <button
             className="gis-map-container__action-btn"
+            title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+            type="button"
+            onClick={toggleFullscreen}
+          >
+            {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+          </button>
+          <button
+            className="gis-map-container__action-btn"
             title="Zoom In"
             type="button"
             onClick={handleZoomIn}
-            disabled={zoom >= 2.0 || isLoading}
+            disabled={zoomLevel >= 18 || isLoading}
           >
             <ZoomIn size={16} />
           </button>
@@ -112,12 +199,38 @@ export default function GISMapContainer({
             title="Zoom Out"
             type="button"
             onClick={handleZoomOut}
-            disabled={zoom <= 0.8 || isLoading}
+            disabled={zoomLevel <= 3 || isLoading}
           >
             <ZoomOut size={16} />
           </button>
         </div>
       </header>
+
+      {/* KPI Strip */}
+      <div className="gis-map-container__kpi-strip">
+        <div className="gis-map-container__kpi-card">
+          <span className="gis-map-container__kpi-lbl">Vehicles</span>
+          <strong className="gis-map-container__kpi-val">1 Active</strong>
+        </div>
+        <div className="gis-map-container__kpi-card">
+          <span className="gis-map-container__kpi-lbl">Active Distresses</span>
+          <strong className="gis-map-container__kpi-val">{isLoading ? '...' : distresses.length}</strong>
+        </div>
+        <div className="gis-map-container__kpi-card gis-map-container__kpi-card--critical">
+          <span className="gis-map-container__kpi-lbl">Critical Alerts</span>
+          <strong className="gis-map-container__kpi-val">
+            {isLoading ? '...' : distresses.filter((d) => d.severity === 'critical').length}
+          </strong>
+        </div>
+        <div className="gis-map-container__kpi-card">
+          <span className="gis-map-container__kpi-lbl">Surveyed Today</span>
+          <strong className="gis-map-container__kpi-val">412.8 km</strong>
+        </div>
+        <div className="gis-map-container__kpi-card gis-map-container__kpi-card--accuracy">
+          <span className="gis-map-container__kpi-lbl">AI Accuracy</span>
+          <strong className="gis-map-container__kpi-val">94.6%</strong>
+        </div>
+      </div>
 
       {/* Active Filter Summary Bar */}
       <div className="gis-map-container__filter-summary">
@@ -162,231 +275,98 @@ export default function GISMapContainer({
           </div>
         )}
 
-        {/* Modern Stylized SVG Mock Map */}
-        <svg
-          className={`gis-map-container__canvas ${isLoading ? 'gis-map-container__canvas--loading' : ''}`}
-          viewBox="0 0 800 450"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            {/* Grid Pattern */}
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path
-                d="M 40 0 L 0 0 0 40"
-                fill="none"
-                stroke="rgba(148, 163, 184, 0.04)"
-                strokeWidth="1"
+        {/* Floating Search & Filter Toolbox */}
+        {!isLoading && (
+          <div className="gis-map-container__toolbox" style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 10, background: 'rgba(15, 23, 42, 0.95)', border: '1px solid var(--card-border)', borderRadius: '8px', padding: '12px', width: '280px', display: 'flex', flexDirection: 'column', gap: '10px', color: 'var(--primary-text)', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+            <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '6px' }}>
+              <input 
+                type="text" 
+                placeholder="Search ID, Type, GPS..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ flex: 1, padding: '5px 8px', fontSize: '11px', background: 'var(--body-bg)', border: '1px solid var(--card-border)', borderRadius: '4px', color: 'var(--primary-text)' }}
               />
-            </pattern>
-            {/* Glow Filter for Selected Marker */}
-            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="6" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-          </defs>
+              <button type="submit" style={{ padding: '5px 10px', background: 'var(--primary-text)', color: 'white', border: 'none', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}>Go</button>
+            </form>
 
-          {/* Grid Background */}
-          <rect width="100%" height="100%" fill="url(#grid)" />
-
-          {/* Map Content scaled dynamically based on internal Zoom State */}
-          <g
-            transform={`scale(${zoom})`}
-            style={{
-              transformOrigin: '400px 225px',
-              transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-          >
-            {/* Stylized Topography/Borders */}
-            <path
-              d="M 50 100 Q 200 80 400 120 T 750 90"
-              fill="none"
-              stroke="rgba(148, 163, 184, 0.08)"
-              strokeWidth="2"
-              strokeDasharray="4 8"
-            />
-            <path
-              d="M 100 380 Q 250 340 450 390 T 700 350"
-              fill="none"
-              stroke="rgba(148, 163, 184, 0.08)"
-              strokeWidth="2"
-              strokeDasharray="4 8"
-            />
-            <path
-              d="M 120 50 Q 80 200 150 350 T 200 420"
-              fill="none"
-              stroke="rgba(148, 163, 184, 0.08)"
-              strokeWidth="2"
-              strokeDasharray="4 8"
-            />
-
-            {/* Major Roads */}
-            <g className="gis-map-container__roads">
-              {/* NH-48 */}
-              <path
-                d="M 50 200 C 200 180, 300 280, 500 240 S 650 160, 750 180"
-                fill="none"
-                stroke="rgba(148, 163, 184, 0.15)"
-                strokeWidth="6"
-                strokeLinecap="round"
-              />
-              <path
-                d="M 50 200 C 200 180, 300 280, 500 240 S 650 160, 750 180"
-                fill="none"
-                stroke="#0f172a"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeDasharray="5 5"
-              />
-
-              {/* SH-17 */}
-              <path
-                d="M 150 50 L 650 400"
-                fill="none"
-                stroke="rgba(148, 163, 184, 0.12)"
-                strokeWidth="4"
-                strokeLinecap="round"
-              />
-
-              {/* NH-4 */}
-              <path
-                d="M 600 80 Q 550 200 620 380"
-                fill="none"
-                stroke="rgba(148, 163, 184, 0.12)"
-                strokeWidth="4"
-                strokeLinecap="round"
-              />
-            </g>
-
-            {/* Stylized Road Labels / shields */}
-            <g className="gis-map-container__road-labels">
-              {/* NH-48 Shield */}
-              <rect x="75" y="172" width="40" height="16" rx="4" fill="#1e293b" stroke="rgba(148, 163, 184, 0.3)" strokeWidth="1" />
-              <text x="95" y="184" fill="#cbd5e1" fontSize="9" fontWeight="bold" textAnchor="middle">
-                NH-48
-              </text>
-
-              {/* SH-17 Label */}
-              <rect x="545" y="325" width="40" height="16" rx="4" fill="#1e293b" stroke="rgba(148, 163, 184, 0.3)" strokeWidth="1" transform="rotate(30 565 333)" />
-              <text x="565" y="337" fill="#cbd5e1" fontSize="9" fontWeight="bold" textAnchor="middle" transform="rotate(30 565 337)">
-                SH-17
-              </text>
-
-              {/* NH-4 Shield */}
-              <rect x="555" y="222" width="36" height="16" rx="4" fill="#1e293b" stroke="rgba(148, 163, 184, 0.3)" strokeWidth="1" />
-              <text x="573" y="234" fill="#cbd5e1" fontSize="9" fontWeight="bold" textAnchor="middle">
-                NH-4
-              </text>
-            </g>
-
-            {/* Distress Markers (hidden while loading) */}
-            {!isLoading && (
-              <g className="gis-map-container__markers">
-                {distresses.map((distress) => {
-                  const { x, y } = projectCoordinates(distress.coordinates);
-                  const color = getSeverityColor(distress.severity);
-                  const isSelected = selectedDistress?.id === distress.id;
-                  const isCritical = distress.severity === 'critical';
-                  const isHigh = distress.severity === 'high';
-
-                  // Assign different pulse speeds based on severity
-                  let pulseClass = '';
-                  if (isCritical) {
-                    pulseClass = 'gis-map-container__pulse-ring--critical';
-                  } else if (isHigh) {
-                    pulseClass = 'gis-map-container__pulse-ring--high';
-                  }
-
-                  return (
-                    <g
-                      key={distress.id}
-                      className={`gis-map-container__marker-group ${
-                        isSelected ? 'gis-map-container__marker-group--selected' : ''
-                      }`}
-                      onClick={() => onSelect(distress)}
-                      onMouseEnter={() => setHoveredDistress(distress)}
-                      onMouseLeave={() => setHoveredDistress(null)}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      {/* Selected Outer Ring */}
-                      {isSelected && (
-                        <circle
-                          cx={x}
-                          cy={y}
-                          r="16"
-                          fill="none"
-                          stroke={color}
-                          strokeWidth="2"
-                          opacity="0.6"
-                          className="gis-map-container__ping-ring"
-                        />
-                      )}
-
-                      {/* Marker Pulse Ring */}
-                      <circle
-                        cx={x}
-                        cy={y}
-                        r={isSelected ? '10' : '6'}
-                        fill={color}
-                        opacity={isSelected ? '0.3' : '0.15'}
-                        className={`gis-map-container__pulse-ring ${pulseClass}`}
-                      />
-
-                      {/* Marker Center */}
-                      <circle
-                        cx={x}
-                        cy={y}
-                        r={isSelected ? '6' : '4'}
-                        fill={color}
-                        stroke="#0f172a"
-                        strokeWidth="1.5"
-                        filter={isSelected ? 'url(#glow)' : undefined}
-                      />
-                    </g>
-                  );
-                })}
-              </g>
-            )}
-          </g>
-        </svg>
-
-        {/* Hover Tooltip Overlay (only active when not loading) */}
-        {!isLoading && hoveredDistress && (() => {
-          const { x, y } = projectCoordinates(hoveredDistress.coordinates);
-          const scaleX = (x - 400) * zoom + 400;
-          const scaleY = (y - 225) * zoom + 225;
-
-          const pctLeft = (scaleX / 800) * 100;
-          const pctTop = (scaleY / 450) * 100;
-
-          return (
-            <div
-              className="gis-map-container__tooltip"
-              style={{
-                left: `${pctLeft}%`,
-                top: `${pctTop}%`,
-              }}
-            >
-              <div className="gis-map-container__tooltip-row">
-                <span className="gis-map-container__tooltip-id">{hoveredDistress.id}</span>
-                <span
-                  className="gis-map-container__tooltip-severity"
-                  style={{ color: getSeverityColor(hoveredDistress.severity) }}
-                >
-                  {hoveredDistress.severity.toUpperCase()}
-                </span>
+            <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: '8px' }}>
+              <h4 style={{ fontSize: '11px', fontWeight: 700, margin: '0 0 6px 0', textTransform: 'uppercase', color: 'var(--secondary-text)' }}>Severity Filter</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px' }}>
+                {['critical', 'high', 'medium', 'low'].map(sev => (
+                  <label key={sev} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={selectedSeverities.includes(sev)}
+                      onChange={() => {
+                        setSelectedSeverities(prev => 
+                          prev.includes(sev) ? prev.filter(s => s !== sev) : [...prev, sev]
+                        );
+                      }}
+                    />
+                    <span style={{ color: getSeverityColor(sev), fontWeight: 'bold' }}>{sev.toUpperCase()}</span>
+                  </label>
+                ))}
               </div>
-              <div className="gis-map-container__tooltip-row">
-                <span className="gis-map-container__tooltip-type">
-                  {formatDistressType(hoveredDistress.distressType)}
-                </span>
-                <span className="gis-map-container__tooltip-conf">
-                  {hoveredDistress.confidence}% Conf.
-                </span>
-              </div>
-              <div className="gis-map-container__tooltip-arrow" />
             </div>
-          );
-        })()}
+
+            <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: '8px' }}>
+              <h4 style={{ fontSize: '11px', fontWeight: 700, margin: '0 0 6px 0', textTransform: 'uppercase', color: 'var(--secondary-text)' }}>Distress Type Filter</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '4px' }}>
+                {['pothole', 'crack', 'rutting', 'edge_break', 'patch'].map(type => (
+                  <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={selectedTypes.includes(type)}
+                      onChange={() => {
+                        setSelectedTypes(prev => 
+                          prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+                        );
+                      }}
+                    />
+                    <span>{type.replace('_', ' ').charAt(0).toUpperCase() + type.replace('_', ' ').slice(1)}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* GPS Telemetry HUD */}
+        {!isLoading && (
+          <div className="gis-map-container__gps-card" style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 10, background: 'rgba(15, 23, 42, 0.95)', border: '1px solid var(--card-border)', borderRadius: '8px', padding: '10px 12px', width: '220px', display: 'flex', flexDirection: 'column', gap: '4px', color: 'var(--primary-text)', fontSize: '11px', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+            <h4 style={{ fontSize: '11px', fontWeight: 700, margin: '0 0 6px 0', textTransform: 'uppercase', color: '#10b981', borderBottom: '1px solid var(--card-border)', paddingBottom: '4px' }}>GPS Telemetry HUD</h4>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--secondary-text)' }}>Center Lat:</span>
+              <span className="font-mono">{mapCenter[0].toFixed(5)}°</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--secondary-text)' }}>Center Lon:</span>
+              <span className="font-mono">{mapCenter[1].toFixed(5)}°</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--secondary-text)' }}>Total Detections:</span>
+              <span className="font-mono font-bold">{distresses.length}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--secondary-text)' }}>Visible Detections:</span>
+              <span className="font-mono font-bold text-blue" style={{ color: 'var(--accent-blue)' }}>{displayDistresses.length}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--secondary-text)' }}>Section Health:</span>
+              <span className="font-mono font-bold text-amber" style={{ color: '#f59e0b' }}>{localHealthScore}%</span>
+            </div>
+          </div>
+        )}
+
+        {/* React Leaflet Map */}
+        <LeafletMap
+          distresses={displayDistresses}
+          selectedDistress={selectedDistress}
+          onSelect={onSelect}
+          mapRef={mapRef}
+          onZoomChange={setZoomLevel}
+          onMouseMoveCoords={setMouseCoords}
+        />
 
         {/* Floating Compass */}
         <div className="gis-map-container__compass">
@@ -396,7 +376,7 @@ export default function GISMapContainer({
         {/* Marker Count Badge (Top-Right of Map) */}
         {!isLoading && (
           <div className="gis-map-container__count-badge">
-            <span className="gis-map-container__count-badge-val">{distresses.length}</span>
+            <span className="gis-map-container__count-badge-val">{displayDistresses.length}</span>
             <span className="gis-map-container__count-badge-lbl">Visible</span>
           </div>
         )}
@@ -462,7 +442,7 @@ export default function GISMapContainer({
         )}
 
         {/* Centered Placeholder Text (Only overlay when map has no items and not loading) */}
-        {!isLoading && distresses.length === 0 && (
+        {!isLoading && displayDistresses.length === 0 && (
           <div className="gis-map-container__overlay" aria-hidden="true">
             <p className="gis-map-container__placeholder-text">
               Interactive GIS Map will be displayed here
@@ -475,9 +455,13 @@ export default function GISMapContainer({
       </div>
 
       {/* Footer / Legends */}
-      <footer className="gis-map-container__footer">
+      <footer className="gis-map-container__footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="gis-map-container__legend">
           <span className="gis-map-container__legend-title">Legend:</span>
+          <div className="gis-map-container__legend-item">
+            <span className="gis-map-container__legend-icon gis-map-container__legend-icon--vehicle" />
+            <span>Vehicle</span>
+          </div>
           <div className="gis-map-container__legend-item">
             <span className="gis-map-container__legend-dot gis-map-container__legend-dot--critical" />
             <span>Critical</span>
@@ -494,8 +478,17 @@ export default function GISMapContainer({
             <span className="gis-map-container__legend-dot gis-map-container__legend-dot--low" />
             <span>Low</span>
           </div>
+          <div className="gis-map-container__legend-item">
+            <span className="gis-map-container__legend-route-line" />
+            <span>Highway Routes</span>
+          </div>
         </div>
-        <div className="gis-map-container__scale">Scale 1 : 250,000</div>
+        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+          <div className="gis-map-container__scale font-mono" style={{ fontSize: '11px', color: 'var(--secondary-text)' }}>
+            {mouseCoords ? `Cursor: ${mouseCoords[0].toFixed(5)}° N, ${mouseCoords[1].toFixed(5)}° E` : 'Cursor: --'}
+          </div>
+          <div className="gis-map-container__scale">Scale 1 : 250,000</div>
+        </div>
       </footer>
     </section>
   );

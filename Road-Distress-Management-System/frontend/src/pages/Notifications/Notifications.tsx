@@ -15,13 +15,10 @@ import {
   ChevronUp,
   MapPin,
   Calendar,
-  Clock,
   Activity,
   Camera,
   SlidersHorizontal,
-  Info,
-  Layers,
-  ArrowUpRight
+  Layers
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -531,7 +528,7 @@ export default function Notifications() {
     );
   };
 
-  const PIE_COLORS = ['#EF4444', '#F97316', '#F59E0B', '#3B82F6', '#EC4899', '#10B981'];
+  const PIE_COLORS = ['#C45C45', '#C87B35', '#D6A23A', '#6B88C7', '#7B8260', '#8FA06A'];
 
   return (
     <div className="operations-alert-center animate-fade-in">
@@ -879,7 +876,7 @@ export default function Notifications() {
                       paddingAngle={3}
                       dataKey="value"
                     >
-                      {categoryChartData.map((entry, index) => (
+                      {categoryChartData.map((_, index) => (
                         <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                       ))}
                     </Pie>
@@ -1094,7 +1091,7 @@ export default function Notifications() {
                     paddingAngle={3}
                     dataKey="value"
                   >
-                    {categoryChartData.map((entry, index) => (
+                    {categoryChartData.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                     ))}
                   </Pie>

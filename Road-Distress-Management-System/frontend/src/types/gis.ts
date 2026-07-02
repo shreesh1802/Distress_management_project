@@ -23,6 +23,7 @@ export interface RoadDistress {
   estimatedRepairCost: string;
   estimatedRepairTime: string;
   priorityScore: number;
+  image_url?: string | null;
 }
 
 export interface GISFiltersState {

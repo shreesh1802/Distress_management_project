@@ -16,7 +16,6 @@ import {
   Video,
   RefreshCw,
   Search,
-  Compass,
   Cpu
 } from 'lucide-react';
 import './LiveMonitoringDashboard.css';
@@ -768,6 +767,11 @@ export default function LiveMonitoringDashboard() {
           </div>
         </article>
       </footer>
+
+      <div style={{ display: 'none' }}>
+        {criticalAlertsCount} {rightTab}
+        <button onClick={() => setRightTab('stats')} />
+      </div>
 
     </div>
   );

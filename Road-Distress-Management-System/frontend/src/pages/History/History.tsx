@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   History as HistoryIcon,
   Download,
   Search,
-  ShieldCheck,
   Trash2,
   Calendar,
   FileSpreadsheet,
@@ -12,7 +12,6 @@ import {
   MapPin,
   AlertTriangle,
   RefreshCw,
-  FileText,
   CheckCircle2,
   XCircle,
   AlertCircle,
@@ -31,7 +30,6 @@ import {
   Lock,
   Mail,
   FileUp,
-  Sparkles,
   Filter
 } from 'lucide-react';
 import {
@@ -77,6 +75,7 @@ interface TimelineEvent {
 }
 
 export default function History() {
+  const navigate = useNavigate();
   const [reports, setReports] = useState<ReportResponse[]>([]);
   const [videos, setVideos] = useState<UploadedVideoResponse[]>([]);
   const [search, setSearch] = useState('');
@@ -649,7 +648,7 @@ export default function History() {
     }
   };
 
-  const PIE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EC4899', '#06B6D4'];
+  const PIE_COLORS = ['#6B88C7', '#7B8260', '#8FA06A', '#D6A23A', '#C87B35', '#C45C45'];
 
   return (
     <div className="audit-center-page animate-fade-in">
@@ -1116,7 +1115,7 @@ export default function History() {
                       paddingAngle={3}
                       dataKey="value"
                     >
-                      {chartData.pieChart.map((entry, index) => (
+                      {chartData.pieChart.map((_, index) => (
                         <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                       ))}
                     </Pie>
@@ -1401,6 +1400,13 @@ export default function History() {
                               <Download size={14} /> Open Report
                             </a>
                           )}
+                          <button 
+                            className="action-panel-btn primary font-semibold" 
+                            onClick={() => navigate(`/video-review/${vid.id}`)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                          >
+                            <Video size={13} /> Review Video
+                          </button>
                           <button className="action-panel-btn secondary" onClick={() => handleRetryVideo(vid.id)}>
                             <RefreshCw size={13} /> Retry Pipeline
                           </button>

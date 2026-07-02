@@ -4,6 +4,7 @@ import GISFilters from '../../components/gis/GISFilters';
 import GISMapContainer from '../../components/gis/GISMapContainer';
 import DistressSummary from '../../components/gis/DistressSummary';
 import RoadDetailsPanel from '../../components/gis/RoadDetailsPanel';
+import apiService from '../../services/api/apiService';
 import './GISMap.css';
 
 // Centralized mock database of 15 road distress records
@@ -323,6 +324,49 @@ export default function GISMap() {
   const [appliedFilters, setAppliedFilters] = useState<GISFiltersState>(DEFAULT_FILTERS);
   const [selectedDistress, setSelectedDistress] = useState<RoadDistress | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [realDistresses, setRealDistresses] = useState<RoadDistress[]>([]);
+
+  // Fetch real distress logs from Postgres DB
+  useEffect(() => {
+    const fetchRealDistresses = async () => {
+      try {
+        const logs = await apiService.getDistressLogs(0, 100);
+        const mapped: RoadDistress[] = logs.map(d => {
+          const lat = d.latitude;
+          const lon = d.longitude;
+          return {
+            id: `DIS-DB-${d.id}`,
+            roadId: d.video_id ? `RD-${d.video_id}` : 'RD-DB',
+            roadName: d.video_id ? `Corridor #${d.video_id}` : 'Main Road',
+            location: `Punjab Sector - Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(4)}`,
+            state: 'Punjab',
+            district: 'Patiala',
+            distressType: d.distress_type as any,
+            severity: d.severity.toLowerCase() as any,
+            lastInspectionDate: d.detected_at ? d.detected_at.split('T')[0] : new Date().toISOString().split('T')[0],
+            reportedDate: d.detected_at ? d.detected_at.split('T')[0] : new Date().toISOString().split('T')[0],
+            detectionDate: d.detected_at ? d.detected_at.split('T')[0] : new Date().toISOString().split('T')[0],
+            maintenanceStatus: (d.status === 'detected' ? 'pending' : d.status) as any,
+            coordinates: [lat, lon],
+            confidence: Math.round(d.confidence_score * 100) || 85,
+            assignedTeam: 'Patiala Main Division Squad',
+            estimatedRepairCost: '₹35,000',
+            estimatedRepairTime: '6 hours',
+            priorityScore: Math.round(d.confidence_score * 100) || 85,
+          };
+        });
+        setRealDistresses(mapped);
+      } catch (err) {
+        console.error("Failed to load database distress logs:", err);
+      }
+    };
+    fetchRealDistresses();
+  }, []);
+
+  // Merge mock and DB markers
+  const distressesList = useMemo(() => {
+    return [...MOCK_DISTRESS_DB, ...realDistresses];
+  }, [realDistresses]);
 
   // Simulate initial load query latency
   useEffect(() => {
@@ -334,7 +378,7 @@ export default function GISMap() {
 
   // Filter logic applied to the database
   const filteredDistresses = useMemo(() => {
-    return MOCK_DISTRESS_DB.filter((distress) => {
+    return distressesList.filter((distress) => {
       if (appliedFilters.state && distress.state !== appliedFilters.state) {
         return false;
       }
@@ -355,7 +399,7 @@ export default function GISMap() {
       }
       return true;
     });
-  }, [appliedFilters]);
+  }, [distressesList, appliedFilters]);
 
   // Set selected distress, checking if it is still within the filtered list
   const handleSelectDistress = (distress: RoadDistress | null) => {
@@ -369,7 +413,7 @@ export default function GISMap() {
       setIsLoading(false);
 
       if (selectedDistress) {
-        const isStillVisible = MOCK_DISTRESS_DB.filter((distress) => {
+        const isStillVisible = distressesList.filter((distress) => {
           if (newFilters.state && distress.state !== newFilters.state) return false;
           if (newFilters.district && distress.district !== newFilters.district) return false;
           if (newFilters.distressType && distress.distressType !== newFilters.distressType) return false;

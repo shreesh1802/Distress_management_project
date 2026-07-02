@@ -59,8 +59,8 @@ function DetectionTrendChart({ data }: DetectionTrendChartProps) {
       <LineChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
         <defs>
           <linearGradient id="trendGradient" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#3B82F6" />
-            <stop offset="100%" stopColor="#8B5CF6" />
+            <stop offset="0%" stopColor="#6B88C7" />
+            <stop offset="100%" stopColor="#7B8260" />
           </linearGradient>
         </defs>
         <CartesianGrid stroke="#F3F4F6" strokeDasharray="3 3" vertical={false} />
@@ -96,7 +96,7 @@ function DetectionTrendChart({ data }: DetectionTrendChartProps) {
           name="Detections"
           stroke="url(#trendGradient)"
           strokeWidth={3}
-          dot={{ fill: '#3B82F6', stroke: '#FFF', strokeWidth: 2, r: 5 }}
+          dot={{ fill: '#6B88C7', stroke: '#FFF', strokeWidth: 2, r: 5 }}
           activeDot={{ r: 7, strokeWidth: 0 }}
         />
       </LineChart>

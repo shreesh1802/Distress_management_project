@@ -31,6 +31,23 @@ export interface RoadDistressResponse {
   created_at: string;
   updated_at: string;
   status: string;
+  video_id?: number | null;
+  frame_number?: number | null;
+  video_timestamp?: number | null;
+  video_timestamp_formatted?: string | null;
+  source_type?: string | null;
+  detection_image_path?: string | null;
+  first_frame?: number | null;
+  last_frame?: number | null;
+  frames_visible?: number | null;
+  tracking_id?: number | null;
+  box_width?: number | null;
+  box_height?: number | null;
+  box_area?: number | null;
+  crack_length?: number | null;
+  pothole_diameter?: number | null;
+  affected_area?: number | null;
+  damage_percentage_of_frame?: number | null;
 }
 
 export interface MapMarkerResponse {
@@ -62,6 +79,8 @@ export interface UploadedVideoResponse {
   upload_timestamp: string;
   created_at: string;
   updated_at: string;
+  processed_filepath?: string | null;
+  processed_video_path?: string | null;
 }
 
 export interface MaintenanceTaskResponse {
@@ -159,6 +178,14 @@ export const apiService = {
   },
 
   /**
+   * Retrieve a single uploaded video metadata by ID.
+   */
+  getVideoById: async (id: number): Promise<UploadedVideoResponse> => {
+    const response = await apiClient.get<UploadedVideoResponse>(`/videos/${id}`);
+    return response.data;
+  },
+
+  /**
    * Deletes a video log and removes the physical file from disk.
    */
   deleteVideo: async (id: number): Promise<UploadedVideoResponse> => {
@@ -225,6 +252,30 @@ export const apiService = {
    */
   getReportPreviewUrl: (reportId: number): string => {
     return `${API_BASE_URL}/api/v1/reports/preview/${reportId}`;
+  },
+
+  /**
+   * Trigger the object detection pipeline on an uploaded surveillance video.
+   */
+  triggerDetection: async (videoId: number): Promise<any> => {
+    const response = await apiClient.post<any>(`/detection/video/${videoId}`);
+    return response.data;
+  },
+
+  /**
+   * Fetch all distress detections generated for a specific video process run.
+   */
+  getVideoDetections: async (videoId: number): Promise<RoadDistressResponse[]> => {
+    const response = await apiClient.get<RoadDistressResponse[]>(`/detection/results/${videoId}`);
+    return response.data;
+  },
+
+  /**
+   * Fetch aggregated analytics insights and total distresses.
+   */
+  getDetectionSummary: async (): Promise<any> => {
+    const response = await apiClient.get<any>('/detection/summary');
+    return response.data;
   },
 };
 export default apiService;

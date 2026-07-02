@@ -147,7 +147,7 @@ export default function MaintenanceAnalytics() {
               <Bar 
                 dataKey="repairs" 
                 name="Repairs" 
-                fill="#c084fc" 
+                fill="#7B8260" 
                 radius={[4, 4, 0, 0]} 
                 maxBarSize={32}
               />

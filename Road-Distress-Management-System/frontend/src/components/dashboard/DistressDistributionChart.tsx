@@ -19,7 +19,7 @@ export interface DistressDistributionChartProps {
   data: RoadDistressResponse[]
 }
 
-const COLORS = ['#EF4444', '#F59E0B', '#EAB308', '#10B981', '#3B82F6'];
+const COLORS = ['#C45C45', '#D6A23A', '#C87B35', '#8FA06A', '#6B88C7'];
 
 function DistressDistributionChart({ data }: DistressDistributionChartProps) {
   const { chartData, totalCount } = useMemo(() => {

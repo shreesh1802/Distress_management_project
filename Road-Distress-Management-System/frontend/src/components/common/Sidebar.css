@@ -95,25 +95,26 @@
 }
 
 .sidebar-rebuilt__nav-link:hover {
-  background: var(--sidebar-hover); /* #F9FAFB */
-  color: var(--primary-text);
+  background: var(--sidebar-hover);
+  color: #FFFFFF;
   transform: translateX(1px);
 }
 
 .sidebar-rebuilt__nav-link--active {
-  background: var(--sidebar-selected) !important; /* #F3F4F6 */
-  color: var(--primary-text) !important;
+  background: var(--sidebar-selected) !important;
+  color: #FFFFFF !important;
   font-weight: 600;
   transform: none !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15) !important;
 }
 
 .sidebar-rebuilt__nav-icon {
   flex-shrink: 0;
-  color: inherit;
+  color: #DDD9CB;
 }
 
 .sidebar-rebuilt__nav-link--active .sidebar-rebuilt__nav-icon {
-  color: var(--primary-text) !important; /* Dark active icons */
+  color: #F6F4EA !important;
 }
 
 .sidebar-rebuilt__nav-label {
@@ -123,8 +124,8 @@
 }
 
 .sidebar-rebuilt__nav-badge {
-  background: #E5E7EB;
-  color: var(--primary-text);
+  background: rgba(255,255,255,0.15);
+  color: #ECE9DD;
   font-size: 9px;
   font-weight: 700;
   padding: 2px 6px;
@@ -134,8 +135,8 @@
 
 /* Storage Card */
 .sidebar-rebuilt-storage-card {
-  background: #F9FAFB; /* Light grey */
-  border: 1px solid var(--card-border);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: var(--radius-md);
   padding: 14px;
   display: flex;
@@ -150,19 +151,19 @@
   gap: 6px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--primary-text);
+  color: #ECE9DD;
 }
 
 .sidebar-rebuilt-storage-card__track {
   height: 4px;
-  background: #E5E7EB;
+  background: rgba(255,255,255,0.1);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .sidebar-rebuilt-storage-card__fill {
   height: 100%;
-  background: var(--primary-text); /* Black fill matching upgrade widget */
+  background: #A8B56C;
   border-radius: 2px;
 }
 
@@ -170,12 +171,12 @@
   display: flex;
   justify-content: space-between;
   font-size: 10px;
-  color: var(--secondary-text);
+  color: #C9C7BA;
 }
 
 /* Footer & Profile */
 .sidebar-rebuilt__footer {
-  border-top: 1px solid var(--card-border);
+  border-top: 1px solid rgba(255,255,255,0.06);
   padding-top: 16px;
 }
 
@@ -190,15 +191,15 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--sidebar-selected);
-  color: var(--primary-text);
+  background: rgba(255,255,255,0.05);
+  color: #FFFFFF;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   font-size: 12px;
   flex-shrink: 0;
-  border: 1px solid var(--card-border);
+  border: 1px solid rgba(255,255,255,0.08);
 }
 
 .sidebar-rebuilt__profile-info {
@@ -211,7 +212,7 @@
 .sidebar-rebuilt__profile-name {
   font-size: 12px;
   font-weight: 600;
-  color: var(--primary-text);
+  color: #ECE9DD;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -219,12 +220,12 @@
 
 .sidebar-rebuilt__profile-role {
   font-size: 10px;
-  color: var(--secondary-text);
+  color: #C9C7BA;
 }
 
 .sidebar-rebuilt__logout-btn {
   background: transparent;
-  color: var(--secondary-text);
+  color: #DDD9CB;
   border-radius: 50%;
   width: 24px;
   height: 24px;
@@ -235,8 +236,8 @@
 }
 
 .sidebar-rebuilt__logout-btn:hover {
-  background: var(--danger-light);
-  color: var(--danger);
+  background: rgba(255,255,255,0.05);
+  color: #FFFFFF;
 }
 
 /* Responsive adjustments */

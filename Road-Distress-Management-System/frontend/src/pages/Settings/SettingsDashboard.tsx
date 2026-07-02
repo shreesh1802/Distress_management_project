@@ -26,7 +26,6 @@ import {
   UserCheck,
   Moon,
   ToggleLeft,
-  X,
   Plus,
   Trash2
 } from "lucide-react";
@@ -1347,7 +1346,7 @@ export default function SettingsDashboard() {
                 {/* External links panel */}
                 <div className="about-links-grid">
                   <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="about-link-box">
-                    <Github size={18} />
+                    <Globe size={18} />
                     <div>
                       <span className="link-title font-semibold">GitHub Source Repository</span>
                       <span className="link-url">github.com/roadvision-ai</span>

@@ -59,9 +59,78 @@
 }
 
 .distress-table-card tbody tr:hover {
-  background: #FAF9F6;
+  background: rgba(59, 130, 246, 0.02) !important;
 }
 
 .distress-table__conf-fill {
   transition: width 0.3s ease;
 }
+
+/* Custom Pagination styles */
+.pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--body-bg);
+  border: 1px solid var(--card-border);
+  color: var(--primary-text);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-page:hover:not(:disabled) {
+  background: var(--card-border);
+}
+
+.btn-page:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-numbers {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-page-number {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--secondary-text);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.btn-page-number:hover {
+  background: var(--body-bg);
+  border-color: var(--card-border);
+}
+
+.btn-page-number--active {
+  background: var(--primary-text) !important;
+  color: #FFF !important;
+  border-color: var(--primary-text) !important;
+}
+
+/* Selection list styles */
+.filter-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+

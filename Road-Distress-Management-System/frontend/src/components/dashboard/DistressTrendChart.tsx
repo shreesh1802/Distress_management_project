@@ -68,20 +68,20 @@ export default function DistressTrendChart() {
               <defs>
                 {/* Potholes Red Gradient */}
                 <linearGradient id="gradPotholes" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0} />
+                  <stop offset="5%" stopColor="#C45C45" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#C45C45" stopOpacity={0.0} />
                 </linearGradient>
 
                 {/* Cracks Purple Gradient */}
                 <linearGradient id="gradCracks" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#c084fc" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#c084fc" stopOpacity={0.0} />
+                  <stop offset="5%" stopColor="#7B8260" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#7B8260" stopOpacity={0.0} />
                 </linearGradient>
 
                 {/* Rutting Yellow Gradient */}
                 <linearGradient id="gradRutting" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#eab308" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#eab308" stopOpacity={0.0} />
+                  <stop offset="5%" stopColor="#D6A23A" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#D6A23A" stopOpacity={0.0} />
                 </linearGradient>
               </defs>
 
@@ -107,7 +107,7 @@ export default function DistressTrendChart() {
                 type="monotone"
                 dataKey="potholes"
                 name="Potholes"
-                stroke="#ef4444"
+                stroke="#C45C45"
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#gradPotholes)"
@@ -116,7 +116,7 @@ export default function DistressTrendChart() {
                 type="monotone"
                 dataKey="cracks"
                 name="Cracks"
-                stroke="#c084fc"
+                stroke="#7B8260"
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#gradCracks)"
@@ -125,7 +125,7 @@ export default function DistressTrendChart() {
                 type="monotone"
                 dataKey="rutting"
                 name="Rutting"
-                stroke="#eab308"
+                stroke="#D6A23A"
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#gradRutting)"

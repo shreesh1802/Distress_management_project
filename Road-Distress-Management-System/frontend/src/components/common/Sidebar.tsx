@@ -16,8 +16,8 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  Shield,
   Route,
+  Activity,
 } from 'lucide-react'
 import './Sidebar.css'
 
@@ -51,6 +51,11 @@ export default function Sidebar() {
       path: '/upload-video',
       label: 'Upload Video',
       icon: Upload,
+    },
+    {
+      path: '/live-processing',
+      label: 'Live Processing',
+      icon: Activity,
     },
     {
       path: '/gis-map',
