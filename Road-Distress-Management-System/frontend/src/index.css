@@ -32,21 +32,21 @@
   --info: #6B88C7;
   
   /* Proportions, Shadows and Radii */
-  --shadow: 0 8px 24px rgba(0,0,0,0.06);
-  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.02);
-  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.06);
+  --shadow: 0 4px 20px rgba(62, 67, 49, 0.03);
+  --shadow-sm: 0 2px 8px rgba(62, 67, 49, 0.02);
+  --shadow-lg: 0 16px 40px rgba(62, 67, 49, 0.06);
   
-  --radius-lg: 20px; /* Cards */
-  --radius-md: 14px; /* Buttons and inputs */
-  --radius-sm: 8px;  /* Small badges/thumbnails */
+  --radius-lg: 16px; /* Uniform Cards */
+  --radius-md: 10px; /* Buttons and inputs */
+  --radius-sm: 6px;  /* Small badges */
   
   /* Typography weights & scales (Inter) */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   
-  --transition-fast: 0.12s ease;
-  --transition-normal: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 0.38s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 
@@ -75,24 +75,29 @@ body {
   width: 100%;
 }
 
+/* Accessibility Focus Indicators */
+*:focus-visible {
+  outline: 2px solid var(--sidebar-selected);
+  outline-offset: 2px;
+}
+
 /* Custom minimal scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--primary-bg);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #E0DFDB;
-  border-radius: 9999px;
-  border: 2px solid var(--primary-bg);
+  background: rgba(128, 133, 101, 0.25);
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #C4C3BF;
+  background: rgba(128, 133, 101, 0.45);
 }
 
 /* Page titles and structural labels */
@@ -105,16 +110,16 @@ h1, h2, h3, h4, h5, h6 {
 .bold-page-title {
   font-family: var(--font-sans);
   font-weight: 700;
-  font-size: 48px;
+  font-size: 36px;
   color: var(--primary-text);
   letter-spacing: -0.025em;
-  line-height: 1.15;
+  line-height: 1.2;
 }
 
 .medium-section-title {
   font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 26px;
+  font-size: 22px;
   color: var(--primary-text);
   letter-spacing: -0.01em;
 }
@@ -122,7 +127,7 @@ h1, h2, h3, h4, h5, h6 {
 .light-secondary-text {
   font-family: var(--font-sans);
   font-weight: 400;
-  font-size: 16px;
+  font-size: 14px;
   color: var(--secondary-text);
   line-height: 1.5;
 }
@@ -130,15 +135,15 @@ h1, h2, h3, h4, h5, h6 {
 .large-kpi-number {
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 42px;
+  font-size: 36px;
   letter-spacing: -0.03em;
   color: var(--primary-text);
 }
 
 .small-caption {
   font-family: var(--font-sans);
-  font-weight: 500;
-  font-size: 13px;
+  font-weight: 600;
+  font-size: 11px;
   color: var(--secondary-text);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -147,12 +152,12 @@ h1, h2, h3, h4, h5, h6 {
 /* Elements presets */
 input, select, textarea {
   font-family: var(--font-sans);
-  font-size: 16px;
+  font-size: 14px;
   color: var(--primary-text);
   background-color: #FFFFFF;
   border: 1px solid #DDD8CC;
   border-radius: var(--radius-md);
-  padding: 8px 14px;
+  padding: 8px 12px;
   outline: none;
   transition: all var(--transition-fast);
 }
@@ -162,19 +167,19 @@ input::placeholder {
 }
 
 input:focus, select:focus, textarea:focus {
-  border-color: #808565;
-  box-shadow: 0 0 0 3px rgba(128, 133, 101, 0.15);
+  border-color: var(--sidebar-selected);
+  box-shadow: 0 0 0 3px rgba(128, 133, 101, 0.12);
   background-color: #FFFFFF;
 }
 
 button {
   font-family: var(--font-sans);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   border: none;
   outline: none;
-  transition: all 220ms ease;
+  transition: all var(--transition-normal);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -183,7 +188,11 @@ button {
 }
 
 button:hover {
-  transform: scale(1.02);
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0) scale(0.98);
 }
 
 /* Reusable premium Card container style */
@@ -192,18 +201,18 @@ button:hover {
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
-  padding: 22px;
-  transition: transform 220ms ease, box-shadow 220ms ease;
+  padding: 20px;
+  transition: transform var(--transition-normal), box-shadow var(--transition-normal);
 }
 
 .premium-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
 }
 
-/* Fade animation preset */
+/* Smooth Fade transition preset */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -211,9 +220,45 @@ button:hover {
   animation: fadeIn var(--transition-normal) forwards;
 }
 
-/* Standard styling elements */
-.status-pill {
+/* Pulse skeleton loader class */
+.skeleton {
+  background: linear-gradient(90deg, #F1EEE5 25%, #E6E2D3 50%, #F1EEE5 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading-pulse 1.5s infinite ease-in-out;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes skeleton-loading-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Toast alert layout overlay */
+.toast-alert {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-left: 4px solid var(--success);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 12px 18px;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 13px;
+  animation: toastIn var(--transition-normal) forwards;
+}
+
+@keyframes toastIn {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.status-pill {
+  font-size: 12px;
   font-weight: 500;
   text-transform: uppercase;
   padding: 3px 8px;
@@ -224,7 +269,7 @@ button:hover {
 }
 
 .status-badge {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   text-transform: uppercase;
   padding: 2px 6px;

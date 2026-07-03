@@ -18,12 +18,12 @@
 }
 
 .hover-lift {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform var(--transition-normal), box-shadow var(--transition-normal);
 }
 
 .hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
 }
 
 /* circular gauge labels */
@@ -68,6 +68,17 @@
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+}
+
+/* Recharts Legend Interactive cursor styling */
+.recharts-legend-item {
+  cursor: pointer !important;
+  user-select: none;
+  transition: opacity var(--transition-fast);
+}
+
+.recharts-legend-item:hover {
+  opacity: 0.7;
 }
 
 /* Responsive configurations */
