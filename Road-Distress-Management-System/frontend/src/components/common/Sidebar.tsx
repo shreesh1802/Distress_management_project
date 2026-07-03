@@ -38,6 +38,11 @@ export default function Sidebar() {
 
   const menuItems: SidebarMenuItem[] = [
     {
+      path: '/overview',
+      label: 'Overview',
+      icon: LayoutDashboard,
+    },
+    {
       path: '/dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,

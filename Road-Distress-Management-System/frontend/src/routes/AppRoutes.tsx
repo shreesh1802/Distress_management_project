@@ -4,6 +4,7 @@ import DashboardLayout from "../layouts/DashboardLayout";
 
 import Analytics from "../pages/Analytics/Analytics";
 import Dashboard from "../pages/Dashboard/Dashboard";
+import OverviewDashboard from "../pages/Dashboard/OverviewDashboard";
 import GISMap from "../pages/GISMap/GISMap";
 import LiveMonitoring from "../pages/LiveMonitoring/LiveMonitoring";
 import Maintenance from "../pages/Maintenance/Maintenance";
@@ -25,6 +26,8 @@ export default function AppRoutes() {
         <Route element={<DashboardLayout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/overview" element={<OverviewDashboard />} />
+          <Route path="/inspection/:videoId" element={<Dashboard />} />
           <Route path="/live-monitoring" element={<LiveMonitoring />} />
           <Route path="/live-processing" element={<LiveProcessingDashboard />} />
           <Route path="/upload-video" element={<UploadVideo />} />

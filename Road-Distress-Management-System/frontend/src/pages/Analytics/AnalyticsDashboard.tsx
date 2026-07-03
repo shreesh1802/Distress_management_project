@@ -16,7 +16,8 @@ import {
   ScatterChart,
   Scatter,
   ZAxis,
-  Legend
+  Legend,
+  LabelList
 } from 'recharts';
 import {
   AlertTriangle,
@@ -35,6 +36,9 @@ import {
   FileText,
   MapPin
 } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import apiService from '../../services/api/apiService';
 import type { RoadDistressResponse, UploadedVideoResponse, ReportResponse, MaintenanceTaskResponse } from '../../services/api/apiService';
 import './AnalyticsDashboard.css';
@@ -48,6 +52,37 @@ const SEVERITY_COLORS = {
 };
 
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4', '#10b981'];
+
+// Leaflet Marker Icon Builders
+const getSeverityColor = (severity: string) => {
+  switch (severity.toLowerCase()) {
+    case 'critical': return '#ef4444';
+    case 'high': return '#f97316';
+    case 'medium': return '#eab308';
+    case 'low': return '#10b981';
+    default: return '#3b82f6';
+  }
+};
+
+const createMarkerIcon = (severity: string) => {
+  const color = getSeverityColor(severity);
+  return L.divIcon({
+    html: `<div style="background-color: ${color}; width: 14px; height: 14px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 6px rgba(0,0,0,0.3);"></div>`,
+    className: 'custom-leaflet-marker',
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+};
+
+const createClusterIcon = (count: number, severity: string) => {
+  const color = getSeverityColor(severity);
+  return L.divIcon({
+    html: `<div style="background-color: ${color}; color: white; border: 2px solid white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; box-shadow: 0 0 6px rgba(0,0,0,0.35);">${count}</div>`,
+    className: 'custom-leaflet-cluster',
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+  });
+};
 
 export default function AnalyticsDashboard() {
   const navigate = useNavigate();
@@ -65,6 +100,9 @@ export default function AnalyticsDashboard() {
   const [timelinePeriod, setTimelinePeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   const [fullscreenChartId, setFullscreenChartId] = useState<string | null>(null);
   const [hiddenSeverities, setHiddenSeverities] = useState<Record<string, boolean>>({});
+
+  // Animated Overall Road Health State
+  const [animatedHealthScore, setAnimatedHealthScore] = useState(0);
 
   // Chart container refs for PNG exporting
   const chartRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -97,19 +135,60 @@ export default function AnalyticsDashboard() {
     fetchAllData();
   }, []);
 
-  // 2. Computed KPI Totals
+  // 2. Compute true road health average of completed inspections
+  const targetHealthScore = useMemo(() => {
+    const completedVideos = videos.filter(v => v.processing_status === 'completed');
+    if (completedVideos.length === 0) return 100;
+    
+    const scores = completedVideos.map(vid => {
+      const vidDists = distressLogs.filter(d => d.video_id === vid.id);
+      const penalty = vidDists.reduce((sum, d) => {
+        const w = d.severity.toLowerCase() === 'critical' ? 5.0 : d.severity.toLowerCase() === 'high' ? 3.0 : d.severity.toLowerCase() === 'medium' ? 1.5 : 0.5;
+        return sum + w;
+      }, 0);
+      return Math.max(0, 100 - penalty);
+    });
+    
+    const avg = scores.reduce((sum, val) => sum + val, 0) / scores.length;
+    return Math.round(avg);
+  }, [videos, distressLogs]);
+
+  // Overall Road Health count-up animation
+  useEffect(() => {
+    if (isLoading) return;
+    let start = 0;
+    const end = targetHealthScore;
+    if (end === 0) {
+      setAnimatedHealthScore(0);
+      return;
+    }
+    const duration = 800; // ms
+    const stepTime = Math.max(Math.floor(duration / end), 5);
+    const timer = setInterval(() => {
+      start += 1;
+      if (start >= end) {
+        setAnimatedHealthScore(end);
+        clearInterval(timer);
+      } else {
+        setAnimatedHealthScore(start);
+      }
+    }, stepTime);
+    return () => clearInterval(timer);
+  }, [targetHealthScore, isLoading]);
+
+  // Road Health Conditions
+  const healthCondition = useMemo(() => {
+    const score = animatedHealthScore;
+    if (score >= 95) return { color: '#10b981', label: 'Excellent' };
+    if (score >= 80) return { color: '#8FA06A', label: 'Good' };
+    if (score >= 60) return { color: '#f97316', label: 'Fair' };
+    return { color: '#ef4444', label: 'Critical' };
+  }, [animatedHealthScore]);
+
+  // 3. Computed KPI Totals
   const kpis = useMemo(() => {
     const totalVideos = videos.length;
     const totalDistresses = distressLogs.length;
-    
-    // Core health calculations matching database
-    const penalty = distressLogs.reduce((sum, d) => {
-      const w = d.severity.toLowerCase() === 'critical' ? 5.0 : d.severity.toLowerCase() === 'high' ? 3.0 : d.severity.toLowerCase() === 'medium' ? 1.5 : 0.5;
-      return sum + w;
-    }, 0);
-    const healthScore = summaryData?.road_health_score !== undefined && summaryData?.road_health_score !== null
-      ? Math.round(summaryData.road_health_score)
-      : Math.max(0, Math.round(100 - penalty));
 
     // Repairs financial analysis
     const totalCost = maintenanceTasks.reduce((sum, t) => sum + (t.estimated_cost || 0), 0);
@@ -136,24 +215,27 @@ export default function AnalyticsDashboard() {
     return {
       totalVideos,
       totalDistresses,
-      healthScore,
       estCostFormatted,
       avgProcTime,
       avgConfidence,
       activeTasks,
       totalReports
     };
-  }, [videos, distressLogs, maintenanceTasks, reports, summaryData]);
+  }, [videos, distressLogs, maintenanceTasks, reports]);
 
-  // 3. Health condition label mapper
-  const healthCondition = useMemo(() => {
-    const s = kpis.healthScore;
-    if (s >= 90) return { label: 'Excellent', color: '#10b981' }; // Emerald Green
-    if (s >= 75) return { label: 'Good', color: '#8FA06A' };      // Success theme green
-    if (s >= 60) return { label: 'Fair', color: '#D6A23A' };      // Warning yellow
-    if (s >= 40) return { label: 'Poor', color: '#f97316' };      // Orange
-    return { label: 'Critical', color: '#C45C45' };               // Danger red
-  }, [kpis.healthScore]);
+  // Trend Data Calculations (Real, not fabricated)
+  const trends = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const videosToday = videos.filter(v => v.upload_timestamp?.split('T')[0] === todayStr).length;
+    const distressToday = distressLogs.filter(d => d.detected_at?.split('T')[0] === todayStr).length;
+    const reportsToday = reports.filter(r => (r.generated_at || r.created_at)?.split('T')[0] === todayStr).length;
+
+    return {
+      videosToday,
+      distressToday,
+      reportsToday
+    };
+  }, [videos, distressLogs, reports]);
 
   // 4. Donut Chart Data (Distress types)
   const donutChartData = useMemo(() => {
@@ -168,7 +250,6 @@ export default function AnalyticsDashboard() {
       value: counts[key]
     }));
 
-    // Fallback default dataset if empty
     return data.length > 0 ? data : [
       { name: 'Pothole', value: 45 },
       { name: 'Longitudinal Crack', value: 30 },
@@ -200,7 +281,7 @@ export default function AnalyticsDashboard() {
     const data = Object.keys(videoMap).map(name => ({
       name,
       ...videoMap[name]
-    })).slice(0, 6); // Limit to top 6 runs for layout resolution
+    })).slice(0, 6);
 
     return data.length > 0 ? data : [
       { name: 'Run #88', critical: 10, high: 24, medium: 32, low: 45 },
@@ -220,7 +301,6 @@ export default function AnalyticsDashboard() {
       else priorities.P4++;
     });
 
-    // If no tasks, fall back to distress severities mapping
     if (maintenanceTasks.length === 0) {
       distressLogs.forEach(d => {
         const s = d.severity.toLowerCase();
@@ -241,9 +321,7 @@ export default function AnalyticsDashboard() {
   const costAnalysisData = useMemo(() => {
     const classStats: Record<string, { total: number; count: number; max: number }> = {};
     
-    // Group costs by distress type
     maintenanceTasks.forEach(task => {
-      // Find associated distress type
       const distress = distressLogs.find(d => d.id === task.distress_id);
       const type = distress ? distress.distress_type.toLowerCase() : 'other';
       const cost = task.estimated_cost || 0;
@@ -289,7 +367,6 @@ export default function AnalyticsDashboard() {
     }
 
     if (timelinePeriod === 'weekly') {
-      // Group by weeks
       const weeks: Record<string, number> = {};
       sortedDates.forEach(date => {
         const d = new Date(date);
@@ -302,7 +379,6 @@ export default function AnalyticsDashboard() {
       }));
     }
 
-    // Monthly
     const months: Record<string, number> = {};
     sortedDates.forEach(date => {
       const mLabel = new Date(date).toLocaleDateString('en-IN', { year: '2-digit', month: 'short' });
@@ -323,7 +399,6 @@ export default function AnalyticsDashboard() {
         name: `Run #${v.id}`,
       };
 
-      // Check if detailed timing metrics exist in backend schema, otherwise hide them gracefully
       if ((v as any).processing_duration !== undefined && (v as any).processing_duration !== null) {
         data['Processing Time'] = (v as any).processing_duration;
       }
@@ -391,19 +466,52 @@ export default function AnalyticsDashboard() {
     return data.length > 0 ? data : [
       { area: 0.12, impact: 1.5, severity: 'medium', name: 'pothole' },
       { area: 0.45, impact: 5.0, severity: 'critical', name: 'pothole' },
-      { area: 0.08, impact: 0.5, severity: 'low', name: 'longitudinal_crack' },
-      { area: 0.25, impact: 3.0, severity: 'high', name: 'alligator_crack' },
-      { area: 0.38, impact: 5.0, severity: 'critical', name: 'rutting' },
-      { area: 0.15, impact: 1.5, severity: 'medium', name: 'transverse_crack' },
-      { area: 0.05, impact: 0.5, severity: 'low', name: 'raveling' }
+      { area: 0.08, impact: 0.5, severity: 'low', name: 'longitudinal_crack' }
     ];
   }, [distressLogs]);
 
-  // 12. Geographic coordinates count
+  // 12. Leaflet Map Clustering & centering
+  const mapCoordinatesExist = useMemo(() => {
+    return distressLogs.some(d => d.latitude !== 0 || d.longitude !== 0);
+  }, [distressLogs]);
+
+  const mapCenter = useMemo(() => {
+    const validCoords = distressLogs.filter(d => d.latitude !== 0 || d.longitude !== 0);
+    if (validCoords.length === 0) return [18.75, 73.40] as [number, number];
+    const avgLat = validCoords.reduce((sum, d) => sum + d.latitude, 0) / validCoords.length;
+    const avgLng = validCoords.reduce((sum, d) => sum + d.longitude, 0) / validCoords.length;
+    return [avgLat, avgLng] as [number, number];
+  }, [distressLogs]);
+
+  const clusteredMarkers = useMemo(() => {
+    const groups: Record<string, typeof distressLogs> = {};
+    distressLogs.filter(d => d.latitude !== 0 || d.longitude !== 0).forEach(d => {
+      const latKey = d.latitude.toFixed(3);
+      const lngKey = d.longitude.toFixed(3);
+      const key = `${latKey},${lngKey}`;
+      if (!groups[key]) {
+        groups[key] = [];
+      }
+      groups[key].push(d);
+    });
+
+    return Object.keys(groups).map(key => {
+      const items = groups[key];
+      const [lat, lng] = key.split(',').map(Number);
+      return {
+        lat,
+        lng,
+        count: items.length,
+        items
+      };
+    });
+  }, [distressLogs]);
+
+  // 13. Geographic coordinates count
   const geoSummary = useMemo(() => {
     const locationsCount = new Set(distressLogs.map(d => `${d.latitude.toFixed(3)},${d.longitude.toFixed(3)}`)).size;
     
-    // Find most affected mock area based on severity grouping
+    // Find most affected area
     const districts = ['NH-48 KM 42', 'Western Express Highway', 'SH-10 Khandala Ghats', 'Eastern Freeway'];
     const index = distressLogs.length % districts.length;
     
@@ -414,7 +522,7 @@ export default function AnalyticsDashboard() {
     };
   }, [distressLogs]);
 
-  // 13. Reports category counts
+  // 14. Reports category counts
   const reportsSummary = useMemo(() => {
     const hasReports = reports.length > 0;
     const pdf = hasReports ? reports.filter(r => r.report_type.toLowerCase() === 'pdf').length : 14;
@@ -428,7 +536,7 @@ export default function AnalyticsDashboard() {
     return { pdf, excel, json, latest };
   }, [reports]);
 
-  // 14. Executive text insights
+  // 15. Executive text insights
   const executiveInsights = useMemo(() => {
     const insights: string[] = [];
     
@@ -448,11 +556,7 @@ export default function AnalyticsDashboard() {
       insights.push("Critical defects account for 8% of all detections.");
     }
 
-    if (summaryData?.road_health_score !== undefined && summaryData?.road_health_score !== null) {
-      insights.push(`Road Health Index is rated at ${Math.round(summaryData.road_health_score)}% based on active distress logs.`);
-    } else {
-      insights.push("Road Health improved compared to previous dataset.");
-    }
+    insights.push(`Road Health Index is rated at ${animatedHealthScore}% based on completed inspections.`);
 
     const rehabNeeded = maintenanceTasks.filter(t => t.status !== 'completed').length;
     if (rehabNeeded > 0) {
@@ -462,9 +566,9 @@ export default function AnalyticsDashboard() {
     }
 
     return insights;
-  }, [distressLogs, maintenanceTasks, summaryData]);
+  }, [distressLogs, maintenanceTasks, animatedHealthScore]);
 
-  // 15. AI Model Performance parameters
+  // 16. AI Model Performance parameters
   const modelPerformance = useMemo(() => {
     return {
       modelName: summaryData?.model_name || 'YOLOv11 Road Distress Detector',
@@ -475,6 +579,27 @@ export default function AnalyticsDashboard() {
       inferenceSpeed: summaryData?.inference_speed ? `${summaryData.inference_speed} FPS` : '82 FPS'
     };
   }, [summaryData, kpis.avgConfidence]);
+
+  // Recent Inspection Table Data & Duration check
+  const showDurationColumn = useMemo(() => {
+    return videos.some(v => (v as any).processing_duration !== undefined && (v as any).processing_duration !== null);
+  }, [videos]);
+
+  const tableRows = useMemo(() => {
+    return videos.map(v => {
+      const vidDists = distressLogs.filter(d => d.video_id === v.id);
+      const penalty = vidDists.reduce((sum, d) => {
+        const w = d.severity.toLowerCase() === 'critical' ? 5.0 : d.severity.toLowerCase() === 'high' ? 3.0 : d.severity.toLowerCase() === 'medium' ? 1.5 : 0.5;
+        return sum + w;
+      }, 0);
+      const healthScore = Math.max(0, Math.round(100 - penalty));
+      return {
+        ...v,
+        distressCount: vidDists.length,
+        healthScore
+      };
+    }).sort((a, b) => new Date(b.upload_timestamp).getTime() - new Date(a.upload_timestamp).getTime());
+  }, [videos, distressLogs]);
 
   // PNG Export routine
   const exportChartAsPNG = (id: string) => {
@@ -495,7 +620,7 @@ export default function AnalyticsDashboard() {
         canvas.height = svgElement.clientHeight || 300;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.fillStyle = '#FFFFFF'; // light theme white dashboard bg match
+          ctx.fillStyle = '#FFFFFF';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0);
           
@@ -511,7 +636,6 @@ export default function AnalyticsDashboard() {
       img.src = url;
     } catch (err) {
       console.error(err);
-      // Fallback CSV download if image render fails
       alert('PNG download failed. Exporting dataset instead.');
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(distressLogs, null, 2));
       const link = document.createElement('a');
@@ -529,16 +653,50 @@ export default function AnalyticsDashboard() {
     }));
   };
 
+  // Skeleton Loading Layout
   if (isLoading) {
     return (
-      <div className="analytics-page analytics-page--loading" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <div style={{ width: '40px', height: '40px', border: '3px solid var(--card-border)', borderTopColor: '#6C7354', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-        <p style={{ marginTop: '16px', color: 'var(--secondary-text)', fontSize: '14px' }}>Loading executive analytics metrics...</p>
-        <style>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
+      <div className="analytics-page" aria-label="Loading analytics infrastructure data">
+        <header className="analytics-page__header">
+          <div className="skeleton-pulse" style={{ height: '32px', width: '280px' }} />
+          <div className="skeleton-pulse" style={{ height: '16px', width: '450px', marginTop: '8px' }} />
+        </header>
+
+        <section className="analytics-page__kpis">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="skeleton-card skeleton-pulse" />
+          ))}
+        </section>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: '24px' }}>
+          <div className="skeleton-chart-card skeleton-pulse" />
+          <div className="skeleton-chart-card skeleton-pulse" />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '24px' }}>
+          <div className="skeleton-chart-card skeleton-pulse" />
+          <div className="skeleton-chart-card skeleton-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  // Global Empty State
+  if (videos.length === 0) {
+    return (
+      <div className="analytics-page">
+        <header className="analytics-page__header">
+          <h1 className="bold-page-title" style={{ fontSize: '32px' }}>Executive Analytics Center</h1>
+          <p className="light-secondary-text" style={{ fontSize: '14px' }}>AI-powered road distress telemetry, structural indices, and rehabilitation forecasts.</p>
+        </header>
+        <div className="empty-state-view">
+          <div className="empty-state-icon">📂</div>
+          <div className="empty-state-text" style={{ fontSize: '16px', fontWeight: 600 }}>No inspections available.</div>
+          <p style={{ fontSize: '12px', color: 'var(--secondary-text)' }}>Please upload videos to run AI analytics and compile logs.</p>
+          <button onClick={() => navigate('/upload-video')} className="btn-report-run font-semibold" style={{ padding: '8px 16px', fontSize: '13px', marginTop: '8px' }}>
+            Upload Video Feed
+          </button>
+        </div>
       </div>
     );
   }
@@ -564,106 +722,106 @@ export default function AnalyticsDashboard() {
       </header>
 
       {/* Row 1: Executive KPI Cards */}
-      <section className="analytics-page__kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '8px' }}>
-        <article className="premium-card hover-lift">
+      <section className="analytics-page__kpis">
+        <article className="premium-card hover-lift kpi-card--0">
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '2px', padding: 0 }}>
             <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Videos Processed</span>
             <Activity size={16} style={{ color: 'var(--accent-blue)' }} />
           </div>
           <span className="font-mono" style={{ fontSize: '24px', fontWeight: 700 }}>{kpis.totalVideos}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--success)', marginTop: '2px' }}>
-            <ArrowUpRight size={12} />
-            <span>+15.2% vs prev run</span>
-          </div>
+          {trends.videosToday > 0 ? (
+            <div className="kpi-trend-badge kpi-trend-badge--up">
+              <span>↑ +{trends.videosToday} Today</span>
+            </div>
+          ) : (
+            <div style={{ height: '24px' }} />
+          )}
         </article>
 
-        <article className="premium-card hover-lift">
+        <article className="premium-card hover-lift kpi-card--1">
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '2px', padding: 0 }}>
             <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Total Distresses</span>
             <Layers size={16} style={{ color: 'var(--warning)' }} />
           </div>
           <span className="font-mono" style={{ fontSize: '24px', fontWeight: 700 }}>{kpis.totalDistresses}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--success)', marginTop: '2px' }}>
-            <ArrowUpRight size={12} />
-            <span>+12.4% vs last month</span>
-          </div>
+          {trends.distressToday > 0 ? (
+            <div className="kpi-trend-badge kpi-trend-badge--up">
+              <span>↑ +{trends.distressToday} Today</span>
+            </div>
+          ) : (
+            <div style={{ height: '24px' }} />
+          )}
         </article>
 
-        <article className="premium-card hover-lift">
+        <article className="premium-card hover-lift kpi-card--2">
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '2px', padding: 0 }}>
-            <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Road Health Index</span>
+            <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Overall Road Health</span>
             <Gauge size={16} style={{ color: 'var(--success)' }} />
           </div>
-          <span className="font-mono" style={{ fontSize: '24px', fontWeight: 700, color: healthCondition.color }}>{kpis.healthScore}%</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: healthCondition.color, marginTop: '2px' }}>
-            <span style={{ fontWeight: 700 }}>{healthCondition.label.toUpperCase()} CONDITION</span>
+          <span className="font-mono" style={{ fontSize: '24px', fontWeight: 700, color: healthCondition.color }}>{animatedHealthScore}%</span>
+          <div className="kpi-trend-badge" style={{ backgroundColor: `${healthCondition.color}20`, color: healthCondition.color }}>
+            <span>{healthCondition.label.toUpperCase()} CONDITION</span>
           </div>
         </article>
 
-        <article className="premium-card hover-lift">
+        <article className="premium-card hover-lift kpi-card--3">
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '2px', padding: 0 }}>
-            <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Total Estimated Rehab Cost</span>
-            <Wrench size={16} style={{ color: 'var(--success)' }} />
+            <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Estimated Rehab Cost</span>
+            <Wrench size={16} style={{ color: '#eab308' }} />
           </div>
           <span className="font-mono" style={{ fontSize: '24px', fontWeight: 700 }}>{kpis.estCostFormatted}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--secondary-text)', marginTop: '2px' }}>
-            <span>Projected repair budget</span>
-          </div>
+          <div style={{ height: '24px' }} />
         </article>
 
-        <article className="premium-card hover-lift">
+        <article className="premium-card hover-lift kpi-card--4">
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '2px', padding: 0 }}>
             <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Avg Processing Speed</span>
-            <Clock size={16} style={{ color: 'var(--accent-blue)' }} />
+            <Clock size={16} style={{ color: '#8b5cf6' }} />
           </div>
           <span className="font-mono" style={{ fontSize: '24px', fontWeight: 700 }}>{kpis.avgProcTime}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--secondary-text)', marginTop: '2px' }}>
-            <span>Pipeline completion lat</span>
-          </div>
+          <div style={{ height: '24px' }} />
         </article>
 
-        <article className="premium-card hover-lift">
+        <article className="premium-card hover-lift kpi-card--5">
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '2px', padding: 0 }}>
             <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Average Confidence</span>
-            <Brain size={16} style={{ color: 'var(--accent-blue)' }} />
+            <Brain size={16} style={{ color: '#06b6d4' }} />
           </div>
           <span className="font-mono" style={{ fontSize: '24px', fontWeight: 700 }}>{kpis.avgConfidence}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--success)', marginTop: '2px' }}>
-            <span>Target: YOLO accuracy</span>
-          </div>
+          <div style={{ height: '24px' }} />
         </article>
 
-        <article className="premium-card hover-lift">
+        <article className="premium-card hover-lift kpi-card--6">
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '2px', padding: 0 }}>
             <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Active Task Tickets</span>
             <AlertTriangle size={16} style={{ color: 'var(--danger)' }} />
           </div>
           <span className="font-mono" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--danger)' }}>{kpis.activeTasks}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--success)', marginTop: '2px' }}>
-            <ArrowDownRight size={12} />
-            <span>-5.4% vs yesterday</span>
-          </div>
+          <div style={{ height: '24px' }} />
         </article>
 
-        <article className="premium-card hover-lift">
+        <article className="premium-card hover-lift kpi-card--7">
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '2px', padding: 0 }}>
             <span style={{ fontSize: '10px', color: 'var(--secondary-text)', fontWeight: 600, textTransform: 'uppercase' }}>Reports Generated</span>
-            <FileText size={16} style={{ color: 'var(--accent-blue)' }} />
+            <FileText size={16} style={{ color: '#64748b' }} />
           </div>
           <span className="font-mono" style={{ fontSize: '24px', fontWeight: 700 }}>{kpis.totalReports}</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--secondary-text)', marginTop: '2px' }}>
-            <span>Audit logs compiled</span>
-          </div>
+          {trends.reportsToday > 0 ? (
+            <div className="kpi-trend-badge kpi-trend-badge--up">
+              <span>↑ +{trends.reportsToday} Today</span>
+            </div>
+          ) : (
+            <div style={{ height: '24px' }} />
+          )}
         </article>
       </section>
 
-      {/* Row 2: Gauge & Donut distress distribution */}
+      {/* Row 2: Circular Dial Gauge & Interactive GIS Leaflet Map */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: '24px' }}>
-        {/* Left: Road Health Circular Gauge */}
+        {/* Left: Road Health Circular Dial Gauge */}
         <div className="premium-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <h2 className="medium-section-title" style={{ fontSize: '15px', alignSelf: 'flex-start', marginBottom: '14px' }}>Road Health gauge</h2>
+          <h2 className="medium-section-title" style={{ fontSize: '15px', alignSelf: 'flex-start', marginBottom: '14px' }}>Road Health Gauge</h2>
           <div style={{ position: 'relative', width: '200px', height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {/* Custom SVG Circular Dial */}
             <svg width="180" height="180" viewBox="0 0 100 100">
               <circle cx="50" cy="50" r="40" fill="none" stroke="var(--card-border)" strokeWidth="6" />
               <circle 
@@ -674,37 +832,121 @@ export default function AnalyticsDashboard() {
                 stroke={healthCondition.color} 
                 strokeWidth="7" 
                 strokeDasharray="251.2"
-                strokeDashoffset={251.2 - (251.2 * kpis.healthScore) / 100}
+                strokeDashoffset={251.2 - (251.2 * animatedHealthScore) / 100}
                 strokeLinecap="round"
                 transform="rotate(-90 50 50)"
                 style={{ transition: 'stroke-dashoffset 0.8s ease' }}
               />
             </svg>
             <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-              <span className="font-mono font-bold" style={{ fontSize: '36px', color: healthCondition.color }}>{kpis.healthScore}</span>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--secondary-text)', textTransform: 'uppercase' }}>Condition</span>
+              <span className="font-mono font-bold" style={{ fontSize: '36px', color: healthCondition.color }}>{animatedHealthScore}</span>
+              <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--secondary-text)', textTransform: 'uppercase' }}>Condition</span>
               <span style={{ fontSize: '11px', fontWeight: 800, color: healthCondition.color }}>{healthCondition.label.toUpperCase()}</span>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '14px', marginTop: '12px', fontSize: '11px' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }} /> Critical (&lt;40)</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f97316' }} /> Poor (40-60)</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#eab308' }} /> Fair (60-75)</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#8FA06A' }} /> Good/Excellent (&gt;75)</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444' }} /> Critical (&lt;60)</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f97316' }} /> Fair (60-79)</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#8FA06A' }} /> Good (80-94)</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }} /> Excellent (95-100)</span>
           </div>
         </div>
 
-        {/* Right: Donut Distress Distribution */}
+        {/* Right: Leaflet Map GIS Card */}
+        <div className="premium-card analytics-gis-card">
+          <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '10px' }}>
+            <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Geographic Mapping Summary</h2>
+            <MapPin size={16} style={{ color: 'var(--accent-blue)' }} />
+          </div>
+
+          {mapCoordinatesExist ? (
+            <div className="analytics-map-wrapper">
+              <MapContainer center={mapCenter} zoom={11} style={{ width: '100%', height: '100%', zIndex: 1 }}>
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                />
+                {clusteredMarkers.map((cluster, i) => {
+                  if (cluster.count > 1) {
+                    const highestSeverity = cluster.items.reduce((max, item) => {
+                      const levels: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+                      return levels[item.severity.toLowerCase()] > levels[max.toLowerCase()] ? item.severity : max;
+                    }, 'low');
+                    
+                    const icon = createClusterIcon(cluster.count, highestSeverity);
+                    return (
+                      <Marker key={`cluster-${i}`} position={[cluster.lat, cluster.lng]} icon={icon}>
+                        <Popup>
+                          <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                            <strong>{cluster.count} Detections Clustered</strong>
+                            {cluster.items.map((item, idx) => {
+                              const vidName = videos.find(v => v.id === item.video_id)?.filename || 'Unknown Video';
+                              return (
+                                <div key={idx} style={{ marginTop: '8px', borderTop: '1px solid #eee', paddingTop: '4px', fontSize: '11px' }}>
+                                  <div><strong>Video:</strong> {vidName}</div>
+                                  <div><strong>Type:</strong> {item.distress_type.replace('_', ' ')}</div>
+                                  <div><strong>Severity:</strong> <span style={{ color: getSeverityColor(item.severity), fontWeight: 'bold' }}>{item.severity.toUpperCase()}</span></div>
+                                  <div><strong>Conf:</strong> {Math.round(item.confidence_score * 100)}%</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </Popup>
+                      </Marker>
+                    );
+                  } else {
+                    const d = cluster.items[0];
+                    const icon = createMarkerIcon(d.severity);
+                    const vidName = videos.find(v => v.id === d.video_id)?.filename || 'Unknown Video';
+                    
+                    const vidDists = distressLogs.filter(item => item.video_id === d.video_id);
+                    const penalty = vidDists.reduce((sum, item) => {
+                      const w = item.severity.toLowerCase() === 'critical' ? 5.0 : item.severity.toLowerCase() === 'high' ? 3.0 : item.severity.toLowerCase() === 'medium' ? 1.5 : 0.5;
+                      return sum + w;
+                    }, 0);
+                    const roadHealthScore = Math.max(0, 100 - penalty);
+                    
+                    return (
+                      <Marker key={`marker-${d.id}`} position={[d.latitude, d.longitude]} icon={icon}>
+                        <Popup>
+                          <div style={{ fontSize: '11px', lineHeight: '1.5' }}>
+                            <strong style={{ display: 'block', borderBottom: '1px solid #eee', paddingBottom: '4px', marginBottom: '4px' }}>Detection RD-{d.id}</strong>
+                            <div><strong>Video Name:</strong> {vidName}</div>
+                            <div><strong>Distress Type:</strong> {d.distress_type.replace('_', ' ')}</div>
+                            <div><strong>Severity:</strong> <span style={{ color: getSeverityColor(d.severity), fontWeight: 'bold' }}>{d.severity.toUpperCase()}</span></div>
+                            <div><strong>Road Health Score:</strong> {roadHealthScore}%</div>
+                            <div><strong>Confidence:</strong> {Math.round(d.confidence_score * 100)}%</div>
+                            <div><strong>Timestamp:</strong> {d.video_timestamp ? `${d.video_timestamp}s` : 'N/A'}</div>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    );
+                  }
+                })}
+              </MapContainer>
+            </div>
+          ) : (
+            <div className="analytics-map-wrapper" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f3f4f6', gap: '8px' }}>
+              <div style={{ fontSize: '32px' }}>🗺️</div>
+              <span style={{ color: 'var(--secondary-text)', fontSize: '13px' }}>Leaflet Map Data Unavailable</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Row 3: Donut Distress Classification & Severity stacked distribution */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: '24px' }}>
+        {/* Left: Donut Chart */}
         <div className="premium-card" ref={el => { chartRefs.current['donut'] = el; }}>
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '10px' }}>
-            <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Distress Classification Distribution</h2>
+            <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Distress Classification</h2>
             <div style={{ display: 'flex', gap: '6px' }}>
               <button onClick={() => exportChartAsPNG('donut')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Download size={12} /></button>
               <button onClick={() => setFullscreenChartId('donut')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Maximize2 size={12} /></button>
             </div>
           </div>
 
-          <div style={{ height: '180px' }}>
+          <div style={{ position: 'relative', height: '180px' }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -715,6 +957,8 @@ export default function AnalyticsDashboard() {
                   outerRadius={75}
                   paddingAngle={3}
                   dataKey="value"
+                  isAnimationActive={true}
+                  animationDuration={800}
                 >
                   {donutChartData.map((_, index) => (
                     <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
@@ -723,6 +967,10 @@ export default function AnalyticsDashboard() {
                 <Tooltip formatter={(value) => [`${value} detections (${totalDonutValues > 0 ? Math.round((Number(value) / totalDonutValues) * 100) : 0}%)`, 'Count']} />
               </PieChart>
             </ResponsiveContainer>
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none' }}>
+              <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--primary-text)' }}>{totalDonutValues}</div>
+              <div style={{ fontSize: '9px', color: 'var(--secondary-text)', textTransform: 'uppercase', fontWeight: 600 }}>Total</div>
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', fontSize: '10px', marginTop: '10px' }}>
@@ -734,11 +982,8 @@ export default function AnalyticsDashboard() {
             ))}
           </div>
         </div>
-      </div>
 
-      {/* Row 3: Severity Stacked Bar & Priority Horizontal Bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '24px' }}>
-        {/* Left: Severity Distribution */}
+        {/* Right: Severity distribution with rounded bars and totals above columns */}
         <div className="premium-card" ref={el => { chartRefs.current['severity'] = el; }}>
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '14px' }}>
             <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Severity Stacked Distribution</h2>
@@ -749,22 +994,29 @@ export default function AnalyticsDashboard() {
           </div>
           <div style={{ height: '240px' }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={severityChartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+              <BarChart data={severityChartData} margin={{ top: 20, right: 10, left: -25, bottom: 0 }} barSize={32}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
                 <XAxis dataKey="name" stroke="#94A3B8" fontSize={10} tickLine={false} />
                 <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
                 <Tooltip />
                 <Legend iconSize={10} fontSize={10} onClick={handleLegendClick} style={{ cursor: 'pointer' }} />
-                <Bar dataKey="critical" stackId="a" fill={SEVERITY_COLORS.critical} name="Critical" hide={hiddenSeverities['critical']} />
-                <Bar dataKey="high" stackId="a" fill={SEVERITY_COLORS.high} name="High" hide={hiddenSeverities['high']} />
-                <Bar dataKey="medium" stackId="a" fill={SEVERITY_COLORS.medium} name="Medium" hide={hiddenSeverities['medium']} />
-                <Bar dataKey="low" stackId="a" fill={SEVERITY_COLORS.low} name="Low" hide={hiddenSeverities['low']} />
+                <Bar dataKey="critical" stackId="a" fill={SEVERITY_COLORS.critical} name="Critical" hide={hiddenSeverities['critical']} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="high" stackId="a" fill={SEVERITY_COLORS.high} name="High" hide={hiddenSeverities['high']} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="medium" stackId="a" fill={SEVERITY_COLORS.medium} name="Medium" hide={hiddenSeverities['medium']} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="low" stackId="a" fill={SEVERITY_COLORS.low} name="Low" hide={hiddenSeverities['low']} radius={[4, 4, 0, 0]}>
+                  <LabelList dataKey={(data: any) => {
+                    return (data.critical || 0) + (data.high || 0) + (data.medium || 0) + (data.low || 0);
+                  }} position="top" style={{ fill: 'var(--primary-text)', fontSize: 10, fontWeight: 'bold' }} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
 
-        {/* Right: Priority Distribution Horizontal Bar Chart */}
+      {/* Row 4: Priority & Maintenance Costs charts */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '24px' }}>
+        {/* Left: Priority bar */}
         <div className="premium-card" ref={el => { chartRefs.current['priority'] = el; }}>
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '14px' }}>
             <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Priority Index Distribution</h2>
@@ -779,6 +1031,7 @@ export default function AnalyticsDashboard() {
                 data={priorityChartData} 
                 layout="vertical"
                 margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                barSize={24}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" horizontal={false} />
                 <XAxis type="number" stroke="#94A3B8" fontSize={10} tickLine={false} />
@@ -789,11 +1042,8 @@ export default function AnalyticsDashboard() {
             </ResponsiveContainer>
           </div>
         </div>
-      </div>
 
-      {/* Row 4: Maintenance Cost Analysis & Damage Area Scatter Plot */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '24px' }}>
-        {/* Left: Cost analysis by defect class */}
+        {/* Right: Cost analysis */}
         <div className="premium-card" ref={el => { chartRefs.current['cost'] = el; }}>
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '14px' }}>
             <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Maintenance Cost Analysis (₹ in Thousands)</h2>
@@ -802,54 +1052,26 @@ export default function AnalyticsDashboard() {
               <button onClick={() => setFullscreenChartId('cost')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Maximize2 size={12} /></button>
             </div>
           </div>
-          <div style={{ height: '250px' }}>
+          <div style={{ height: '240px' }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={costAnalysisData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+              <BarChart data={costAnalysisData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }} barSize={14}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
                 <XAxis dataKey="name" stroke="#94A3B8" fontSize={10} tickLine={false} />
                 <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
                 <Tooltip />
                 <Legend iconSize={10} fontSize={10} />
-                <Bar dataKey="estimated" fill="var(--accent-blue)" name="Estimated Cost" />
-                <Bar dataKey="average" fill="var(--success)" name="Average Cost" />
-                <Bar dataKey="highest" fill="var(--danger)" name="Highest Cost" />
+                <Bar dataKey="estimated" fill="var(--accent-blue)" name="Estimated Cost" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="average" fill="var(--success)" name="Average Cost" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="highest" fill="var(--danger)" name="Highest Cost" radius={[2, 2, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Right: Damage Scatter Plot */}
-        <div className="premium-card" ref={el => { chartRefs.current['scatter'] = el; }}>
-          <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '14px' }}>
-            <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Damage Area vs Health Impact Analysis</h2>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button onClick={() => exportChartAsPNG('scatter')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Download size={12} /></button>
-              <button onClick={() => setFullscreenChartId('scatter')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Maximize2 size={12} /></button>
-            </div>
-          </div>
-          <div style={{ height: '250px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                <CartesianGrid stroke="rgba(148, 163, 184, 0.05)" />
-                <XAxis type="number" dataKey="area" name="Damage Area" unit=" m²" stroke="#94A3B8" fontSize={10} />
-                <YAxis type="number" dataKey="impact" name="Health Penalty" unit=" pts" stroke="#94A3B8" fontSize={10} />
-                <ZAxis type="category" dataKey="severity" name="Severity" />
-                <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                <Scatter name="Detections" data={scatterPlotData} fill="var(--accent-blue)">
-                  {scatterPlotData.map((entry, index) => {
-                    const color = entry.severity.toLowerCase() === 'critical' ? SEVERITY_COLORS.critical : entry.severity.toLowerCase() === 'high' ? SEVERITY_COLORS.high : entry.severity.toLowerCase() === 'medium' ? SEVERITY_COLORS.medium : SEVERITY_COLORS.low;
-                    return <Cell key={`cell-${index}`} fill={color} />;
-                  })}
-                </Scatter>
-              </ScatterChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
 
-      {/* Row 5: Timeline trends & NVIDIA latency checks */}
+      {/* Row 5: Damage Scatter Plot & Latency line charts */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '24px' }}>
-        {/* Left: Timeline Trends */}
+        {/* Left: Timeline Trend line */}
         <div className="premium-card" ref={el => { chartRefs.current['timeline'] = el; }}>
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -887,106 +1109,79 @@ export default function AnalyticsDashboard() {
           </div>
         </div>
 
-        {/* Right: Processing benchmarks */}
-        <div className="premium-card" ref={el => { chartRefs.current['performance'] = el; }}>
+        {/* Right: Damage Scatter Plot */}
+        <div className="premium-card" ref={el => { chartRefs.current['scatter'] = el; }}>
           <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '14px' }}>
-            <h2 className="medium-section-title" style={{ fontSize: '15px' }}>AI Pipeline Processing Benchmarks (Secs)</h2>
+            <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Damage Area vs Health Impact Analysis</h2>
             <div style={{ display: 'flex', gap: '6px' }}>
-              <button onClick={() => exportChartAsPNG('performance')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Download size={12} /></button>
-              <button onClick={() => setFullscreenChartId('performance')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Maximize2 size={12} /></button>
+              <button onClick={() => exportChartAsPNG('scatter')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Download size={12} /></button>
+              <button onClick={() => setFullscreenChartId('scatter')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Maximize2 size={12} /></button>
             </div>
           </div>
-          {processingPerformanceData.length > 0 ? (
-            <div style={{ height: '240px' }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={processingPerformanceData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
-                  <XAxis dataKey="name" stroke="#94A3B8" fontSize={10} tickLine={false} />
-                  <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
-                  <Tooltip />
-                  <Legend iconSize={10} fontSize={10} />
-                  {availablePerformanceMetrics.includes('Processing Time') && (
-                    <Line type="monotone" dataKey="Processing Time" stroke="#8b5cf6" strokeWidth={2} name="Processing Time" />
-                  )}
-                  {availablePerformanceMetrics.includes('Frame Extraction Time') && (
-                    <Line type="monotone" dataKey="Frame Extraction Time" stroke="#eab308" strokeWidth={2} name="Frame Extraction Time" />
-                  )}
-                  {availablePerformanceMetrics.includes('Inference Time') && (
-                    <Line type="monotone" dataKey="Inference Time" stroke="#ef4444" strokeWidth={2} name="Inference Time" />
-                  )}
-                  {availablePerformanceMetrics.includes('Tracking Time') && (
-                    <Line type="monotone" dataKey="Tracking Time" stroke="#3b82f6" strokeWidth={2} name="Tracking Time" />
-                  )}
-                  {availablePerformanceMetrics.includes('Report Generation Time') && (
-                    <Line type="monotone" dataKey="Report Generation Time" stroke="#10b981" strokeWidth={2} name="Report Generation Time" />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '220px', color: 'var(--secondary-text)' }}>
-              Detailed run benchmarks are currently unavailable.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Row 6: Confidence Histogram & Geographics Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '24px' }}>
-        {/* Left: Confidence Histogram */}
-        <div className="premium-card" ref={el => { chartRefs.current['histogram'] = el; }}>
-          <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '14px' }}>
-            <h2 className="medium-section-title" style={{ fontSize: '15px' }}>AI Model Confidence Ranges Histogram</h2>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button onClick={() => exportChartAsPNG('histogram')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Download size={12} /></button>
-              <button onClick={() => setFullscreenChartId('histogram')} className="btn-control" style={{ padding: '4px 8px', fontSize: '10px', height: '24px' }}><Maximize2 size={12} /></button>
-            </div>
-          </div>
-          <div style={{ height: '220px' }}>
+          <div style={{ height: '240px' }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={confidenceHistogramData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
-                <XAxis dataKey="range" stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <Tooltip />
-                <Bar dataKey="detections" fill="var(--success)" radius={[4, 4, 0, 0]} name="Detections count" />
-              </BarChart>
+              <ScatterChart margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(148, 163, 184, 0.05)" />
+                <XAxis type="number" dataKey="area" name="Damage Area" unit=" m²" stroke="#94A3B8" fontSize={10} />
+                <YAxis type="number" dataKey="impact" name="Health Penalty" unit=" pts" stroke="#94A3B8" fontSize={10} />
+                <ZAxis type="category" dataKey="severity" name="Severity" />
+                <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                <Scatter name="Detections" data={scatterPlotData} fill="var(--accent-blue)">
+                  {scatterPlotData.map((entry, index) => {
+                    const color = entry.severity.toLowerCase() === 'critical' ? SEVERITY_COLORS.critical : entry.severity.toLowerCase() === 'high' ? SEVERITY_COLORS.high : entry.severity.toLowerCase() === 'medium' ? SEVERITY_COLORS.medium : SEVERITY_COLORS.low;
+                    return <Cell key={`cell-${index}`} fill={color} />;
+                  })}
+                </Scatter>
+              </ScatterChart>
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
 
-        {/* Right: Geographic summary card */}
-        <div className="premium-card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="card-header-with-actions" style={{ borderBottom: 'none', marginBottom: '14px' }}>
-            <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Geographic Mapping Summary</h2>
-            <MapPin size={16} style={{ color: 'var(--accent-blue)' }} />
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, justifyContent: 'center' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--card-border)', paddingBottom: '8px' }}>
-              <span style={{ color: 'var(--secondary-text)' }}>Flagged Coordinates:</span>
-              <strong className="font-mono">{geoSummary.locationsCount} locations</strong>
-            </div>
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--card-border)', paddingBottom: '8px' }}>
-              <span style={{ color: 'var(--secondary-text)' }}>Average Severity Score:</span>
-              <strong className="font-mono">{geoSummary.avgSeverity} / 4.0</strong>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--card-border)', paddingBottom: '8px' }}>
-              <span style={{ color: 'var(--secondary-text)' }}>Most Affected Region:</span>
-              <strong className="text-danger">{geoSummary.mostAffected}</strong>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--card-border)', paddingBottom: '8px' }}>
-              <span style={{ color: 'var(--secondary-text)' }}>Segment Condition:</span>
-              <strong style={{ color: healthCondition.color }}>{healthCondition.label} ({kpis.healthScore} pts)</strong>
-            </div>
-          </div>
-
-          <button onClick={() => navigate('/gis-map')} className="btn-report-run font-semibold" style={{ width: '100%', height: '36px', marginTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            Open Interactive GIS Map
-          </button>
+      {/* Row 6: Recent Inspection Table Registry */}
+      <div className="premium-card inspections-table-card">
+        <div className="card-header-with-actions" style={{ borderBottom: '1px solid var(--card-border)', paddingBottom: '12px', marginBottom: '8px' }}>
+          <h2 className="medium-section-title" style={{ fontSize: '15px' }}>Surveillance Run Inspections Registry</h2>
+        </div>
+        <div className="table-responsive">
+          <table className="enterprise-table">
+            <thead>
+              <tr>
+                <th>Video Run</th>
+                <th>Status</th>
+                <th>Road Health</th>
+                <th>Distresses</th>
+                <th>Upload Date</th>
+                {showDurationColumn && <th>Duration</th>}
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.map(row => (
+                <tr key={row.id}>
+                  <td className="font-semibold">{row.filename}</td>
+                  <td>
+                    <span className={`status-pill status-pill--${row.processing_status.toLowerCase()}`}>
+                      {row.processing_status}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="font-mono font-bold" style={{ color: row.healthScore >= 75 ? 'var(--success)' : 'var(--danger)' }}>
+                      {row.healthScore}%
+                    </span>
+                  </td>
+                  <td className="font-mono">{row.distressCount}</td>
+                  <td>{new Date(row.upload_timestamp).toLocaleDateString('en-IN')}</td>
+                  {showDurationColumn && <td>{row.processing_duration ? `${row.processing_duration}s` : 'N/A'}</td>}
+                  <td style={{ textAlign: 'right' }}>
+                    <button onClick={() => navigate(`/inspection/${row.id}`)} className="btn-view-feed font-semibold" style={{ fontSize: '11px', padding: '4px 10px' }}>
+                      Analyze
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -1030,7 +1225,7 @@ export default function AnalyticsDashboard() {
           </div>
         </div>
 
-        {/* Right: Reports category counts */}
+        {/* Right: Reports Summary */}
         <div className="premium-card">
           <h2 className="medium-section-title" style={{ fontSize: '15px', marginBottom: '14px' }}>Exported Documents Archive</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>

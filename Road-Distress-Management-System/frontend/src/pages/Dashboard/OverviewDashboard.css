@@ -1,0 +1,221 @@
+.overview-dashboard {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.overview-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.overview-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--primary-text);
+  margin: 0;
+}
+
+.overview-subtitle {
+  font-size: 14px;
+  color: var(--secondary-text);
+  margin: 0;
+}
+
+/* KPI Cards Layout */
+.overview-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.overview-kpi-card {
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--card-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.overview-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0, 0, 0, 0.1));
+}
+
+.overview-kpi-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--secondary-text);
+}
+
+.overview-kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--primary-text);
+  font-family: monospace;
+}
+
+/* Main Content Grid */
+.overview-main-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 1024px) {
+  .overview-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.overview-section-card {
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--card-border, #e5e7eb);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.overview-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--primary-text);
+  margin: 0;
+}
+
+/* Recent Inspections Cards */
+.inspections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.inspection-item-card {
+  border: 1px solid var(--card-border, #e5e7eb);
+  border-radius: 10px;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr 1fr;
+  align-items: center;
+  gap: 12px;
+  transition: background-color 0.2s ease;
+}
+
+.inspection-item-card:hover {
+  background-color: var(--zebra-row, #faf8f2);
+}
+
+.inspection-name-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inspection-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-text);
+}
+
+.inspection-date {
+  font-size: 11px;
+  color: var(--secondary-text);
+}
+
+.inspection-badge-status {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  text-align: center;
+  display: inline-block;
+  width: fit-content;
+}
+
+.inspection-badge-status--completed {
+  background-color: var(--success-bg, #e8f5e9);
+  color: var(--success, #2e7d32);
+}
+
+.inspection-badge-status--processing {
+  background-color: #fff3e0;
+  color: #ef6c00;
+}
+
+.inspection-badge-status--pending {
+  background-color: #f3f4f6;
+  color: #6b7280;
+}
+
+.inspection-health {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+.inspection-distresses {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-text);
+}
+
+.btn-view-inspection {
+  background-color: var(--primary-btn, #6c7354);
+  color: #ffffff;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+  width: fit-content;
+}
+
+.btn-view-inspection:hover {
+  opacity: 0.9;
+}
+
+/* GIS Map Projection */
+.overview-gis-projection {
+  height: 250px;
+  position: relative;
+  background-color: #f3f4f6;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.overview-svg-projection {
+  width: 100%;
+  height: 100%;
+}
+
+.gis-pin-marker {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.gis-pin-marker:hover {
+  transform: scale(1.2);
+}
+
+/* Charts Grid */
+.overview-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 768px) {
+  .overview-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}

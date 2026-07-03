@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { useParams } from 'react-router-dom'
 import apiService from '../../services/api/apiService'
 import type { RoadDistressResponse } from '../../services/api/apiService'
 import DetectionTrendChart from './DetectionTrendChart'
@@ -18,6 +19,7 @@ interface ActiveOverlay {
 }
 
 export default function DashboardGrid() {
+  const { videoId } = useParams<{ videoId?: string }>();
   const [distresses, setDistresses] = useState<RoadDistressResponse[]>([]);
   const [reportsCount, setReportsCount] = useState<number>(0);
   
@@ -43,7 +45,9 @@ export default function DashboardGrid() {
     setError(null);
     try {
       const [distressLogs, reportsList] = await Promise.all([
-        apiService.getDistressLogs(0, 200),
+        videoId
+          ? apiService.getVideoDetections(Number(videoId))
+          : apiService.getDistressLogs(0, 200),
         apiService.getReports(0, 200)
       ]);
       setDistresses(distressLogs);
@@ -58,7 +62,7 @@ export default function DashboardGrid() {
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [videoId]);
 
   // Camera telemetries simulator
   useEffect(() => {

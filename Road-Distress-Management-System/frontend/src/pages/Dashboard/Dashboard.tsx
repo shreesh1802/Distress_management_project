@@ -1,5 +1,5 @@
 import DashboardGrid from "../../components/dashboard/DashboardGrid";
 
-export default function Dashboard() {
+export default function InspectionDashboard() {
   return <DashboardGrid />;
 }
