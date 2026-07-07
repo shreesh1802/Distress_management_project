@@ -50,130 +50,6 @@ const SEVERITY_MAP: Record<string, ReportItem['severity']> = {
   low: 'Low',
 };
 
-// Fallback Mock Data matching the interface
-const FALLBACK_MOCK_REPORTS: ReportItem[] = [
-  {
-    id: 'REP-Video_142_PDF',
-    roadId: 'NH-48',
-    district: 'Pune',
-    distressType: 'Pothole & Cracks',
-    severity: 'Critical',
-    generatedDate: '2026-07-01',
-    status: 'Exported',
-    filepath: 'static/reports/Video_142.pdf',
-    reportId: 201,
-    reportType: 'PDF',
-    size: '1.8 MB',
-    generatedBy: 'Rajesh Kulkarni',
-    downloadCount: 45
-  },
-  {
-    id: 'REP-Video_141_XLS',
-    roadId: 'NH-4',
-    district: 'Mumbai',
-    distressType: 'Alligator Cracks',
-    severity: 'High',
-    generatedDate: '2026-07-02',
-    status: 'Exported',
-    filepath: 'static/reports/Video_141.xls',
-    reportId: 202,
-    reportType: 'EXCEL',
-    size: '240 KB',
-    generatedBy: 'Suresh Patil',
-    downloadCount: 32
-  },
-  {
-    id: 'REP-Video_140_JSON',
-    roadId: 'SH-10',
-    district: 'Satara',
-    distressType: 'Rutting & Depressions',
-    severity: 'High',
-    generatedDate: '2026-06-28',
-    status: 'Approved',
-    filepath: undefined,
-    reportId: 203,
-    reportType: 'JSON',
-    size: '45 KB',
-    generatedBy: 'Vikram Jadhav',
-    downloadCount: 18
-  },
-  {
-    id: 'REP-Video_139_PDF',
-    roadId: 'NH-48',
-    district: 'Thane',
-    distressType: 'Edge Breaks',
-    severity: 'Medium',
-    generatedDate: '2026-06-25',
-    status: 'Approved',
-    filepath: undefined,
-    reportId: 204,
-    reportType: 'PDF',
-    size: '1.4 MB',
-    generatedBy: 'Pradeep More',
-    downloadCount: 22
-  },
-  {
-    id: 'REP-Video_138_JSON',
-    roadId: 'NH-44',
-    district: 'Nagpur',
-    distressType: 'Patch Failures',
-    severity: 'Medium',
-    generatedDate: '2026-06-20',
-    status: 'Exported',
-    filepath: 'static/reports/Video_138.json',
-    reportId: 205,
-    reportType: 'JSON',
-    size: '38 KB',
-    generatedBy: 'Sanjay Bhosale',
-    downloadCount: 15
-  },
-  {
-    id: 'REP-Video_137_PDF',
-    roadId: 'NH-4',
-    district: 'Mumbai',
-    distressType: 'Pothole Aggregates',
-    severity: 'Critical',
-    generatedDate: '2026-07-02',
-    status: 'Approved',
-    filepath: undefined,
-    reportId: 206,
-    reportType: 'PDF',
-    size: '1.9 MB',
-    generatedBy: 'Amit Deshmukh',
-    downloadCount: 50
-  },
-  {
-    id: 'REP-Video_136_XLS',
-    roadId: 'SH-10',
-    district: 'Satara',
-    distressType: 'Longitudinal Cracking',
-    severity: 'Low',
-    generatedDate: '2026-06-15',
-    status: 'Exported',
-    filepath: 'static/reports/Video_136.xls',
-    reportId: 207,
-    reportType: 'EXCEL',
-    size: '190 KB',
-    generatedBy: 'Vikram Jadhav',
-    downloadCount: 8
-  },
-  {
-    id: 'REP-Video_135_JSON',
-    roadId: 'NH-48',
-    district: 'Pune',
-    distressType: 'Surface Raveling',
-    severity: 'Low',
-    generatedDate: '2026-06-12',
-    status: 'Approved',
-    filepath: undefined,
-    reportId: 208,
-    reportType: 'JSON',
-    size: '30 KB',
-    generatedBy: 'Rajesh Kulkarni',
-    downloadCount: 12
-  }
-];
-
 export default function ReportsDashboard() {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [videos, setVideos] = useState<any[]>([]);
@@ -279,17 +155,12 @@ export default function ReportsDashboard() {
         };
       });
 
-      // Fallback if DB is empty
-      if (mappedReports.length === 0) {
-        setReports(FALLBACK_MOCK_REPORTS);
-      } else {
-        setReports(mappedReports);
-      }
+      setReports(mappedReports);
       setError(null);
     } catch (err) {
       console.error("Failed to load reports database:", err);
-      setError("Failed to load reports registry. Loading client fallback cache.");
-      setReports(FALLBACK_MOCK_REPORTS);
+      setError("Failed to load reports registry. Verify server status.");
+      setReports([]);
     } finally {
       setIsLoading(false);
     }

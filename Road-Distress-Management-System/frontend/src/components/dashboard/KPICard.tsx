@@ -42,29 +42,6 @@ export default function KPICard({
       </div>
       
       <p className="kpi-value-num">{value}</p>
-      
-      <div className="kpi-card-footer">
-        <div className="kpi-trend-group">
-          <span className={`trend-icon-arrow ${isPositive ? 'text-success' : 'text-danger'}`}>
-            {isPositive ? '↑' : '↓'}
-          </span>
-          <span className={`trend-badge-text ${isPositive ? 'text-success font-semibold' : 'text-danger font-semibold'}`}>
-            {trend.replace(/[+-]/g, '')}
-          </span>
-          <span className="comparison-lbl">{comparison}</span>
-        </div>
-
-        <div className="kpi-sparkline" aria-hidden="true">
-          <svg width="60" height="24">
-            <polyline
-              fill="none"
-              stroke={isPositive ? 'var(--success)' : 'var(--danger)'}
-              strokeWidth="1.8"
-              points={points}
-            />
-          </svg>
-        </div>
-      </div>
     </article>
   )
 }

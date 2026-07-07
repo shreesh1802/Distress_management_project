@@ -159,22 +159,7 @@ export default function Sidebar() {
         </ul>
       </nav>
 
-      {/* Storage card styled matching dark theme */}
-      {!isCollapsed && (
-        <div className="sidebar-rebuilt-storage-card">
-          <div className="sidebar-rebuilt-storage-card__header">
-            <HardDrive size={13} style={{ color: '#4F8EF7' }} />
-            <span>GIS Storage Capacity</span>
-          </div>
-          <div className="sidebar-rebuilt-storage-card__track">
-            <div className="sidebar-rebuilt-storage-card__fill" style={{ width: '78.4%' }}></div>
-          </div>
-          <div className="sidebar-rebuilt-storage-card__labels">
-            <span>78.4 GB occupied</span>
-            <span>100 GB</span>
-          </div>
-        </div>
-      )}
+
 
       {/* Profile Card & Logout Footer */}
       <div className="sidebar-rebuilt__footer">

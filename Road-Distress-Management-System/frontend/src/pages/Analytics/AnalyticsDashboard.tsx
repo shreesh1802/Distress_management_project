@@ -198,9 +198,10 @@ export default function AnalyticsDashboard() {
 
     // Inference processing averages
     const completedVideos = videos.filter(v => v.processing_status === 'completed');
-    const totalDuration = completedVideos.reduce((sum, v) => sum + (v.created_at ? 32 : 0), 0); // fallback mock duration in secs
-    const avgProcTime = totalVideos > 0 
-      ? `${(totalDuration / Math.max(1, completedVideos.length) || 12).toFixed(1)}s` 
+    const completedWithDuration = completedVideos.filter(v => (v as any).processing_duration !== undefined && (v as any).processing_duration !== null);
+    const totalDuration = completedWithDuration.reduce((sum, v) => sum + ((v as any).processing_duration || 0), 0);
+    const avgProcTime = completedWithDuration.length > 0 
+      ? `${(totalDuration / completedWithDuration.length).toFixed(1)}s` 
       : 'Not Available';
 
     // Confidence index
@@ -250,14 +251,7 @@ export default function AnalyticsDashboard() {
       value: counts[key]
     }));
 
-    return data.length > 0 ? data : [
-      { name: 'Pothole', value: 45 },
-      { name: 'Longitudinal Crack', value: 30 },
-      { name: 'Transverse Crack', value: 20 },
-      { name: 'Alligator Crack', value: 25 },
-      { name: 'Rutting', value: 15 },
-      { name: 'Raveling', value: 10 }
-    ];
+    return data;
   }, [distressLogs]);
 
   const totalDonutValues = useMemo(() => donutChartData.reduce((sum, item) => sum + item.value, 0), [donutChartData]);
@@ -283,11 +277,7 @@ export default function AnalyticsDashboard() {
       ...videoMap[name]
     })).slice(0, 6);
 
-    return data.length > 0 ? data : [
-      { name: 'Run #88', critical: 10, high: 24, medium: 32, low: 45 },
-      { name: 'Run #89', critical: 5, high: 18, medium: 28, low: 39 },
-      { name: 'Run #90', critical: 12, high: 30, medium: 44, low: 52 }
-    ];
+    return data;
   }, [distressLogs]);
 
   // 6. Horizontal Bar Chart Data (Priority groups)
@@ -341,12 +331,7 @@ export default function AnalyticsDashboard() {
       highest: Math.round(classStats[key].max / 1000)
     }));
 
-    return data.length > 0 ? data : [
-      { name: 'Pothole', estimated: 120, average: 40, highest: 95 },
-      { name: 'Alligator Crack', estimated: 80, average: 25, highest: 65 },
-      { name: 'Longitudinal Crack', estimated: 60, average: 20, highest: 45 },
-      { name: 'Rutting', estimated: 90, average: 30, highest: 80 }
-    ];
+    return data;
   }, [maintenanceTasks, distressLogs]);
 
   // 8. Time Trend chart data
@@ -463,11 +448,7 @@ export default function AnalyticsDashboard() {
       };
     }).slice(0, 40); // cap plot points
 
-    return data.length > 0 ? data : [
-      { area: 0.12, impact: 1.5, severity: 'medium', name: 'pothole' },
-      { area: 0.45, impact: 5.0, severity: 'critical', name: 'pothole' },
-      { area: 0.08, impact: 0.5, severity: 'low', name: 'longitudinal_crack' }
-    ];
+    return data;
   }, [distressLogs]);
 
   // 12. Leaflet Map Clustering & centering
@@ -946,41 +927,49 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
 
-          <div style={{ position: 'relative', height: '180px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={donutChartData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={75}
-                  paddingAngle={3}
-                  dataKey="value"
-                  isAnimationActive={true}
-                  animationDuration={800}
-                >
-                  {donutChartData.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => [`${value} detections (${totalDonutValues > 0 ? Math.round((Number(value) / totalDonutValues) * 100) : 0}%)`, 'Count']} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none' }}>
-              <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--primary-text)' }}>{totalDonutValues}</div>
-              <div style={{ fontSize: '9px', color: 'var(--secondary-text)', textTransform: 'uppercase', fontWeight: 600 }}>Total</div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', fontSize: '10px', marginTop: '10px' }}>
-            {donutChartData.map((e, idx) => (
-              <div key={e.name} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: CHART_COLORS[idx % CHART_COLORS.length] }} />
-                <span style={{ color: 'var(--secondary-text)' }}>{e.name}: <strong>{e.value}</strong></span>
+          {donutChartData.length > 0 ? (
+            <>
+              <div style={{ position: 'relative', height: '180px' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={donutChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={75}
+                      paddingAngle={3}
+                      dataKey="value"
+                      isAnimationActive={true}
+                      animationDuration={800}
+                    >
+                      {donutChartData.map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value) => [`${value} detections (${totalDonutValues > 0 ? Math.round((Number(value) / totalDonutValues) * 100) : 0}%)`, 'Count']} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none' }}>
+                  <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--primary-text)' }}>{totalDonutValues}</div>
+                  <div style={{ fontSize: '9px', color: 'var(--secondary-text)', textTransform: 'uppercase', fontWeight: 600 }}>Total</div>
+                </div>
               </div>
-            ))}
-          </div>
+
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', fontSize: '10px', marginTop: '10px' }}>
+                {donutChartData.map((e, idx) => (
+                  <div key={e.name} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: CHART_COLORS[idx % CHART_COLORS.length] }} />
+                    <span style={{ color: 'var(--secondary-text)' }}>{e.name}: <strong>{e.value}</strong></span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '220px', color: 'var(--secondary-text)', fontSize: '13px' }}>
+              No data available
+            </div>
+          )}
         </div>
 
         {/* Right: Severity distribution with rounded bars and totals above columns */}
@@ -993,23 +982,29 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
           <div style={{ height: '240px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={severityChartData} margin={{ top: 20, right: 10, left: -25, bottom: 0 }} barSize={32}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
-                <XAxis dataKey="name" stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <Tooltip />
-                <Legend iconSize={10} fontSize={10} onClick={handleLegendClick} style={{ cursor: 'pointer' }} />
-                <Bar dataKey="critical" stackId="a" fill={SEVERITY_COLORS.critical} name="Critical" hide={hiddenSeverities['critical']} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="high" stackId="a" fill={SEVERITY_COLORS.high} name="High" hide={hiddenSeverities['high']} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="medium" stackId="a" fill={SEVERITY_COLORS.medium} name="Medium" hide={hiddenSeverities['medium']} radius={[4, 4, 0, 0]} />
-                <Bar dataKey="low" stackId="a" fill={SEVERITY_COLORS.low} name="Low" hide={hiddenSeverities['low']} radius={[4, 4, 0, 0]}>
-                  <LabelList dataKey={(data: any) => {
-                    return (data.critical || 0) + (data.high || 0) + (data.medium || 0) + (data.low || 0);
-                  }} position="top" style={{ fill: 'var(--primary-text)', fontSize: 10, fontWeight: 'bold' }} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {severityChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={severityChartData} margin={{ top: 20, right: 10, left: -25, bottom: 0 }} barSize={32}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
+                  <XAxis dataKey="name" stroke="#94A3B8" fontSize={10} tickLine={false} />
+                  <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
+                  <Tooltip />
+                  <Legend iconSize={10} fontSize={10} onClick={handleLegendClick} style={{ cursor: 'pointer' }} />
+                  <Bar dataKey="critical" stackId="a" fill={SEVERITY_COLORS.critical} name="Critical" hide={hiddenSeverities['critical']} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="high" stackId="a" fill={SEVERITY_COLORS.high} name="High" hide={hiddenSeverities['high']} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="medium" stackId="a" fill={SEVERITY_COLORS.medium} name="Medium" hide={hiddenSeverities['medium']} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="low" stackId="a" fill={SEVERITY_COLORS.low} name="Low" hide={hiddenSeverities['low']} radius={[4, 4, 0, 0]}>
+                    <LabelList dataKey={(data: any) => {
+                      return (data.critical || 0) + (data.high || 0) + (data.medium || 0) + (data.low || 0);
+                    }} position="top" style={{ fill: 'var(--primary-text)', fontSize: 10, fontWeight: 'bold' }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--secondary-text)', fontSize: '13px' }}>
+                No data available
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1026,20 +1021,26 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
           <div style={{ height: '240px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
-                data={priorityChartData} 
-                layout="vertical"
-                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                barSize={24}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" horizontal={false} />
-                <XAxis type="number" stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <YAxis dataKey="name" type="category" stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <Tooltip />
-                <Bar dataKey="count" fill="var(--accent-blue)" radius={[0, 4, 4, 0]} name="Work Orders" />
-              </BarChart>
-            </ResponsiveContainer>
+            {priorityChartData.some(p => p.count > 0) ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart 
+                  data={priorityChartData} 
+                  layout="vertical"
+                  margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  barSize={24}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" horizontal={false} />
+                  <XAxis type="number" stroke="#94A3B8" fontSize={10} tickLine={false} />
+                  <YAxis dataKey="name" type="category" stroke="#94A3B8" fontSize={10} tickLine={false} />
+                  <Tooltip />
+                  <Bar dataKey="count" fill="var(--accent-blue)" radius={[0, 4, 4, 0]} name="Work Orders" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--secondary-text)', fontSize: '13px' }}>
+                No data available
+              </div>
+            )}
           </div>
         </div>
 
@@ -1053,18 +1054,24 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
           <div style={{ height: '240px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={costAnalysisData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }} barSize={14}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
-                <XAxis dataKey="name" stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <Tooltip />
-                <Legend iconSize={10} fontSize={10} />
-                <Bar dataKey="estimated" fill="var(--accent-blue)" name="Estimated Cost" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="average" fill="var(--success)" name="Average Cost" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="highest" fill="var(--danger)" name="Highest Cost" radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {costAnalysisData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={costAnalysisData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }} barSize={14}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
+                  <XAxis dataKey="name" stroke="#94A3B8" fontSize={10} tickLine={false} />
+                  <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
+                  <Tooltip />
+                  <Legend iconSize={10} fontSize={10} />
+                  <Bar dataKey="estimated" fill="var(--accent-blue)" name="Estimated Cost" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="average" fill="var(--success)" name="Average Cost" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="highest" fill="var(--danger)" name="Highest Cost" radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--secondary-text)', fontSize: '13px' }}>
+                No data available
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1097,15 +1104,21 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
           <div style={{ height: '240px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={timelineChartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
-                <XAxis dataKey="label" stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
-                <Tooltip />
-                <Line type="monotone" dataKey="detections" stroke="var(--accent-blue)" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Detections" />
-              </LineChart>
-            </ResponsiveContainer>
+            {timelineChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={timelineChartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.05)" />
+                  <XAxis dataKey="label" stroke="#94A3B8" fontSize={10} tickLine={false} />
+                  <YAxis stroke="#94A3B8" fontSize={10} tickLine={false} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="detections" stroke="var(--accent-blue)" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Detections" />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--secondary-text)', fontSize: '13px' }}>
+                No data available
+              </div>
+            )}
           </div>
         </div>
 
@@ -1119,21 +1132,27 @@ export default function AnalyticsDashboard() {
             </div>
           </div>
           <div style={{ height: '240px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                <CartesianGrid stroke="rgba(148, 163, 184, 0.05)" />
-                <XAxis type="number" dataKey="area" name="Damage Area" unit=" m²" stroke="#94A3B8" fontSize={10} />
-                <YAxis type="number" dataKey="impact" name="Health Penalty" unit=" pts" stroke="#94A3B8" fontSize={10} />
-                <ZAxis type="category" dataKey="severity" name="Severity" />
-                <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                <Scatter name="Detections" data={scatterPlotData} fill="var(--accent-blue)">
-                  {scatterPlotData.map((entry, index) => {
-                    const color = entry.severity.toLowerCase() === 'critical' ? SEVERITY_COLORS.critical : entry.severity.toLowerCase() === 'high' ? SEVERITY_COLORS.high : entry.severity.toLowerCase() === 'medium' ? SEVERITY_COLORS.medium : SEVERITY_COLORS.low;
-                    return <Cell key={`cell-${index}`} fill={color} />;
-                  })}
-                </Scatter>
-              </ScatterChart>
-            </ResponsiveContainer>
+            {scatterPlotData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                  <CartesianGrid stroke="rgba(148, 163, 184, 0.05)" />
+                  <XAxis type="number" dataKey="area" name="Damage Area" unit=" m²" stroke="#94A3B8" fontSize={10} />
+                  <YAxis type="number" dataKey="impact" name="Health Penalty" unit=" pts" stroke="#94A3B8" fontSize={10} />
+                  <ZAxis type="category" dataKey="severity" name="Severity" />
+                  <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                  <Scatter name="Detections" data={scatterPlotData} fill="var(--accent-blue)">
+                    {scatterPlotData.map((entry, index) => {
+                      const color = entry.severity.toLowerCase() === 'critical' ? SEVERITY_COLORS.critical : entry.severity.toLowerCase() === 'high' ? SEVERITY_COLORS.high : entry.severity.toLowerCase() === 'medium' ? SEVERITY_COLORS.medium : SEVERITY_COLORS.low;
+                      return <Cell key={`cell-${index}`} fill={color} />;
+                    })}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--secondary-text)', fontSize: '13px' }}>
+                No data available
+              </div>
+            )}
           </div>
         </div>
       </div>

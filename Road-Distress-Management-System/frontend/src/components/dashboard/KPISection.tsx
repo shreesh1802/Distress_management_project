@@ -1,4 +1,4 @@
-import { Navigation, Film, Activity, ShieldAlert, AlertTriangle, Cpu, Clock, FileText } from 'lucide-react'
+import { Film, ShieldAlert, AlertTriangle, FileText } from 'lucide-react'
 import KPICard from './KPICard'
 
 type KPISectionProps = {
@@ -17,15 +17,6 @@ export default function KPISection({
 
   const kpiItems = [
     {
-      title: 'Roads Scanned',
-      value: '12,450 km',
-      icon: <Navigation size={18} />,
-      trend: '+1.8%',
-      isPositive: true,
-      sparklineData: [12000, 12100, 12300, 12400, 12450],
-      comparison: 'vs yesterday',
-    },
-    {
       title: 'Videos Uploaded',
       value: '42',
       icon: <Film size={18} />,
@@ -33,15 +24,6 @@ export default function KPISection({
       isPositive: true,
       sparklineData: [30, 32, 35, 38, 40, 42],
       comparison: 'vs last week',
-    },
-    {
-      title: 'Processing Queue',
-      value: pendingCount || 2,
-      icon: <Activity size={18} />,
-      trend: '-50%',
-      isPositive: true,
-      sparklineData: [6, 5, 4, 3, 2, 2],
-      comparison: 'vs yesterday',
     },
     {
       title: 'Total Distresses',
@@ -59,24 +41,6 @@ export default function KPISection({
       trend: '+0%',
       isPositive: true,
       sparklineData: [12, 12, 12, 12, 12],
-      comparison: 'vs yesterday',
-    },
-    {
-      title: 'YOLO Accuracy',
-      value: '94.2%',
-      icon: <Cpu size={18} />,
-      trend: '+0.4%',
-      isPositive: true,
-      sparklineData: [93.5, 93.8, 94.0, 94.1, 94.2],
-      comparison: 'vs last model build',
-    },
-    {
-      title: 'Avg Processing Time',
-      value: '1.8 min',
-      icon: <Clock size={18} />,
-      trend: '-14%',
-      isPositive: true,
-      sparklineData: [2.1, 2.0, 1.9, 1.8, 1.8],
       comparison: 'vs yesterday',
     },
     {

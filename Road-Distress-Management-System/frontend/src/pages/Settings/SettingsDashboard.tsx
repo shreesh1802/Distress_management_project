@@ -6,7 +6,6 @@ import {
   Lock,
   Sliders,
   Palette,
-  Cpu,
   Save,
   CheckCircle,
   Key,
@@ -18,11 +17,7 @@ import {
   RotateCcw,
   Smartphone,
   ShieldCheck,
-  Globe,
-  ArrowUpRight,
   Settings as SettingsIcon,
-  BookOpen,
-  HelpCircle,
   UserCheck,
   Moon,
   ToggleLeft,
@@ -469,7 +464,7 @@ export default function SettingsDashboard() {
           <div>
             <h1 className="bold-page-title">Settings</h1>
             <p className="light-secondary-text">
-              Manage your RoadVision AI account, application preferences, security, notifications, and system configuration.
+              Manage your account, application preferences, security, notifications, and system configuration.
             </p>
           </div>
         </div>
@@ -591,8 +586,7 @@ export default function SettingsDashboard() {
               { id: 'security', title: 'Security Control', icon: <Lock size={16} /> },
               { id: 'preferences', title: 'System Preferences', icon: <Sliders size={16} /> },
               { id: 'appearance', title: 'Theme & Appearance', icon: <Palette size={16} /> },
-              { id: 'status', title: 'System Engine Health', icon: <Server size={16} /> },
-              { id: 'about', title: 'About RoadVision', icon: <Cpu size={16} /> }
+              { id: 'status', title: 'System Engine Health', icon: <Server size={16} /> }
             ].map(sec => (
               <button
                 key={sec.id}
@@ -1304,77 +1298,7 @@ export default function SettingsDashboard() {
             </div>
           </section>
 
-          {/* SECTION 8: ABOUT SYSTEM */}
-          <section id="about" className="settings-card premium-card">
-            <header className="settings-card__header">
-              <span className="settings-card__icon" style={{ backgroundColor: 'rgba(139,92,246,0.1)', color: '#8B5CF6' }}>
-                <Cpu size={18} />
-              </span>
-              <h2 className="medium-section-title">About RoadVision AI</h2>
-            </header>
 
-            <div className="settings-card__body">
-              <div className="about-details-layout">
-                {/* Meta details list */}
-                <div className="about-info-grid">
-                  <div className="about-field">
-                    <span className="lbl">Core Framework Version</span>
-                    <span className="val font-mono">{systemInfo.version}</span>
-                  </div>
-                  <div className="about-field">
-                    <span className="lbl">Build Tag Number</span>
-                    <span className="val font-mono">{systemInfo.buildDate}</span>
-                  </div>
-                  <div className="about-field">
-                    <span className="lbl">YOLO Model weight Tag</span>
-                    <span className="val font-mono">{systemInfo.yoloModel}</span>
-                  </div>
-                  <div className="about-field">
-                    <span className="lbl">Database driver index</span>
-                    <span className="val font-mono">v4.2.1-psycopg2</span>
-                  </div>
-                  <div className="about-field">
-                    <span className="lbl">Platform License</span>
-                    <span className="val">MIT Enterprise Agreement</span>
-                  </div>
-                  <div className="about-field">
-                    <span className="lbl">Lead Developer team</span>
-                    <span className="val">Google DeepMind - advanced agents</span>
-                  </div>
-                </div>
-
-                {/* External links panel */}
-                <div className="about-links-grid">
-                  <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="about-link-box">
-                    <Globe size={18} />
-                    <div>
-                      <span className="link-title font-semibold">GitHub Source Repository</span>
-                      <span className="link-url">github.com/roadvision-ai</span>
-                    </div>
-                    <ArrowUpRight size={14} className="link-arrow" />
-                  </a>
-
-                  <a href="https://docs.example.com" target="_blank" rel="noopener noreferrer" className="about-link-box">
-                    <BookOpen size={18} />
-                    <div>
-                      <span className="link-title font-semibold">API Documentation Manual</span>
-                      <span className="link-url">docs.roadvision-ai.org</span>
-                    </div>
-                    <ArrowUpRight size={14} className="link-arrow" />
-                  </a>
-
-                  <a href="https://support.example.com" target="_blank" rel="noopener noreferrer" className="about-link-box">
-                    <HelpCircle size={18} />
-                    <div>
-                      <span className="link-title font-semibold">Developer Technical Helpdesk</span>
-                      <span className="link-url">support.roadvision-ai.com</span>
-                    </div>
-                    <ArrowUpRight size={14} className="link-arrow" />
-                  </a>
-                </div>
-              </div>
-            </div>
-          </section>
 
         </main>
       </div>

@@ -22,7 +22,7 @@ export interface DistressDistributionChartProps {
 const COLORS = ['#C45C45', '#D6A23A', '#C87B35', '#8FA06A', '#6B88C7'];
 
 function DistressDistributionChart({ data }: DistressDistributionChartProps) {
-  const { chartData, totalCount } = useMemo(() => {
+  const { chartData, totalCount, hasData } = useMemo(() => {
     // Dynamic grouping based on distress_type strings
     const counts: Record<string, number> = {
       'Potholes': 0,
@@ -58,22 +58,24 @@ function DistressDistributionChart({ data }: DistressDistributionChartProps) {
     const activeItems = items.filter(item => item.value > 0);
     const hasData = activeItems.length > 0;
     
-    // Fallback counts matching the mock image if backend contains no distress logs
-    const finalItems = hasData ? activeItems : [
-      { name: 'Potholes', value: 473, color: COLORS[0] },
-      { name: 'Cracks', value: 398, color: COLORS[1] },
-      { name: 'Alligator Cracks', value: 199, color: COLORS[2] },
-      { name: 'Rutting', value: 112, color: COLORS[3] },
-      { name: 'Others', value: 63, color: COLORS[4] }
-    ];
+    const finalItems = activeItems;
 
     const total = finalItems.reduce((sum, item) => sum + item.value, 0);
 
     return {
       chartData: finalItems,
-      totalCount: total
+      totalCount: total,
+      hasData
     };
   }, [data]);
+
+  if (!hasData) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '220px', color: 'var(--secondary-text)', fontSize: '13px' }}>
+        No data available
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '220px' }}>

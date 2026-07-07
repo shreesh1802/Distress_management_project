@@ -1,35 +1,35 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 :root {
-  /* Master Color Palette - Warm Ivory enterprise theme */
-  --primary-bg: #F7F5EF; /* Background */
+  /* Master Color Palette - Light Gray & Crisp White theme */
+  --primary-bg: #F4F6F8; /* Background */
   --card-bg: #FFFFFF;    /* Cards */
-  --card-border: #E8E4DA; /* Borders */
+  --card-border: #E5E7EB; /* Borders */
   
-  /* Sidebar Variables - Warm Olive Green Theme */
-  --sidebar-bg: #3E4331;
-  --sidebar-selected: #808565;
-  --sidebar-hover: #565E47;
-  --sidebar-text: #ECE9DD;
-  --sidebar-text-secondary: #C9C7BA;
+  /* Sidebar Variables - Professional Blue Gradient Theme */
+  --sidebar-bg: linear-gradient(to bottom, #0B4F9C, #1565C0, #1E88E5);
+  --sidebar-selected: rgba(255, 255, 255, 0.2);
+  --sidebar-hover: rgba(255, 255, 255, 0.12);
+  --sidebar-text: #FFFFFF;
+  --sidebar-text-secondary: #E5E7EB;
   
-  --primary-text: #4B4B4B;
-  --secondary-text: #9A998F;
+  --primary-text: #111827;
+  --secondary-text: #4B5563;
   
-  --accent-blue: #6B88C7; /* Info */
-  --accent-blue-hover: #5A77B6;
-  --accent-blue-light: rgba(107, 136, 199, 0.08);
+  --accent-blue: #1565C0; /* Info */
+  --accent-blue-hover: #0B4F9C;
+  --accent-blue-light: rgba(21, 101, 192, 0.08);
   
-  --success: #8FA06A;
-  --success-light: rgba(143, 160, 106, 0.08);
+  --success: #10B981;
+  --success-light: rgba(16, 185, 129, 0.08);
   
-  --warning: #D6A23A;
-  --warning-light: rgba(214, 162, 58, 0.08);
+  --warning: #F59E0B;
+  --warning-light: rgba(245, 158, 11, 0.08);
   
-  --danger: #C45C45;
-  --danger-light: rgba(196, 92, 69, 0.08);
+  --danger: #EF4444;
+  --danger-light: rgba(239, 68, 68, 0.08);
   
-  --info: #6B88C7;
+  --info: #1565C0;
   
   /* Proportions, Shadows and Radii */
   --shadow: 0 4px 20px rgba(62, 67, 49, 0.03);
@@ -59,7 +59,7 @@
 body {
   font-family: var(--font-sans);
   background-color: var(--primary-bg);
-  color: var(--primary-text);
+  color: #374151;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
