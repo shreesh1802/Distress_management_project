@@ -53,6 +53,17 @@ export default function LiveMonitoringDashboard() {
   const [videoFile, setVideoFile] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeOverlay, setActiveOverlay] = useState<ActiveOverlay | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+
+  // Clean up Object URL to avoid memory leaks
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
 
   // Video Management System API state
   const [uploadedVideos, setUploadedVideos] = useState<UploadedVideoResponse[]>([]);
@@ -191,20 +202,45 @@ export default function LiveMonitoringDashboard() {
   }, []);
 
   const handleVideoUploadFile = async (file: File) => {
+    const allowedExtensions = ["mp4", "avi", "mov", "mkv"];
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!extension || !allowedExtensions.includes(extension)) {
+      setUploadError("Invalid video format. Supported formats: mp4, avi, mov, mkv.");
+      return;
+    }
+
     setIsUploading(true);
     setUploadError(null);
+    setUploadProgress(0);
+
+    // Revoke old URL if it exists
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
     try {
-      const res = await apiService.uploadVideo(file);
+      const res = await apiService.uploadVideo(file, undefined, (progressEvent) => {
+        if (progressEvent.total) {
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(progress);
+        }
+      });
       setUploadedVideos(prev => [res, ...prev]);
       setVideoFile(res.filename);
       setIsMonitoring(false);
       setActiveOverlay(null);
+
+      // Create local preview URL
+      const localUrl = URL.createObjectURL(file);
+      setPreviewUrl(localUrl);
+
       fetchVideos();
     } catch (err: any) {
       console.error(err);
       setUploadError(err.response?.data?.detail || "Failed to upload video file.");
     } finally {
       setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -256,6 +292,7 @@ export default function LiveMonitoringDashboard() {
       setUploadedVideos(prev => prev.filter(v => v.id !== id));
       if (videoFile && uploadedVideos.find(v => v.id === id)?.filename === videoFile) {
         setVideoFile(null);
+        setPreviewUrl(null);
         setIsMonitoring(false);
       }
     } catch (err: any) {
@@ -270,6 +307,7 @@ export default function LiveMonitoringDashboard() {
       return;
     }
     setVideoFile(video.filename);
+    setPreviewUrl(null);
     // Reset counters for new simulation run
     countersRef.current = {
       totalFrames: 0,
@@ -383,43 +421,56 @@ export default function LiveMonitoringDashboard() {
           <div className="feed-viewport-container">
             <div className="live-mon-video-card__viewport">
               {/* Perspective background simulated highway */}
-              <div className="live-mon-video-card__simulator-bg">
-                <div className="live-mon-video-card__road-perspective">
-                  
-                  {/* Scan line */}
-                  {isMonitoring && <div className="live-mon-video-card__scanner-line" />}
+              {isMonitoring && (
+                <div className="live-mon-video-card__simulator-bg">
+                  <div className="live-mon-video-card__road-perspective">
+                    
+                    {/* Scan line */}
+                    <div className="live-mon-video-card__scanner-line" />
 
-                  {/* Active detection overlay */}
-                  {isMonitoring && activeOverlay && (
-                    <div 
-                      className={`live-mon-video-card__bbox border-${activeOverlay.severity.toLowerCase()}`}
-                      style={{
-                        left: `${activeOverlay.x}%`,
-                        top: `${activeOverlay.y}%`,
-                        width: `${activeOverlay.w}px`,
-                        height: `${activeOverlay.h}px`
-                      }}
-                    >
-                      <span className={`live-mon-video-card__bbox-tag bg-${activeOverlay.severity.toLowerCase()}`}>
-                        {activeOverlay.type} ({activeOverlay.confidence}%)
-                      </span>
+                    {/* Active detection overlay */}
+                    {activeOverlay && (
+                      <div 
+                        className={`live-mon-video-card__bbox border-${activeOverlay.severity.toLowerCase()}`}
+                        style={{
+                          left: `${activeOverlay.x}%`,
+                          top: `${activeOverlay.y}%`,
+                          width: `${activeOverlay.w}px`,
+                          height: `${activeOverlay.h}px`
+                        }}
+                      >
+                        <span className={`live-mon-video-card__bbox-tag bg-${activeOverlay.severity.toLowerCase()}`}>
+                          {activeOverlay.type} ({activeOverlay.confidence}%)
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Telemetry HUD Grid overlays */}
+                    <div className="live-mon-video-card__hud-grid" />
+
+                    {/* Telemetry HUD indicators */}
+                    <div className="live-mon-video-card__hud-overlay">
+                      <span className="font-mono text-purple">CAMERA: CAM-04 / NH-48</span>
+                      <span className="font-mono text-amber">GPS: 18.7342, 73.4211</span>
+                      <span className="font-mono text-blue">YOLO CORE STABLE</span>
                     </div>
-                  )}
-
-                  {/* Telemetry HUD Grid overlays */}
-                  <div className="live-mon-video-card__hud-grid" />
-
-                  {/* Telemetry HUD indicators */}
-                  <div className="live-mon-video-card__hud-overlay">
-                    <span className="font-mono text-purple">CAMERA: CAM-04 / NH-48</span>
-                    <span className="font-mono text-amber">GPS: 18.7342, 73.4211</span>
-                    <span className="font-mono text-blue">YOLO CORE STABLE</span>
                   </div>
                 </div>
-              </div>
+              )}
+
+              {/* Video Preview Player */}
+              {!isMonitoring && previewUrl && (
+                <video 
+                  className="live-mon-video-card__video-element"
+                  src={previewUrl}
+                  controls
+                  playsInline
+                  style={{ width: "100%", height: "100%", objectFit: "contain", background: "#000", zIndex: 5 }}
+                />
+              )}
 
               {/* Offline Overlay HUD */}
-              {!isMonitoring && !videoFile && (
+              {!isMonitoring && !previewUrl && (
                 <div className="live-mon-video-card__empty-state">
                   <Radio className="live-mon-video-card__empty-icon animate-pulse" size={48} />
                   <h3>Surveillance Stream Offline</h3>
@@ -484,7 +535,7 @@ export default function LiveMonitoringDashboard() {
             <div className="controls-upload-group">
               <input 
                 type="file" 
-                accept="video/*" 
+                accept=".mp4,.avi,.mov,.mkv" 
                 ref={fileInputRef} 
                 onChange={handleFileChange} 
                 style={{ display: 'none' }} 
@@ -522,9 +573,30 @@ export default function LiveMonitoringDashboard() {
                 onClick={handleUploadClick}
               >
                 {isUploading ? (
-                  <div className="upload-loading-view">
+                  <div className="upload-loading-view" style={{ width: '100%' }}>
                     <Loader2 className="animate-spin text-purple" size={28} />
-                    <span>Syncing file metadata...</span>
+                    <span>Uploading Video... {uploadProgress}%</span>
+                    <div 
+                      className="upload-progress-bar-container" 
+                      style={{ 
+                        width: '100%', 
+                        height: '4px', 
+                        background: 'rgba(255,255,255,0.1)', 
+                        borderRadius: '2px', 
+                        marginTop: '8px', 
+                        overflow: 'hidden' 
+                      }}
+                    >
+                      <div 
+                        className="upload-progress-bar" 
+                        style={{ 
+                          width: `${uploadProgress}%`, 
+                          height: '100%', 
+                          background: '#8B5CF6', 
+                          transition: 'width 0.1s' 
+                        }} 
+                      />
+                    </div>
                   </div>
                 ) : (
                   <div className="upload-prompt-view">

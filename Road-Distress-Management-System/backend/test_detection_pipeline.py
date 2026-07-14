@@ -149,7 +149,7 @@ def run_tests() -> dict:
 
     # 3. Poll status until completed or failed
     try:
-        max_attempts = 15
+        max_attempts = 100
         current_attempt = 0
         is_completed = False
         processing_status = "pending"

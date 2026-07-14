@@ -153,7 +153,11 @@ export const apiService = {
   /**
    * Uploads a road surveillance video file to the server.
    */
-  uploadVideo: async (file: File, uploaderId?: number): Promise<UploadedVideoResponse> => {
+  uploadVideo: async (
+    file: File, 
+    uploaderId?: number,
+    onUploadProgress?: (progressEvent: any) => void
+  ): Promise<UploadedVideoResponse> => {
     const formData = new FormData();
     formData.append('file', file);
     if (uploaderId !== undefined) {
@@ -163,6 +167,7 @@ export const apiService = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      onUploadProgress,
     });
     return response.data;
   },

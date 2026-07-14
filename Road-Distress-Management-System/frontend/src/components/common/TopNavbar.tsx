@@ -149,7 +149,8 @@ export default function TopNavbar() {
                 type="button"
                 onClick={() => {
                   setDropdownOpen(false)
-                  alert('Logging out...')
+                  localStorage.removeItem("isAuthenticated")
+                  navigate("/login")
                 }}
               >
                 <LogOut size={14} className="top-navbar__menu-icon" />

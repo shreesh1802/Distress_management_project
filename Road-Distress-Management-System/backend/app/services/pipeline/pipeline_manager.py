@@ -59,7 +59,7 @@ def process_video(video_id: int) -> None:
         # 2. Extract frames
         logger.info("Stage: Frame Extraction Started")
         try:
-            frames = extract_frames(video_path=db_video.filepath, video_id=video_id, frame_interval=30, in_memory=True)
+            frames = extract_frames(video_path=db_video.filepath, video_id=video_id, frame_interval=1, in_memory=True)
             logger.info("Stage: Frame Extraction Completed")
             logger.info("Stage: Frames Extracted")
         except Exception as e:
@@ -197,10 +197,10 @@ def generate_processed_video(db: Session, video_id: int) -> str:
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     
     # Resolve directories - Save to uploads/processed/ as requested
-    processed_dir = os.path.join(base_dir, "uploads", "processed")
+    processed_dir = os.path.join(base_dir, "uploads", "processed", str(video_id))
     os.makedirs(processed_dir, exist_ok=True)
     
-    processed_filename = f"processed_video_{video_id}.mp4"
+    processed_filename = "processed_video.mp4"
     processed_filepath = os.path.join(processed_dir, processed_filename)
     relative_processed_path = os.path.relpath(processed_filepath, base_dir).replace("\\", "/")
     
