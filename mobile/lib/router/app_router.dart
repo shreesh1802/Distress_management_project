@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../data/auth_provider.dart';
 import '../screens/dashboard/dashboard_shell.dart';
+import '../screens/dashboard/overview_screen.dart';
 import '../screens/login/login_screen.dart';
 import '../screens/survey/survey_screen.dart';
 
@@ -15,6 +16,7 @@ class AppRoutes {
   static const login = '/login';
   static const survey = '/survey';
   static const dashboard = '/dashboard';
+  static const overview = '/overview';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -45,6 +47,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.dashboard,
         builder: (context, state) => const DashboardShell(),
+      ),
+      GoRoute(
+        path: AppRoutes.overview,
+        builder: (context, state) =>
+            const DashboardShell(child: OverviewScreen()),
       ),
     ],
   );

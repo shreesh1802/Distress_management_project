@@ -15,23 +15,52 @@ class DashboardShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: Stack(
         children: [
-          const DashboardSidebar(),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const DashboardTopNavbar(),
-                Expanded(
-                  child: ColoredBox(
-                    color: AppColors.primaryBg,
-                    child: child ?? const _DashboardContentPlaceholder(),
-                  ),
-                ),
-              ],
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/highway_background.png',
+              fit: BoxFit.cover,
             ),
+          ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.dashboardOverlayStart,
+                    AppColors.dashboardOverlayEnd,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const DashboardSidebar(),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const DashboardTopNavbar(),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(32),
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1600),
+                            child: child ?? const _DashboardContentPlaceholder(),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),

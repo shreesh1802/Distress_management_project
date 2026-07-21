@@ -42,7 +42,12 @@ class _DashboardSidebarState extends State<DashboardSidebar> {
   ];
 
   void _onNavTap(String path) {
-    final currentRoutes = {AppRoutes.login, AppRoutes.survey, AppRoutes.dashboard};
+    final currentRoutes = {
+      AppRoutes.login,
+      AppRoutes.survey,
+      AppRoutes.dashboard,
+      AppRoutes.overview,
+    };
     if (currentRoutes.contains(path)) {
       context.go(path);
     } else {

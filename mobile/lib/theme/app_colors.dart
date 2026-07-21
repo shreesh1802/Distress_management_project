@@ -47,4 +47,9 @@ class AppColors {
   static const loginOverlayEnd = Color(0xD90F417D); // rgba(15,65,125,0.85)
   static const glassCardFill = Color(0x14FFFFFF); // rgba(255,255,255,0.08)
   static const glassCardBorder = Color(0x2EFFFFFF); // rgba(255,255,255,0.18)
+
+  // DashboardLayout.css hero overlay on highway_background.png (lighter navy
+  // than the login/survey overlay, sits behind the sidebar/navbar/content).
+  static const dashboardOverlayStart = Color(0xC70F204A); // rgba(15,32,74,0.78)
+  static const dashboardOverlayEnd = Color(0xB816275A); // rgba(22,39,90,0.72)
 }
