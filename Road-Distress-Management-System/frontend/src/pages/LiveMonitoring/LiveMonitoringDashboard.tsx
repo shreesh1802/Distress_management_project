@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Play, 
   Square, 
-  Upload, 
   Maximize2, 
   Minimize2, 
   Radio, 
@@ -10,359 +9,154 @@ import {
   History, 
   Activity, 
   Check, 
-  Tv,
+  Tv, 
   Loader2,
-  Trash2,
-  Video,
-  RefreshCw,
-  Search,
   Cpu
 } from 'lucide-react';
 import './LiveMonitoringDashboard.css';
 import RealTimeDetectionFeed from '../../components/monitoring/RealTimeDetectionFeed';
-import apiService from '../../services/api/apiService';
-import type { UploadedVideoResponse } from '../../services/api/apiService';
 
-interface Detection {
-  id: string;
+interface LiveEvent {
+  seq: number;
   time: string;
-  location: string;
-  distressType: string;
-  severity: 'Critical' | 'High' | 'Medium' | 'Low';
+  class_name: string;
   confidence: number;
-  status: string;
+  severity: string;
+  model_source: string;
+  frame: number;
+  latitude: number;
+  longitude: number;
 }
 
-interface ActiveOverlay {
-  type: string;
-  confidence: number;
-  severity: 'Critical' | 'High' | 'Medium' | 'Low';
-  x: number;
-  y: number;
-  w: number;
-  h: number;
+interface LiveStatus {
+  running: boolean;
+  error: string | null;
+  frames: number;
+  inferences: number;
+  detections_total: number;
+  detections_road: number;
+  detections_sign: number;
+  critical_alerts: number;
+  persisted: number;
+  avg_confidence: number;
+  fps: number;
+  inference_fps?: number;
 }
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const API_V1 = `${API_BASE_URL}/api/v1`;
+const WS_URL = `${API_BASE_URL.replace(/^http/, 'ws')}/api/v1/live/ws`;
 
 export default function LiveMonitoringDashboard() {
-  // Simulator State
-  const [isMonitoring, setIsMonitoring] = useState(false);
-  const [framesProcessed, setFramesProcessed] = useState(142030);
-  const [distressesCount, setDistressesCount] = useState(87);
-  const [criticalAlertsCount, setCriticalAlertsCount] = useState(12);
-  const [avgConfidence, setAvgConfidence] = useState(91.8);
-  const [videoFile, setVideoFile] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [cameraIndex, setCameraIndex] = useState(1);
+  const [status, setStatus] = useState<LiveStatus | null>(null);
+  const [events, setEvents] = useState<LiveEvent[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [streamKey, setStreamKey] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [activeOverlay, setActiveOverlay] = useState<ActiveOverlay | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const wsRef = useRef<WebSocket | null>(null);
 
-  // Clean up Object URL to avoid memory leaks
-  useEffect(() => {
-    return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-    };
-  }, [previewUrl]);
-
-  // Video Management System API state
-  const [uploadedVideos, setUploadedVideos] = useState<UploadedVideoResponse[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [rightTab, setRightTab] = useState<'stats' | 'videos'>('videos');
-  const [isDragging, setIsDragging] = useState(false);
-
-  // Lists state
-  const [recentDetections, setRecentDetections] = useState<Detection[]>([
-    { id: 'DET-8830', time: '16:01:05', location: 'NH-48 (KM 42)', distressType: 'Pothole', severity: 'Critical', confidence: 94, status: 'Active' },
-    { id: 'DET-8829', time: '15:59:42', location: 'SH-10 (Lonavala)', distressType: 'Alligator Cracks', severity: 'High', confidence: 89, status: 'Active' },
-    { id: 'DET-8828', time: '15:58:11', location: 'NH-4 (Pune Bypass)', distressType: 'Rutting', severity: 'Medium', confidence: 87, status: 'Active' },
-    { id: 'DET-8827', time: '15:55:04', location: 'Expressway Sector 4', distressType: 'Edge Break', severity: 'Low', confidence: 85, status: 'Acknowledged' }
-  ]);
-
-  const [alerts, setAlerts] = useState<Detection[]>([
-    { id: 'DET-8830', time: '16:01:05', location: 'NH-48 (KM 42)', distressType: 'Pothole', severity: 'Critical', confidence: 94, status: 'Active' }
-  ]);
-
-  const [history, setHistory] = useState<Detection[]>([
-    { id: 'DET-8830', time: '16:01:05', location: 'NH-48 (KM 42)', distressType: 'Pothole', severity: 'Critical', confidence: 94, status: 'Active' },
-    { id: 'DET-8829', time: '15:59:42', location: 'SH-10 (Lonavala)', distressType: 'Alligator Cracks', severity: 'High', confidence: 89, status: 'Active' },
-    { id: 'DET-8828', time: '15:58:11', location: 'NH-4 (Pune Bypass)', distressType: 'Rutting', severity: 'Medium', confidence: 87, status: 'Active' },
-    { id: 'DET-8827', time: '15:55:04', location: 'Expressway Sector 4', distressType: 'Edge Break', severity: 'Low', confidence: 85, status: 'Acknowledged' },
-    { id: 'DET-8826', time: '15:52:19', location: 'NH-48 (KM 21)', distressType: 'Longitudinal Cracks', severity: 'Medium', confidence: 90, status: 'Acknowledged' },
-    { id: 'DET-8825', time: '15:48:30', location: 'SH-10 (Khandala)', distressType: 'Pothole', severity: 'Critical', confidence: 96, status: 'Completed' }
-  ]);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // References for keeping track of counters in simulation ticks
-  const countersRef = useRef({
-    totalFrames: 142030,
-    totalDetections: 87,
-    totalCritical: 12,
-    confidencesSum: 87 * 91.8
-  });
-  const nextIdRef = useRef(8831);
-
-  // YOLO Telemetry Tick Simulator
-  useEffect(() => {
-    let frameInterval: any;
-    let detectionInterval: any;
-
-    if (isMonitoring) {
-      // 1. Tick frames processed (simulates 30fps = 3 frames every 100ms)
-      frameInterval = setInterval(() => {
-        countersRef.current.totalFrames += 3;
-        setFramesProcessed(countersRef.current.totalFrames);
-      }, 100);
-
-      // 2. Tick random detections every 4 seconds
-      const roads = ['NH-48 (KM 46)', 'SH-10 (Khandala)', 'NH-4 (Thane Expressway)', 'Bypass Highway 2', 'Expressway Section 6'];
-      const distresses = ['Pothole', 'Alligator Cracks', 'Rutting', 'Edge Break', 'Longitudinal Cracks', 'Patch'];
-      const severities: ('Critical' | 'High' | 'Medium' | 'Low')[] = ['Critical', 'High', 'Medium', 'Low'];
-
-      detectionInterval = setInterval(() => {
-        const randomRoad = roads[Math.floor(Math.random() * roads.length)];
-        const randomType = distresses[Math.floor(Math.random() * distresses.length)];
-        const randomSeverity = severities[Math.floor(Math.random() * severities.length)];
-        const randomConf = Math.floor(80 + Math.random() * 18);
-
-        const newId = `DET-${nextIdRef.current++}`;
-        const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
-
-        const newDet: Detection = {
-          id: newId,
-          time: timestamp,
-          location: randomRoad,
-          distressType: randomType,
-          severity: randomSeverity,
-          confidence: randomConf,
-          status: 'Active'
-        };
-
-        // Update counters
-        countersRef.current.totalDetections += 1;
-        countersRef.current.confidencesSum += randomConf;
-        const newAvgConf = Number((countersRef.current.confidencesSum / countersRef.current.totalDetections).toFixed(1));
-
-        setDistressesCount(countersRef.current.totalDetections);
-        setAvgConfidence(newAvgConf);
-
-        // Update list states
-        setRecentDetections(prev => [newDet, ...prev.slice(0, 7)]);
-        setHistory(prev => [newDet, ...prev.slice(0, 15)]);
-
-        if (randomSeverity === 'Critical') {
-          countersRef.current.totalCritical += 1;
-          setCriticalAlertsCount(countersRef.current.totalCritical);
-          setAlerts(prev => [newDet, ...prev.slice(0, 4)]);
-        }
-
-        // Draw bounding box overlay trigger on screen
-        setActiveOverlay({
-          type: randomType,
-          confidence: randomConf,
-          severity: randomSeverity,
-          x: Math.floor(15 + Math.random() * 50),
-          y: Math.floor(15 + Math.random() * 45),
-          w: Math.floor(80 + Math.random() * 120),
-          h: Math.floor(60 + Math.random() * 100)
-        });
-
-        // Auto clear overlay after 2 seconds
-        setTimeout(() => {
-          setActiveOverlay(null);
-        }, 2000);
-
-      }, 4000);
-    }
-
-    return () => {
-      clearInterval(frameInterval);
-      clearInterval(detectionInterval);
-    };
-  }, [isMonitoring]);
-
-  const fetchVideos = async () => {
+  const start = async () => {
+    setStarting(true);
+    setError(null);
     try {
-      const data = await apiService.getVideos(0, 100);
-      setUploadedVideos(data);
-      setFetchError(null);
-    } catch (err: any) {
-      console.error(err);
-      setFetchError("Failed to fetch uploaded videos library from database.");
-    }
-  };
+      let coords: { latitude?: number; longitude?: number } = {};
+      try {
+        const pos = await new Promise<GeolocationPosition>((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 3000 }));
+        coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      } catch { /* no GPS permission - backend uses its default base */ }
 
-  useEffect(() => {
-    fetchVideos();
-    const interval = setInterval(fetchVideos, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleVideoUploadFile = async (file: File) => {
-    const allowedExtensions = ["mp4", "avi", "mov", "mkv"];
-    const extension = file.name.split(".").pop()?.toLowerCase();
-    if (!extension || !allowedExtensions.includes(extension)) {
-      setUploadError("Invalid video format. Supported formats: mp4, avi, mov, mkv.");
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadError(null);
-    setUploadProgress(0);
-
-    // Revoke old URL if it exists
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-
-    try {
-      const res = await apiService.uploadVideo(file, undefined, (progressEvent) => {
-        if (progressEvent.total) {
-          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          setUploadProgress(progress);
-        }
+      const res = await fetch(`${API_V1}/live/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ camera_index: cameraIndex, ...coords }),
       });
-      setUploadedVideos(prev => [res, ...prev]);
-      setVideoFile(res.filename);
-      setIsMonitoring(false);
-      setActiveOverlay(null);
-
-      // Create local preview URL
-      const localUrl = URL.createObjectURL(file);
-      setPreviewUrl(localUrl);
-
-      fetchVideos();
-    } catch (err: any) {
-      console.error(err);
-      setUploadError(err.response?.data?.detail || "Failed to upload video file.");
+      if (!res.ok) throw new Error((await res.json()).detail || 'Failed to start');
+      setRunning(true);
+      setStreamKey(k => k + 1);
+      connectWs();
+    } catch (e: any) {
+      setError(e.message || 'Failed to start live camera');
     } finally {
-      setIsUploading(false);
-      setUploadProgress(0);
+      setStarting(false);
     }
   };
 
-  const handleStart = () => {
-    setIsMonitoring(true);
-  };
-
-  const handleStop = () => {
-    setIsMonitoring(false);
-    setActiveOverlay(null);
-  };
-
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleVideoUploadFile(file);
+  const stop = async () => {
+    try { await fetch(`${API_V1}/live/stop`, { method: 'POST' }); } catch { /* noop */ }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
     }
+    setRunning(false);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      handleVideoUploadFile(file);
+  const connectWs = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
     }
-  };
-
-  const handleDeleteVideo = async (id: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm("Are you sure you want to delete this video log and remove the physical file from server disk?")) {
-      return;
-    }
-    try {
-      await apiService.deleteVideo(id);
-      setUploadedVideos(prev => prev.filter(v => v.id !== id));
-      if (videoFile && uploadedVideos.find(v => v.id === id)?.filename === videoFile) {
-        setVideoFile(null);
-        setPreviewUrl(null);
-        setIsMonitoring(false);
+    const ws = new WebSocket(WS_URL);
+    wsRef.current = ws;
+    ws.onmessage = (msg) => {
+      const data = JSON.parse(msg.data);
+      if (data.status) setStatus(data.status);
+      if (data.events?.length) {
+        setEvents(prev => [...data.events.reverse(), ...prev].slice(0, 30));
       }
-    } catch (err: any) {
-      console.error(err);
-      alert("Failed to delete video file.");
-    }
+      if (data.status && !data.status.running) setRunning(false);
+      if (data.status?.error) setError(data.status.error);
+    };
+    ws.onerror = () => setError('WebSocket connection lost');
   };
 
-  const handleSelectVideo = (video: UploadedVideoResponse) => {
-    if (video.processing_status === 'failed') {
-      alert("Cannot process a failed video upload log.");
-      return;
-    }
-    setVideoFile(video.filename);
-    setPreviewUrl(null);
-    // Reset counters for new simulation run
-    countersRef.current = {
-      totalFrames: 0,
-      totalDetections: 0,
-      totalCritical: 0,
-      confidencesSum: 0
+  useEffect(() => {
+    // Probe initial status on mount
+    const probeStatus = async () => {
+      try {
+        const res = await fetch(`${API_V1}/live/status`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.running) {
+            setRunning(true);
+            connectWs();
+          }
+        }
+      } catch (e) { /* ignore offline */ }
     };
-    setFramesProcessed(0);
-    setDistressesCount(0);
-    setCriticalAlertsCount(0);
-    setAvgConfidence(0);
-    setRecentDetections([]);
-    setAlerts([]);
-    setIsMonitoring(true);
-  };
+    probeStatus();
+
+    return () => {
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, []);
 
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
   };
 
-  const handleAcknowledgeAlert = (id: string) => {
-    setAlerts(prev => prev.filter(a => a.id !== id));
-    setRecentDetections(prev => prev.map(d => d.id === id ? { ...d, status: 'Acknowledged' } : d));
-    setHistory(prev => prev.map(d => d.id === id ? { ...d, status: 'Acknowledged' } : d));
+  const handleAcknowledgeAlert = (seq: number) => {
+    setEvents(prev => prev.filter(e => e.seq !== seq));
   };
 
-  // Map recent detections to FeedDetection type required by RealTimeDetectionFeed
-  const feedDetections = recentDetections.map(d => {
-    const numPart = d.location.replace(/[^0-9]/g, '');
-    const roadId = d.location.startsWith('NH-48') 
-      ? 'RD-48102' 
-      : d.location.startsWith('SH-10') 
-      ? 'RD-10294' 
-      : d.location.startsWith('NH-4') 
-      ? 'RD-48301' 
-      : 'RD-40291';
-    const coords = numPart 
-      ? `18.734${numPart.slice(0, 1) || '0'}, 73.42${numPart.slice(1, 3) || '00'}` 
-      : '18.8912, 73.2045';
+  // Map events to FeedDetection type required by RealTimeDetectionFeed
+  const feedDetections = events.map(ev => ({
+    id: `DET-${ev.seq}`,
+    time: ev.time,
+    roadId: ev.model_source === 'road' ? 'RD-PAVEMENT' : 'RD-SIGNAGE',
+    distressType: ev.class_name,
+    severity: (ev.severity.charAt(0).toUpperCase() + ev.severity.slice(1)) as any,
+    confidence: Math.round(ev.confidence * 100),
+    coordinates: `${ev.latitude.toFixed(6)}, ${ev.longitude.toFixed(6)}`
+  }));
 
-    return {
-      id: d.id,
-      time: d.time,
-      roadId,
-      distressType: d.distressType,
-      severity: d.severity,
-      confidence: d.confidence,
-      coordinates: coords
-    };
-  });
+  const activeOverlay = events.length > 0 ? events[0] : null;
+  const criticalAlerts = events.filter(e => e.severity.toLowerCase() === 'critical');
 
   return (
     <div className="live-mon-center-page animate-fade-in">
-      
-      {/* 1. Page Header */}
       <header className="live-mon-header">
         <div className="live-mon-header__title-group">
           <Tv size={28} className="live-mon-header__logo" />
@@ -372,24 +166,11 @@ export default function LiveMonitoringDashboard() {
           </div>
         </div>
 
-        {/* Header Actions */}
         <div className="live-mon-header__toolbar">
           <div className="live-mon-header__status-badge">
-            <span className={`status-badge-dot ${isMonitoring ? 'active' : ''}`} />
-            <span>{isMonitoring ? 'LIVE: ACTIVE' : videoFile ? 'FEED: READY' : 'FEED: IDLE'}</span>
+            <span className={`status-badge-dot ${running ? 'active' : ''}`} />
+            <span>{running ? 'LIVE: ACTIVE' : 'FEED: IDLE'}</span>
           </div>
-
-          <div className="camera-select-wrapper">
-            <select className="camera-selector-dropdown" value="CAM-04" onChange={() => alert('Switching camera feed... (Simulated)')}>
-              <option value="CAM-04">CAM-04 (NH-48 Corridor)</option>
-              <option value="CAM-01">CAM-01 (Western Express Highway)</option>
-              <option value="CAM-02">CAM-02 (SH-10 Khandala Ghats)</option>
-            </select>
-          </div>
-
-          <button className="header-action-btn" onClick={fetchVideos} title="Refresh Feeds Database">
-            <RefreshCw size={15} />
-          </button>
 
           <button className="header-action-btn" onClick={toggleFullscreen} title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
             {isFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
@@ -397,270 +178,131 @@ export default function LiveMonitoringDashboard() {
         </div>
       </header>
 
-      {/* 2. Main 70/30 Grid */}
       <div className="live-mon-main-grid">
-        
         {/* Left Column (70%): Live Camera Feed Viewport */}
-        <section className={`live-camera-feed-card premium-card ${isFullscreen ? 'card-fullscreen' : ''}`}>
-          <header className="feed-card-header">
-            <div className="feed-card-title">
-              <Radio size={16} className={`feed-live-icon ${isMonitoring ? 'pulsing' : ''}`} />
-              <h2 className="medium-section-title">
-                {videoFile ? `Feed Stream: ${videoFile}` : 'Live Camera Feed - CAM-04'}
-              </h2>
-            </div>
-            <div className="feed-card-telemetry">
-              <span>Resolution: <strong>1920x1080</strong></span>
-              <span>FPS: <strong>{isMonitoring ? '30.0' : '0.0'}</strong></span>
-              <span>Recording: <strong>{isMonitoring ? 'Active' : 'Standby'}</strong></span>
-              <span>Latency: <strong>{isMonitoring ? '14ms' : '0ms'}</strong></span>
-            </div>
-          </header>
-
-          {/* Video Viewport viewport */}
-          <div className="feed-viewport-container">
-            <div className="live-mon-video-card__viewport">
-              {/* Perspective background simulated highway */}
-              {isMonitoring && (
-                <div className="live-mon-video-card__simulator-bg">
-                  <div className="live-mon-video-card__road-perspective">
-                    
-                    {/* Scan line */}
-                    <div className="live-mon-video-card__scanner-line" />
-
-                    {/* Active detection overlay */}
-                    {activeOverlay && (
-                      <div 
-                        className={`live-mon-video-card__bbox border-${activeOverlay.severity.toLowerCase()}`}
-                        style={{
-                          left: `${activeOverlay.x}%`,
-                          top: `${activeOverlay.y}%`,
-                          width: `${activeOverlay.w}px`,
-                          height: `${activeOverlay.h}px`
-                        }}
-                      >
-                        <span className={`live-mon-video-card__bbox-tag bg-${activeOverlay.severity.toLowerCase()}`}>
-                          {activeOverlay.type} ({activeOverlay.confidence}%)
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Telemetry HUD Grid overlays */}
-                    <div className="live-mon-video-card__hud-grid" />
-
-                    {/* Telemetry HUD indicators */}
-                    <div className="live-mon-video-card__hud-overlay">
-                      <span className="font-mono text-purple">CAMERA: CAM-04 / NH-48</span>
-                      <span className="font-mono text-amber">GPS: 18.7342, 73.4211</span>
-                      <span className="font-mono text-blue">YOLO CORE STABLE</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Video Preview Player */}
-              {!isMonitoring && previewUrl && (
-                <video 
-                  className="live-mon-video-card__video-element"
-                  src={previewUrl}
-                  controls
-                  playsInline
-                  style={{ width: "100%", height: "100%", objectFit: "contain", background: "#000", zIndex: 5 }}
-                />
-              )}
-
-              {/* Offline Overlay HUD */}
-              {!isMonitoring && !previewUrl && (
-                <div className="live-mon-video-card__empty-state">
-                  <Radio className="live-mon-video-card__empty-icon animate-pulse" size={48} />
-                  <h3>Surveillance Stream Offline</h3>
-                  <p>Load a recorded file or start live feed telemetry to begin distress scanning.</p>
-                </div>
-              )}
-            </div>
-
-            {/* Bottom Overlay Telemetry HUD */}
-            {isMonitoring && (
-              <div className="viewport-overlay-telemetry">
-                <div className="telemetry-hud-box">
-                  <span className="hud-lbl">Current Detection</span>
-                  <span className="hud-val text-red font-semibold">
-                    {activeOverlay ? activeOverlay.type : 'None Flagged'}
-                  </span>
-                </div>
-                <div className="telemetry-hud-box">
-                  <span className="hud-lbl">GPS Coordinates</span>
-                  <span className="hud-val font-mono">18.7342, 73.4211</span>
-                </div>
-                <div className="telemetry-hud-box">
-                  <span className="hud-lbl">Frame Number</span>
-                  <span className="hud-val font-mono">{framesProcessed}</span>
-                </div>
-                <div className="telemetry-hud-box">
-                  <span className="hud-lbl">Inference Latency</span>
-                  <span className="hud-val font-mono text-purple">12.4 ms</span>
-                </div>
-                <div className="telemetry-hud-box">
-                  <span className="hud-lbl">Model Confidence</span>
-                  <span className="hud-val font-mono text-green">
-                    {activeOverlay ? `${activeOverlay.confidence}%` : '0%'}
-                  </span>
-                </div>
+        <div className="live-mon-left-column">
+          <section className={`live-camera-feed-card premium-card ${isFullscreen ? 'card-fullscreen' : ''}`}>
+            <header className="feed-card-header">
+              <div className="feed-card-title" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Radio size={16} className={`feed-live-icon ${running ? 'pulsing' : ''}`} />
+                <h2 className="medium-section-title">Camera Feed Analysis</h2>
               </div>
-            )}
-          </div>
-
-          {/* Controls Footer */}
-          <footer className="feed-controls-footer">
-            <div className="controls-actions-group">
-              <button 
-                className={`live-mon-btn start-monitoring-btn ${isMonitoring ? 'btn-disabled' : ''}`}
-                onClick={handleStart}
-                disabled={isMonitoring}
-              >
-                <Play size={15} />
-                <span>Start Monitoring</span>
-              </button>
-
-              <button 
-                className={`live-mon-btn stop-monitoring-btn ${!isMonitoring ? 'btn-disabled' : ''}`}
-                onClick={handleStop}
-                disabled={!isMonitoring}
-              >
-                <Square size={15} />
-                <span>Stop Monitoring</span>
-              </button>
-            </div>
-
-            <div className="controls-upload-group">
-              <input 
-                type="file" 
-                accept=".mp4,.avi,.mov,.mkv" 
-                ref={fileInputRef} 
-                onChange={handleFileChange} 
-                style={{ display: 'none' }} 
-              />
-              <button className="live-mon-btn upload-feed-btn" onClick={handleUploadClick}>
-                <Upload size={15} />
-                <span>Upload Video</span>
-              </button>
-              {videoFile && (
-                <span className="loaded-filename font-mono" title={videoFile}>
-                  🎞️ {videoFile}
-                </span>
+              {running && status && (
+                <div className="feed-card-telemetry" style={{ display: 'flex', gap: '15px' }}>
+                  <span>Display FPS: <strong>{status.fps.toFixed(1)}</strong></span>
+                  <span>Inference FPS: <strong>{(status.inference_fps ?? 0).toFixed(1)}</strong></span>
+                  <span>Inferences: <strong>{status.inferences}</strong></span>
+                </div>
               )}
-            </div>
-          </footer>
-        </section>
-
-        {/* Right Column (30%): Video Queue & Critical Alerts */}
-        <aside className="live-mon-sidebar-column">
-          
-          {/* Top Card: Video Queue */}
-          <article className="live-queue-card premium-card">
-            <header className="card-header-row">
-              <Video size={16} className="text-purple" />
-              <h3 className="medium-section-title" style={{ fontSize: '15px' }}>Surveillance Video Queue</h3>
             </header>
 
-            <div className="queue-card-body">
-              {/* Drag and Drop area */}
-              <div 
-                className={`queue-upload-dropzone ${isDragging ? 'dragging' : ''} ${isUploading ? 'uploading' : ''}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={handleUploadClick}
-              >
-                {isUploading ? (
-                  <div className="upload-loading-view" style={{ width: '100%' }}>
-                    <Loader2 className="animate-spin text-purple" size={28} />
-                    <span>Uploading Video... {uploadProgress}%</span>
-                    <div 
-                      className="upload-progress-bar-container" 
-                      style={{ 
-                        width: '100%', 
-                        height: '4px', 
-                        background: 'rgba(255,255,255,0.1)', 
-                        borderRadius: '2px', 
-                        marginTop: '8px', 
-                        overflow: 'hidden' 
-                      }}
-                    >
-                      <div 
-                        className="upload-progress-bar" 
-                        style={{ 
-                          width: `${uploadProgress}%`, 
-                          height: '100%', 
-                          background: '#8B5CF6', 
-                          transition: 'width 0.1s' 
-                        }} 
-                      />
-                    </div>
-                  </div>
+            <div className="feed-viewport-container">
+              <div className="live-mon-video-card__viewport">
+                {running ? (
+                  <img
+                    key={streamKey}
+                    src={`${API_V1}/live/stream?k=${streamKey}`}
+                    alt="Live detection stream"
+                    style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000', borderRadius: 8 }}
+                  />
                 ) : (
-                  <div className="upload-prompt-view">
-                    <Upload className="upload-icon" size={28} />
-                    <span className="upload-prompt-title">Drag video feed here</span>
-                    <span className="upload-prompt-desc">or click to browse local files</span>
-                  </div>
-                )}
-              </div>
-
-              {uploadError && <p className="upload-error-tag font-mono">{uploadError}</p>}
-
-              {/* Videos list database */}
-              <div className="queue-video-list-container">
-                <span className="list-title font-mono">Surveillance Library Database</span>
-                {fetchError ? (
-                  <p className="fetch-error-tag font-mono">{fetchError}</p>
-                ) : uploadedVideos.length === 0 ? (
-                  <div className="empty-videos-queue">
-                    <Video size={18} style={{ opacity: 0.4 }} />
-                    <span>No uploads catalogued in database.</span>
-                  </div>
-                ) : (
-                  <div className="videos-queue-list">
-                    {uploadedVideos.map((video) => {
-                      const isCurrent = videoFile === video.filename;
-                      const statusClass = `status-${video.processing_status.toLowerCase()}`;
-                      
-                      return (
-                        <div 
-                          key={video.id} 
-                          className={`queue-video-row ${isCurrent ? 'active' : ''}`}
-                          onClick={() => handleSelectVideo(video)}
-                        >
-                          <div className="video-row-details">
-                            <span className="video-row-title font-mono" title={video.filename}>
-                              {video.filename}
-                            </span>
-                            <span className="video-row-meta font-mono">
-                              {new Date(video.upload_timestamp).toLocaleString('en-IN')}
-                            </span>
-                          </div>
-                          <div className="video-row-actions">
-                            <span className={`status-tag-pill ${statusClass}`}>
-                              {video.processing_status}
-                            </span>
-                            <button 
-                              className="video-delete-action-btn"
-                              onClick={(e) => handleDeleteVideo(video.id, e)}
-                              title="Revoke video"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                  <div className="live-mon-video-card__empty-state">
+                    <Radio className="live-mon-video-card__empty-icon animate-pulse" size={48} />
+                    <h3>Live Video Stream Offline</h3>
+                    <p>Select camera index below and start live monitoring to activate YOLO inference scanning.</p>
                   </div>
                 )}
               </div>
             </div>
-          </article>
 
-          {/* Bottom Card: Critical Alerts */}
+            <footer className="feed-controls-footer" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label className="light-secondary-text" style={{ fontSize: 13 }}>Camera Index:</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={4}
+                  value={cameraIndex}
+                  disabled={running}
+                  onChange={e => setCameraIndex(Number(e.target.value))}
+                  style={{ width: 60, padding: '6px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', color: '#FFF', border: '1px solid rgba(255,255,255,0.1)' }}
+                />
+              </div>
+
+              {!running ? (
+                <button className="live-mon-btn start-monitoring-btn" onClick={start} disabled={starting}>
+                  {starting ? <Loader2 className="animate-spin" size={15} /> : <Play size={15} />}
+                  <span>{starting ? 'Initializing Models...' : 'Start Live Detection'}</span>
+                </button>
+              ) : (
+                <button className="live-mon-btn stop-monitoring-btn" onClick={stop}>
+                  <Square size={15} />
+                  <span>Stop Detection</span>
+                </button>
+              )}
+
+              {error && <p className="upload-error-tag font-mono" style={{ margin: 0, color: '#f87171' }}>{error}</p>}
+            </footer>
+          </section>
+        </div>
+
+        {/* Right Column (30%): Current Anomaly & Alerts */}
+        <aside className="live-mon-sidebar-column">
+          {running && activeOverlay && (
+            <article className="current-detection-card premium-card">
+              <header className="card-header-row">
+                <Activity size={16} className="text-purple animate-pulse" />
+                <h3 className="medium-section-title" style={{ fontSize: '15px' }}>Current Detection HUD</h3>
+              </header>
+
+              <div className="current-detection-body">
+                <div className="active-distress-panel">
+                  <div className="active-distress-header">
+                    <span className="hud-label">Distress Category</span>
+                    <h4 className="active-distress-title">{activeOverlay.class_name}</h4>
+                  </div>
+
+                  <div className="hud-properties-grid">
+                    <div className="hud-prop-item">
+                      <span className="prop-lbl">Severity</span>
+                      <span className={`severity-badge bg-${activeOverlay.severity.toLowerCase()}`}>
+                        {activeOverlay.severity}
+                      </span>
+                    </div>
+
+                    <div className="hud-prop-item">
+                      <span className="prop-lbl">AI Confidence</span>
+                      <span className="prop-val font-mono font-bold text-purple">
+                        {Math.round(activeOverlay.confidence * 100)}%
+                      </span>
+                    </div>
+
+                    <div className="hud-prop-item">
+                      <span className="prop-lbl">Source Model</span>
+                      <span className="prop-val font-mono text-uppercase">
+                        {activeOverlay.model_source}
+                      </span>
+                    </div>
+
+                    <div className="hud-prop-item">
+                      <span className="prop-lbl">Frame Number</span>
+                      <span className="prop-val font-mono">
+                        #{activeOverlay.frame}
+                      </span>
+                    </div>
+
+                    <div className="hud-prop-item span-full">
+                      <span className="prop-lbl">Coordinates</span>
+                      <span className="prop-val font-mono text-xs">
+                        📍 {activeOverlay.latitude.toFixed(6)}, {activeOverlay.longitude.toFixed(6)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          )}
+
           <article className="live-alerts-card premium-card">
             <header className="card-header-row">
               <AlertTriangle size={16} className="text-red animate-pulse" />
@@ -668,26 +310,28 @@ export default function LiveMonitoringDashboard() {
             </header>
 
             <div className="alerts-card-body scrollable-y">
-              {alerts.length === 0 ? (
+              {criticalAlerts.length === 0 ? (
                 <div className="empty-alerts-view">
                   <Check size={28} className="success-icon" />
-                  <span>No critical distress warnings pending</span>
+                  <span>No critical distress alerts active</span>
                 </div>
               ) : (
                 <div className="alerts-elements-list">
-                  {alerts.map(alert => (
-                    <div key={alert.id} className="alerts-item-card" style={{ borderLeft: '3.5px solid var(--danger)' }}>
+                  {criticalAlerts.map(alert => (
+                    <div key={alert.seq} className="alerts-item-card" style={{ borderLeft: '3.5px solid var(--danger)' }}>
                       <div className="alert-item-details">
                         <div className="alert-item-header">
-                          <span className="alert-item-id font-mono">{alert.id}</span>
-                          <span className="alert-item-time font-mono">[{alert.time}]</span>
+                          <span className="alert-item-id font-mono">DET-{alert.seq}</span>
+                          <span className="alert-item-time font-mono">[{alert.time.slice(11, 19)}]</span>
                         </div>
-                        <span className="alert-item-title font-semibold">{alert.distressType}</span>
-                        <span className="alert-item-location">📍 {alert.location}</span>
+                        <span className="alert-item-title font-semibold">{alert.class_name}</span>
+                        <span className="alert-item-location" style={{ fontSize: 11 }}>
+                          📍 {alert.latitude.toFixed(5)}, {alert.longitude.toFixed(5)}
+                        </span>
                       </div>
                       <button 
                         className="alert-item-acknowledge-btn"
-                        onClick={() => handleAcknowledgeAlert(alert.id)}
+                        onClick={() => handleAcknowledgeAlert(alert.seq)}
                       >
                         Acknowledge
                       </button>
@@ -697,33 +341,23 @@ export default function LiveMonitoringDashboard() {
               )}
             </div>
           </article>
-
         </aside>
       </div>
 
-      {/* 3. Real-Time Detection Feed */}
+      {/* Real-time Scrolling Detection Row */}
       <section className="live-realtime-feed-row">
         <RealTimeDetectionFeed 
           detections={feedDetections} 
-          isMonitoringActive={isMonitoring} 
+          isMonitoringActive={running} 
         />
       </section>
 
-      {/* 4. Detection History Section */}
+      {/* Real History Logs Table */}
       <section className="live-detection-history-card premium-card">
         <header className="history-section-header">
           <div className="section-title-group">
             <History size={18} style={{ color: 'var(--accent-blue)' }} />
             <h2 className="medium-section-title">Detection History Logs</h2>
-          </div>
-          <div className="history-search-row">
-            <div className="search-box">
-              <Search size={14} className="search-icon" />
-              <input type="text" placeholder="Search history..." disabled />
-            </div>
-            <select className="severity-filter" disabled>
-              <option>Severity: All</option>
-            </select>
           </div>
         </header>
 
@@ -733,39 +367,49 @@ export default function LiveMonitoringDashboard() {
               <tr>
                 <th>Detection ID</th>
                 <th>Timestamp</th>
-                <th>Location Landmark</th>
+                <th>Source Model</th>
                 <th>Distress Category</th>
                 <th>Severity</th>
                 <th>Confidence</th>
+                <th>Coordinates</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {history.map(row => (
-                <tr key={row.id} className="table-row-hover">
-                  <td className="font-mono font-bold text-primary-text">{row.id}</td>
-                  <td>{row.time}</td>
-                  <td>{row.location}</td>
-                  <td>{row.distressType}</td>
-                  <td>
-                    <span className={`live-mon-badge live-mon-badge--${row.severity.toLowerCase()}`}>
-                      {row.severity}
-                    </span>
-                  </td>
-                  <td className="font-mono">{row.confidence}%</td>
-                  <td>
-                    <span className={`live-mon-status-badge live-mon-status-badge--${row.status.toLowerCase()}`}>
-                      {row.status}
-                    </span>
+              {events.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="text-center font-mono light-secondary-text" style={{ padding: 24 }}>
+                    Waiting for camera detections...
                   </td>
                 </tr>
-              ))}
+              ) : (
+                events.map(row => (
+                  <tr key={row.seq} className="table-row-hover">
+                    <td className="font-mono font-bold text-primary-text">DET-{row.seq}</td>
+                    <td>{row.time.slice(11, 19)}</td>
+                    <td className="text-uppercase">{row.model_source}</td>
+                    <td>{row.class_name}</td>
+                    <td>
+                      <span className={`live-mon-badge live-mon-badge--${row.severity.toLowerCase()}`}>
+                        {row.severity}
+                      </span>
+                    </td>
+                    <td className="font-mono">{Math.round(row.confidence * 100)}%</td>
+                    <td className="font-mono text-xs">{row.latitude.toFixed(6)}, {row.longitude.toFixed(6)}</td>
+                    <td>
+                      <span className="live-mon-status-badge live-mon-status-badge--active">
+                        Active
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </section>
 
-      {/* 5. Bottom Analytics KPI row */}
+      {/* Bottom KPI Telemetry widgets */}
       <footer className="live-analytics-footer-grid">
         <article className="premium-kpi-card premium-card">
           <div className="kpi-header-row">
@@ -774,14 +418,9 @@ export default function LiveMonitoringDashboard() {
             </div>
             <span className="kpi-title-label">Total Detections</span>
           </div>
-          <p className="kpi-value-num">{distressesCount}</p>
+          <p className="kpi-value-num">{status?.detections_total ?? 0}</p>
           <div className="kpi-card-footer">
             <span className="comparison-lbl">distresses flagged</span>
-            <div className="kpi-sparkline">
-              <svg width="60" height="24">
-                <polyline fill="none" stroke="var(--accent-blue)" strokeWidth="1.8" points="0,15 10,20 20,8 30,18 40,12 50,5 60,10" />
-              </svg>
-            </div>
           </div>
         </article>
 
@@ -790,61 +429,40 @@ export default function LiveMonitoringDashboard() {
             <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(16,185,129,0.1)' }}>
               <Cpu size={18} style={{ color: '#10B981' }} />
             </div>
-            <span className="kpi-title-label">Average Confidence</span>
+            <span className="kpi-title-label">Average Accuracy</span>
           </div>
-          <p className="kpi-value-num">{avgConfidence}%</p>
+          <p className="kpi-value-num">{status ? `${Math.round(status.avg_confidence * 100)}%` : '0%'}</p>
           <div className="kpi-card-footer">
-            <span className="comparison-lbl">accuracy rating</span>
-            <div className="kpi-sparkline">
-              <svg width="60" height="24">
-                <polyline fill="none" stroke="var(--success)" strokeWidth="1.8" points="0,20 10,12 20,18 30,10 40,15 50,3 60,6" />
-              </svg>
-            </div>
+            <span className="comparison-lbl">confidence rating</span>
           </div>
         </article>
 
         <article className="premium-kpi-card premium-card">
           <div className="kpi-header-row">
             <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(245,158,11,0.1)' }}>
-              <Tv size={18} style={{ color: '#F59E0B' }} />
+              <Radio size={18} style={{ color: '#F59E0B' }} />
             </div>
-            <span className="kpi-title-label">Average FPS</span>
+            <span className="kpi-title-label">Display / Inference FPS</span>
           </div>
-          <p className="kpi-value-num">{isMonitoring ? '30.0' : '0.0'} FPS</p>
+          <p className="kpi-value-num">{status ? `${status.fps.toFixed(1)} / ${(status.inference_fps ?? 0).toFixed(1)}` : '0.0 / 0.0'} FPS</p>
           <div className="kpi-card-footer">
-            <span className="comparison-lbl">video decode rate</span>
-            <div className="kpi-sparkline">
-              <svg width="60" height="24">
-                <polyline fill="none" stroke="var(--warning)" strokeWidth="1.8" points="0,18 10,15 20,20 30,12 40,8 50,5 60,2" />
-              </svg>
-            </div>
+            <span className="comparison-lbl">stream / inference rates</span>
           </div>
         </article>
 
         <article className="premium-kpi-card premium-card">
           <div className="kpi-header-row">
             <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(139,92,246,0.1)' }}>
-              <Loader2 size={18} style={{ color: '#8B5CF6' }} className={isMonitoring ? 'animate-spin' : ''} />
+              <Loader2 size={18} style={{ color: '#8B5CF6' }} className={running ? 'animate-spin' : ''} />
             </div>
-            <span className="kpi-title-label">Processing Time</span>
+            <span className="kpi-title-label">Frames Processed</span>
           </div>
-          <p className="kpi-value-num">{isMonitoring ? '12.4 ms' : '0.0 ms'}</p>
+          <p className="kpi-value-num">{status?.frames ?? 0}</p>
           <div className="kpi-card-footer">
-            <span className="comparison-lbl">inference duration</span>
-            <div className="kpi-sparkline">
-              <svg width="60" height="24">
-                <polyline fill="none" stroke="#8B5CF6" strokeWidth="1.8" points="0,5 10,12 20,8 30,15 40,18 50,22 60,20" />
-              </svg>
-            </div>
+            <span className="comparison-lbl">total frame count</span>
           </div>
         </article>
       </footer>
-
-      <div style={{ display: 'none' }}>
-        {criticalAlertsCount} {rightTab}
-        <button onClick={() => setRightTab('stats')} />
-      </div>
-
     </div>
   );
 }

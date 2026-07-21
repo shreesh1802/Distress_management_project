@@ -5,23 +5,29 @@ Inference service layer to run prediction models on frame files and output annot
 import os
 import cv2
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.services.ai.model_loader import ModelLoader
 from app.services.ai.utils import map_class_id_to_name, map_confidence_to_severity, calculate_engineering_severity
 
 logger = logging.getLogger(__name__)
 
 # Standard color palette for bounding box annotations (BGR format for OpenCV)
+# Keys must match the class names produced by app.services.ai.utils.CLASS_MAPPING
 CLASS_COLORS = {
-    "pothole": (0, 0, 255),      # Red
-    "crack": (0, 255, 255),       # Yellow
-    "rutting": (255, 0, 0),       # Blue
-    "raveling": (0, 255, 0),      # Green
-    "unknown": (255, 255, 255)    # White
+    # Road distress classes (RoadDetector): Red, Orange, Yellow
+    "longitudinal_crack": (0, 255, 255),  # Yellow
+    "transverse_crack": (0, 255, 255),    # Yellow
+    "alligator_crack": (0, 165, 255),     # Orange
+    "pothole": (0, 0, 255),               # Red
+    # Signage classes (SignDetector): Blue, Green, Purple
+    "TRAFFIC SIGN": (255, 0, 255),        # Purple/Magenta
+    "SIGN BOARD": (0, 255, 0),            # Green
+    "POLES": (255, 0, 0),                 # Blue
+    "unknown": (255, 255, 255)            # White
 }
 
 
-def run_inference(frame_path_or_img, video_id: int, frame_number: getattr(None, "int", None) or object = None) -> List[Dict[str, Any]]:
+def run_inference(frame_path_or_img, video_id: int, frame_number: Optional[int] = None) -> Any:
     """
     Executes deep learning (or mock) YOLO inference on a target frame.
     If detections are found, an annotated copy containing bounding boxes
@@ -33,12 +39,7 @@ def run_inference(frame_path_or_img, video_id: int, frame_number: getattr(None, 
         frame_number (int, optional): The frame sequence number.
 
     Returns:
-        List[Dict[str, Any]]: List of dictionary detections containing:
-            - 'class_name': string type of distress
-            - 'confidence': float score
-            - 'severity': string severity level
-            - 'box': list of coordinates [x1, y1, x2, y2]
-            - 'annotated_path': relative path to the annotated image frame, or None if no detections
+        MergedDetectionsList: List and Dict compatible collection of detections.
     """
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -56,21 +57,21 @@ def run_inference(frame_path_or_img, video_id: int, frame_number: getattr(None, 
     if img is None:
         raise ValueError("Image object is None.")
 
-    # Lazily fetch model from model loader singleton
+    # Lazily fetch model from model loader singleton (returns DetectorManager)
     model = ModelLoader().load_model()
 
     # Execute YOLO model prediction
     results = model(img)
     if not results or len(results) == 0:
-        return []
+        from app.services.ai.detector_manager import MergedDetectionsList
+        return MergedDetectionsList([], [], [])
 
     result = results[0]
     boxes = result.boxes
-    detections = []
-
-    # If no anomalies are detected, skip saving an annotated duplicate frame
-    if len(boxes) == 0:
-        return []
+    
+    all_detections = []
+    road_distresses = []
+    traffic_signs = []
 
     # Ensure detections folder exists
     detections_dir = os.path.join(base_dir, "uploads", "detections", str(video_id))
@@ -101,6 +102,8 @@ def run_inference(frame_path_or_img, video_id: int, frame_number: getattr(None, 
                 cls_id = int(cls_data.item())
             else:
                 cls_id = int(cls_data)
+                
+            model_source = getattr(box_item, "model_source", "road")
         except (IndexError, TypeError, AttributeError, ValueError) as e:
             logger.warning(f"Error parsing box tensor elements: {e}")
             continue
@@ -128,17 +131,31 @@ def run_inference(frame_path_or_img, video_id: int, frame_number: getattr(None, 
         cv2.putText(img, label, (ix1, max(15, iy1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
         # Keep a list of parsed coordinates and details
-        detections.append({
+        detection_item = {
             "class_name": class_name,
+            "class_id": cls_id,
             "confidence": round(conf, 4),
-            "severity": severity,
+            "bbox": [round(c, 2) for c in xyxy],
             "box": [round(c, 2) for c in xyxy],
+            "model_source": model_source,
+            "severity": severity,
             "annotated_path": None,  # Will fill in after saving image
             "damage_width_pixels": metrics["damage_width_pixels"],
             "damage_height_pixels": metrics["damage_height_pixels"],
             "damage_area_pixels": metrics["damage_area_pixels"],
             "damage_percentage_of_frame": metrics["damage_percentage_of_frame"]
-        })
+        }
+
+        all_detections.append(detection_item)
+        if model_source == "road":
+            road_distresses.append(detection_item)
+        else:
+            traffic_signs.append(detection_item)
+
+    # If no anomalies are detected, skip saving an annotated duplicate frame
+    if len(all_detections) == 0:
+        from app.services.ai.detector_manager import MergedDetectionsList
+        return MergedDetectionsList([], [], [])
 
     # Save the composite annotated image frame to disk
     annotated_filename = f"annotated_{frame_filename}"
@@ -148,7 +165,9 @@ def run_inference(frame_path_or_img, video_id: int, frame_number: getattr(None, 
     relative_annotated_path = os.path.relpath(annotated_filepath, base_dir).replace("\\", "/")
 
     # Update relative path for all detections in this frame
-    for det in detections:
+    for det in all_detections:
         det["annotated_path"] = relative_annotated_path
 
-    return detections
+    # Custom wrapper class supporting list indexing and dictionary keys
+    from app.services.ai.detector_manager import MergedDetectionsList
+    return MergedDetectionsList(all_detections, road_distresses, traffic_signs)

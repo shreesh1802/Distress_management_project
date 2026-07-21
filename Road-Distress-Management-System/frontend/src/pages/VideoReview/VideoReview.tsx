@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   Play, 
   Pause, 
@@ -24,6 +24,7 @@ import './VideoReview.css';
 export default function VideoReview() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // Video Lists & Active Selection
   const [videos, setVideos] = useState<UploadedVideoResponse[]>([]);
@@ -136,6 +137,27 @@ export default function VideoReview() {
     setCurrentTime(0);
     setSyncWarning(null);
   }, [selectedVideo]);
+
+  // Seek to initial timestamp if passed in query parameters
+  useEffect(() => {
+    if (!isLoading && selectedVideo && detections.length > 0) {
+      const tParam = searchParams.get('t');
+      if (tParam) {
+        const targetTime = parseFloat(tParam);
+        if (!isNaN(targetTime)) {
+          handleSeekChange(targetTime);
+          
+          const match = detections.find(d => Math.abs((d.video_timestamp ?? 0) - targetTime) < 0.8);
+          if (match) {
+            setSelectedDetection(match);
+            setActiveTab('details');
+          }
+          
+          setSearchParams({}, { replace: true });
+        }
+      }
+    }
+  }, [isLoading, selectedVideo, detections, searchParams, setSearchParams]);
 
   // Resolve video URLs
   const videoUrls = useMemo(() => {

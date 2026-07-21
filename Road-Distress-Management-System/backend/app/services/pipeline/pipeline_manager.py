@@ -48,33 +48,45 @@ def process_video(video_id: int) -> None:
         if not db_video:
             logger.error(f"Failed to locate video ID {video_id} during pipeline initiation.")
             return
-
-        # 1. Transition video status to processing
+ 
+        # 1. Transition video status to processing (Stage: Extracting Frames, Progress: 10%)
         video_update = UploadedVideoUpdate(
             processing_status="processing",
-            processing_started_at=datetime.utcnow()
+            processing_started_at=datetime.utcnow(),
+            progress=10,
+            processing_stage="Extracting Frames"
         )
         update_video(db, video_id=video_id, video_in=video_update)
-
+        db.commit()
+ 
         # 2. Extract frames
         logger.info("Stage: Frame Extraction Started")
         try:
             frames = extract_frames(video_path=db_video.filepath, video_id=video_id, frame_interval=1, in_memory=True)
             logger.info("Stage: Frame Extraction Completed")
-            logger.info("Stage: Frames Extracted")
         except Exception as e:
             logger.error(f"Core frame extraction failed for video {video_id}: {e}", exc_info=True)
             raise e
+ 
+        # Transition to Running AI Detection (Stage: Running AI Detection, Progress: 25%)
+        video_update = UploadedVideoUpdate(
+            progress=25,
+            processing_stage="Running AI Detection"
+        )
+        update_video(db, video_id=video_id, video_in=video_update)
+        db.commit()
 
         # 3. Running object detection inference on frames
         logger.info("Stage: Inference Started")
         total_detections_count = 0
         has_inference_success = False
-
+ 
         from app.services.ai.tracker import RoadDistressTracker
         tracker = RoadDistressTracker(db)
-
-        for frame_info in frames:
+        total_frames = len(frames)
+ 
+        for idx, frame_info in enumerate(frames):
+            frame_start_time = time.time()
             try:
                 detections = run_inference(
                     frame_info["frame_path"],
@@ -83,7 +95,11 @@ def process_video(video_id: int) -> None:
                 )
                 has_inference_success = True
                 
+                counts = {}
                 for det in detections:
+                    dtype = det["class_name"].lower()
+                    counts[dtype] = counts.get(dtype, 0) + 1
+                    
                     db_distress = tracker.track_detection(
                         detection=det,
                         frame_number=frame_info["frame_number"],
@@ -92,36 +108,65 @@ def process_video(video_id: int) -> None:
                     )
                     if db_distress:
                         total_detections_count += 1
+                
+                inf_time_ms = int((time.time() - frame_start_time) * 1000)
+                det_summary = ", ".join(f"{v} {k}" for k, v in counts.items()) if counts else "no distresses"
+                logger.info(f"Frame {frame_info['frame_number']} processed - {det_summary} - Inference time {inf_time_ms} ms - Database saved successfully")
+                
+                # Update progress dynamically from 25% to 80%
+                if total_frames > 0 and idx % 5 == 0:
+                    current_progress = 25 + int((idx / total_frames) * 55)
+                    video_update = UploadedVideoUpdate(
+                        progress=current_progress
+                    )
+                    update_video(db, video_id=video_id, video_in=video_update)
+                    db.commit()
             except Exception as fe:
-                # Proceed with remaining frames on individual failure
-                logger.warning(f"Error processing frame {frame_info.get('frame_path')}: {fe}")
+                # Failsafe rollback to restore session sanity
+                db.rollback()
+                logger.error(f"Error processing frame {frame_info.get('frame_number', 'unknown')}: Exception: {fe}", exc_info=True)
                 continue
-
+ 
         # If frame query completely failed when frames were extracted, mark core pipeline failed
         if not has_inference_success and len(frames) > 0:
             raise RuntimeError("Core AI inference failed to complete on all extracted frames.")
-
+ 
         logger.info("Stage: Inference Completed")
+ 
+        # 4. Trigger Saving Results (Stage: Saving Results, Progress: 80%)
+        video_update = UploadedVideoUpdate(
+            progress=80,
+            processing_stage="Saving Results"
+        )
+        update_video(db, video_id=video_id, video_in=video_update)
+        db.commit()
 
-        # 4. Trigger Maintenance Recommendations
         logger.info("Stage: Maintenance Started")
         try:
             generate_recommendations_for_pending_distresses(db)
             logger.info("Stage: Maintenance Completed")
-            logger.info("Stage: Maintenance Generated")
         except Exception as me:
             logger.error(f"Maintenance recommendation engine encountered error: {me}", exc_info=True)
+ 
+        # 5. Trigger Generating Reports (Stage: Generating Reports, Progress: 90%)
+        video_update = UploadedVideoUpdate(
+            progress=90,
+            processing_stage="Generating Reports"
+        )
+        update_video(db, video_id=video_id, video_in=video_update)
+        db.commit()
 
-        # 5. Trigger Safety PDF Report Compilation
         try:
-            # Set video processing status to completed and commit to DB first (Issue 1)
+            # Set video processing status to completed (Stage: Finalizing Inspection, Progress: 95%)
             video_update = UploadedVideoUpdate(
                 processing_status="completed",
-                processing_completed_at=datetime.utcnow()
+                processing_completed_at=datetime.utcnow(),
+                progress=95,
+                processing_stage="Finalizing Inspection"
             )
             update_video(db, video_id=video_id, video_in=video_update)
             db.commit()
-
+ 
             relative_pdf_path = generate_video_pdf_report(db, video_id=video_id)
             report_in = ReportCreate(
                 report_name=f"Safety_Audit_Report_Video_{video_id}",
@@ -131,10 +176,9 @@ def process_video(video_id: int) -> None:
             )
             create_report(db, report_in=report_in)
             logger.info("Stage: Reports Generated")
-            logger.info("Stage: Report Generated")
         except Exception as re:
             logger.error(f"Safety PDF report generation failed: {re}", exc_info=True)
-
+ 
         # 6. Trigger Notification dispatching
         try:
             from app.models.distress import RoadDistress
@@ -145,25 +189,27 @@ def process_video(video_id: int) -> None:
                 elif d.severity == "high":
                     logger.info(f"Notification Sent: [WARNING ALERT] High severity distress {d.distress_type} found at Lat: {d.latitude}, Lon: {d.longitude}")
             logger.info("Stage: Notifications Generated")
-            logger.info("Stage: Notifications Sent")
         except Exception as ne:
             logger.error(f"Incident alerts notification dispatch failed: {ne}", exc_info=True)
-
+ 
         # 7. Reconstruct and generate annotated processed video (Task 1)
         try:
             generate_processed_video(db, video_id)
         except Exception as ve:
             logger.error(f"Annotated video generation encountered error: {ve}", exc_info=True)
-
-        # 8. Finalize video log status
+ 
+        # 8. Finalize video log status (Progress: 100%, Stage: Completed)
         duration = round(time.time() - start_time, 2)
         video_update = UploadedVideoUpdate(
-            processing_duration=duration
+            processing_duration=duration,
+            progress=100,
+            processing_stage="Completed"
         )
         update_video(db, video_id=video_id, video_in=video_update)
+        db.commit()
         
         logger.info("Stage: Pipeline Completed")
-
+ 
     except Exception as e:
         duration = round(time.time() - start_time, 2)
         logger.error(f"Fatal error in video processing pipeline: {e}", exc_info=True)
@@ -171,9 +217,12 @@ def process_video(video_id: int) -> None:
             video_update = UploadedVideoUpdate(
                 processing_status="failed",
                 processing_completed_at=datetime.utcnow(),
-                processing_duration=duration
+                processing_duration=duration,
+                progress=0,
+                processing_stage=f"Failed: {str(e)[:80]}"
             )
             update_video(db, video_id=video_id, video_in=video_update)
+            db.commit()
         except Exception as dberr:
             logger.critical(f"Database error writing failed pipeline status: {dberr}")
     finally:

@@ -14,14 +14,16 @@
 .overview-title {
   font-size: 32px;
   font-weight: 700;
-  color: var(--primary-text);
+  color: var(--primary-text-light) !important;
   margin: 0;
+  text-shadow: var(--title-text-shadow);
 }
 
 .overview-subtitle {
   font-size: 14px;
-  color: var(--secondary-text);
+  color: var(--secondary-text-light) !important;
   margin: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 /* KPI Cards Layout */

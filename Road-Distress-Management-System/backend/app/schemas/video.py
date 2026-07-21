@@ -21,6 +21,8 @@ class UploadedVideoBase(BaseModel):
     processing_duration: Optional[float] = Field(None, description="Duration in seconds of video AI pipeline")
     processed_filepath: Optional[str] = Field(None, max_length=512, description="Physical path of the generated processed annotated video file")
     processed_video_path: Optional[str] = Field(None, max_length=512, description="Physical path of the final annotated MP4 video file")
+    progress: Optional[int] = Field(0, description="Processing progress percentage 0-100")
+    processing_stage: Optional[str] = Field("Idle", max_length=100, description="Name of current processing stage")
 
 
 class UploadedVideoCreate(UploadedVideoBase):
@@ -43,6 +45,8 @@ class UploadedVideoUpdate(BaseModel):
     processing_duration: Optional[float] = None
     processed_filepath: Optional[str] = Field(None, max_length=512)
     processed_video_path: Optional[str] = Field(None, max_length=512)
+    progress: Optional[int] = Field(None)
+    processing_stage: Optional[str] = Field(None, max_length=100)
 
 
 class UploadedVideoResponse(UploadedVideoBase):
@@ -97,6 +101,8 @@ class LegacyUploadedVideoResponse(BaseModel):
     processing_duration: Optional[float] = None
     processed_filepath: Optional[str] = None
     processed_video_path: Optional[str] = None
+    progress: Optional[int] = None
+    processing_stage: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

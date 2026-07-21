@@ -9,6 +9,11 @@ from app.models.distress import RoadDistress
 from app.schemas.distress import RoadDistressCreate, RoadDistressUpdate
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 def get_distress(db: Session, distress_id: int) -> Optional[RoadDistress]:
     """
     Retrieve a single road distress log by ID.
@@ -44,10 +49,16 @@ def create_distress(db: Session, distress_in: RoadDistressCreate) -> RoadDistres
         db_first_frame=distress_in.first_frame,
         db_last_frame=distress_in.last_frame,
         db_frames_visible=distress_in.frames_visible,
+        model_source=distress_in.model_source,
     )
-    db.add(db_distress)
-    db.commit()
-    db.refresh(db_distress)
+    try:
+        db.add(db_distress)
+        db.commit()
+        db.refresh(db_distress)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating distress: {e}", exc_info=True)
+        raise e
     return db_distress
 
 

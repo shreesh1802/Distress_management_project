@@ -117,7 +117,11 @@ class RoadDistressTracker:
                     f"damage_percentage_of_frame={detection.get('damage_percentage_of_frame', 0.0)}"
                 )
                 db_distress.detection_image_path = f"{base_path}?{qs}"
-                self.db.commit()
+                try:
+                    self.db.commit()
+                except Exception as commit_err:
+                    self.db.rollback()
+                    logger.error(f"Failed to commit matched track updates for track {matched_track['distress_id']}: {commit_err}", exc_info=True)
             return None
         else:
             # Insert a new record
@@ -144,27 +148,33 @@ class RoadDistressTracker:
                 detection_image_path=detection["annotated_path"],
                 first_frame=frame_number,
                 last_frame=frame_number,
-                frames_visible=1
+                frames_visible=1,
+                model_source=detection.get("model_source", "road")
             )
             
-            db_distress = create_distress(self.db, distress_in=distress_in)
-            
-            # Assign tracking_id to database ID and format initial metadata in path
-            db_distress.tracking_id = db_distress.id
-            base_path = db_distress.detection_image_path or ""
-            qs = (
-                f"last_frame={frame_number}&"
-                f"detection_count=1&"
-                f"last_timestamp={timestamp}&"
-                f"conf_history={detection['confidence']}&"
-                f"last_box={box[0]},{box[1]},{box[2]},{box[3]}&"
-                f"damage_width_pixels={detection.get('damage_width_pixels', 0.0)}&"
-                f"damage_height_pixels={detection.get('damage_height_pixels', 0.0)}&"
-                f"damage_area_pixels={detection.get('damage_area_pixels', 0.0)}&"
-                f"damage_percentage_of_frame={detection.get('damage_percentage_of_frame', 0.0)}"
-            )
-            db_distress.detection_image_path = f"{base_path}?{qs}"
-            self.db.commit()
+            try:
+                db_distress = create_distress(self.db, distress_in=distress_in)
+                
+                # Assign tracking_id to database ID and format initial metadata in path
+                db_distress.tracking_id = db_distress.id
+                base_path = db_distress.detection_image_path or ""
+                qs = (
+                    f"last_frame={frame_number}&"
+                    f"detection_count=1&"
+                    f"last_timestamp={timestamp}&"
+                    f"conf_history={detection['confidence']}&"
+                    f"last_box={box[0]},{box[1]},{box[2]},{box[3]}&"
+                    f"damage_width_pixels={detection.get('damage_width_pixels', 0.0)}&"
+                    f"damage_height_pixels={detection.get('damage_height_pixels', 0.0)}&"
+                    f"damage_area_pixels={detection.get('damage_area_pixels', 0.0)}&"
+                    f"damage_percentage_of_frame={detection.get('damage_percentage_of_frame', 0.0)}"
+                )
+                db_distress.detection_image_path = f"{base_path}?{qs}"
+                self.db.commit()
+            except Exception as new_track_err:
+                self.db.rollback()
+                logger.error(f"Failed to create new track for frame {frame_number}: {new_track_err}", exc_info=True)
+                return None
             
             # Append new track state
             self.tracks.append({

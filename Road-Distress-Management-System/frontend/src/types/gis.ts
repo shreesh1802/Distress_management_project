@@ -24,6 +24,8 @@ export interface RoadDistress {
   estimatedRepairTime: string;
   priorityScore: number;
   image_url?: string | null;
+  video_id?: number | null;
+  video_timestamp?: number | null;
 }
 
 export interface GISFiltersState {

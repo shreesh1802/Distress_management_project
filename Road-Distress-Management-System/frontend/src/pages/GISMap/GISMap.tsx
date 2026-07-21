@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { RoadDistress, GISFiltersState } from '../../types/gis';
 import GISFilters from '../../components/gis/GISFilters';
 import GISMapContainer from '../../components/gis/GISMapContainer';
@@ -19,6 +20,7 @@ const DEFAULT_FILTERS: GISFiltersState = {
 };
 
 export default function GISMap() {
+  const navigate = useNavigate();
   const [appliedFilters, setAppliedFilters] = useState<GISFiltersState>(DEFAULT_FILTERS);
   const [selectedDistress, setSelectedDistress] = useState<RoadDistress | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -51,6 +53,8 @@ export default function GISMap() {
             estimatedRepairCost: '₹35,000',
             estimatedRepairTime: '6 hours',
             priorityScore: Math.round(d.confidence_score * 100) || 85,
+            video_id: d.video_id,
+            video_timestamp: d.video_timestamp
           };
         });
         setRealDistresses(mapped);
@@ -102,6 +106,9 @@ export default function GISMap() {
   // Set selected distress, checking if it is still within the filtered list
   const handleSelectDistress = (distress: RoadDistress | null) => {
     setSelectedDistress(distress);
+    if (distress && distress.video_id && distress.video_timestamp !== undefined && distress.video_timestamp !== null) {
+      navigate(`/video-review/${distress.video_id}?t=${distress.video_timestamp}`);
+    }
   };
 
   const handleApplyFilters = (newFilters: GISFiltersState) => {

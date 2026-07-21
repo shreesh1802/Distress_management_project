@@ -15,7 +15,8 @@ from app.api.v1.routes import (
     upload,
     users,
     videos,
-    detection
+    detection,
+    live
 )
 
 # Initialize FastAPI application
@@ -70,6 +71,54 @@ def startup_event() -> None:
             except Exception as alt_err:
                 logger.warning(f"ALTER TABLE query for processed_filepath failed: {alt_err}")
                 
+        # Self-healing migration for road_distresses.detection_image_path to TEXT type
+        try:
+            db.execute(text("ALTER TABLE road_distresses ALTER COLUMN detection_image_path TYPE TEXT"))
+            db.commit()
+            logger.info("Database Schema Migration: Altered road_distresses.detection_image_path column to TEXT type.")
+        except Exception as alt_col_err:
+            db.rollback()
+            logger.warning(f"ALTER COLUMN query for detection_image_path failed: {alt_col_err}")
+
+        # Self-healing migration for uploaded_videos.progress column
+        try:
+            db.execute(text("SELECT progress FROM uploaded_videos LIMIT 1"))
+            logger.info("Database Schema Check: progress column already exists.")
+        except Exception:
+            db.rollback()
+            try:
+                db.execute(text("ALTER TABLE uploaded_videos ADD COLUMN progress INTEGER DEFAULT 0"))
+                db.commit()
+                logger.info("Database Schema Migration: Added progress column to uploaded_videos table.")
+            except Exception as e_progress:
+                logger.warning(f"ALTER TABLE query for progress column failed: {e_progress}")
+
+        # Self-healing migration for uploaded_videos.processing_stage column
+        try:
+            db.execute(text("SELECT processing_stage FROM uploaded_videos LIMIT 1"))
+            logger.info("Database Schema Check: processing_stage column already exists.")
+        except Exception:
+            db.rollback()
+            try:
+                db.execute(text("ALTER TABLE uploaded_videos ADD COLUMN processing_stage VARCHAR(100) DEFAULT 'Idle'"))
+                db.commit()
+                logger.info("Database Schema Migration: Added processing_stage column to uploaded_videos table.")
+            except Exception as e_stage:
+                logger.warning(f"ALTER TABLE query for processing_stage column failed: {e_stage}")
+
+        # Self-healing migration for road_distresses.model_source column
+        try:
+            db.execute(text("SELECT model_source FROM road_distresses LIMIT 1"))
+            logger.info("Database Schema Check: model_source column already exists.")
+        except Exception:
+            db.rollback()
+            try:
+                db.execute(text("ALTER TABLE road_distresses ADD COLUMN model_source VARCHAR(50) DEFAULT 'road'"))
+                db.commit()
+                logger.info("Database Schema Migration: Added model_source column to road_distresses table.")
+            except Exception as e_model_source:
+                logger.warning(f"ALTER TABLE query for model_source failed: {e_model_source}")
+
         db.close()
     except Exception as e:
         logger.critical(f"Database connection validation failed: {e}")
@@ -124,6 +173,15 @@ api_router.include_router(users.router, prefix="/users", tags=["Users"])
 api_router.include_router(videos.router, prefix="/videos", tags=["Video Management"])
 api_router.include_router(upload.router, prefix="/upload", tags=["Media Upload & Processing"])
 api_router.include_router(detection.router, prefix="/detection", tags=["AI Distress Detection"])
+api_router.include_router(live.router, prefix="/live", tags=["Live Camera Detection"])
 
 # Bind centralized API version 1 router to application
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Serve uploads/ (video frames, detection snapshots, live-camera snapshots) so the
+# frontend can reference them directly, e.g. /uploads/detections/live/<file>.jpg
+import os
+from fastapi.staticfiles import StaticFiles
+_uploads_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
+os.makedirs(_uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")

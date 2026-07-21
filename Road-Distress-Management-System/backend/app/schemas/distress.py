@@ -22,7 +22,8 @@ class RoadDistressBase(BaseModel):
     frame_number: Optional[int] = Field(None, description="Frame number within video")
     video_timestamp: Optional[float] = Field(None, description="Timestamp offset in seconds within video")
     source_type: Optional[str] = Field("manual", max_length=50, description="Source: video, image, manual")
-    detection_image_path: Optional[str] = Field(None, max_length=512, description="Path to bounding box detection image file")
+    detection_image_path: Optional[str] = Field(None, description="Path to bounding box detection image file")
+    model_source: Optional[str] = Field("road", max_length=50, description="Model source: road or signage")
     first_frame: Optional[int] = Field(None, description="First frame number where distress was seen")
     last_frame: Optional[int] = Field(None, description="Last frame number where distress was seen")
     frames_visible: Optional[int] = Field(None, description="Total frames distress was visible")
@@ -47,6 +48,7 @@ class RoadDistressUpdate(BaseModel):
     image_url: Optional[str] = Field(None, max_length=512)
     status: Optional[str] = Field(None, max_length=50)
     detected_at: Optional[datetime] = None
+    model_source: Optional[str] = Field(None, max_length=50)
 
 
 class RoadDistressResponse(RoadDistressBase):

@@ -81,6 +81,9 @@ export interface UploadedVideoResponse {
   updated_at: string;
   processed_filepath?: string | null;
   processed_video_path?: string | null;
+  progress?: number;
+  processing_stage?: string;
+  processing_duration?: number;
 }
 
 export interface MaintenanceTaskResponse {

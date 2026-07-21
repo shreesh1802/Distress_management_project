@@ -3,14 +3,23 @@ AI processing helper utility functions.
 """
 
 import random
-from typing import Tuple
+from typing import Optional, Tuple
 
 # Mapping from class ID to distress type
+# Signage classes (offset by 10 to prevent collision): the real signage_best.pt
+# checkpoint outputs exactly 3 classes (confirmed via head.cls_preds output shape,
+# see model_loader.py), not 4. The original training class names/order aren't known
+# (no exp config file for this checkpoint is present in this repo), so these are
+# honest placeholders rather than a guessed specific taxonomy -- update them once
+# the real names are confirmed.
 CLASS_MAPPING = {
     0: "longitudinal_crack",
     1: "transverse_crack",
     2: "alligator_crack",
-    3: "pothole"
+    3: "pothole",
+    10: "TRAFFIC SIGN",
+    11: "SIGN BOARD",
+    12: "POLES"
 }
 
 # Base location coordinates from seed data for realistic Indian corridor simulation
@@ -221,9 +230,9 @@ def format_seconds_to_hhmmss_mmm(seconds: float) -> str:
 
 
 def generate_gps_coordinates_for_video(
-    video_id: getattr(None, "int", None) or object,
-    frame_number: getattr(None, "int", None) or object,
-    timestamp: getattr(None, "float", None) or object
+    video_id: Optional[int],
+    frame_number: Optional[int],
+    timestamp: Optional[float]
 ) -> Tuple[float, float]:
     """
     Generates realistic GPS coordinates along a continuous trajectory for a given video

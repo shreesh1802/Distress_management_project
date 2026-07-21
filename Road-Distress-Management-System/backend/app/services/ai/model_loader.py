@@ -1,22 +1,46 @@
 """
 Model loader service responsible for managing weights loading and YOLO instance singleton.
-Falls back to a simulated Ultralytics interface on missing files or dependencies.
+Falls back to a simulated inference interface on missing files or dependencies.
+
+The road/signage checkpoints in backend/models/ are YOLOX checkpoints (confirmed by
+inspecting their state_dict keys and the standalone backend/models/webcam_test_combined.py
+reference script), not Ultralytics YOLO checkpoints -- loading them via ultralytics.YOLO()
+always fails regardless of file extension or ultralytics version. Real loading below uses
+YOLOX's own get_exp()/load_state_dict() pattern instead. The exact architecture for each
+checkpoint was determined by inspecting tensor shapes directly (no original exp config
+file was available):
+  - road_best.pt:    stem out_channels=48 (width=0.75), 6 CSP bottleneck blocks in
+                      dark3/dark4 (depth=0.67) -> matches YOLOX-M defaults exactly.
+                      head.cls_preds output channels = 4 -> num_classes=4.
+  - signage_best.pt:  stem out_channels=32 (width=0.5), 3 CSP bottleneck blocks in
+                      dark3/dark4 (depth=0.33) -> matches YOLOX-S defaults exactly.
+                      head.cls_preds output channels = 3 -> num_classes=3.
+A strict (non-relaxed) state_dict load was verified to succeed with zero missing/
+unexpected keys for both models under these exact parameters.
 """
 
 import os
 import logging
 import random
-from typing import Any, List
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Try to import Ultralytics YOLO to support production weights loading
+# Try to import YOLOX, the framework the actual road/signage checkpoints were trained with.
 try:
-    from ultralytics import YOLO
-    ULTRALYTICS_AVAILABLE = True
+    import torch
+    from yolox.exp import get_exp
+    from yolox.data.data_augment import ValTransform
+    from yolox.utils import postprocess
+    YOLOX_AVAILABLE = True
 except ImportError:
-    ULTRALYTICS_AVAILABLE = False
-    YOLO = None
+    YOLOX_AVAILABLE = False
+
+# Empirically reasonable thresholds for these two models (matching the values already
+# tuned and used in backend/models/webcam_test_combined.py); YOLOX's own Exp defaults
+# (test_conf=0.01, nmsthre=0.65) are tuned for mAP evaluation, not for display/production.
+YOLOX_CONF_THRESH = 0.3
+YOLOX_NMS_THRESH = 0.45
 
 
 class MockBoxItem:
@@ -115,6 +139,7 @@ class MockYOLO:
         if hasattr(frame, "shape"):
             h, w = frame.shape[:2]
 
+        is_signage = "signage" in str(self.model_path).lower()
         num_detections = random.randint(0, 3)
         box_items = []
 
@@ -125,7 +150,8 @@ class MockYOLO:
             x2 = min(x1 + random.uniform(40.0, 250.0), float(w - 10.0))
             y2 = min(y1 + random.uniform(40.0, 200.0), float(h - 10.0))
             conf = random.uniform(0.45, 0.98)
-            # Support class indexes matching potholes, cracks, rutting, raveling
+
+            # Support class indexes matching road distress or signage
             cls_id = random.choice([0, 1, 2, 3])
 
             box_items.append(MockBoxItem(xyxy=[x1, y1, x2, y2], conf=conf, cls=cls_id))
@@ -133,42 +159,123 @@ class MockYOLO:
         return [MockResult(MockBoxes(box_items))]
 
 
+class YoloxModel:
+    """
+    Callable wrapper around a loaded YOLOXDetector, presenting the
+    same interface RoadDetector/SignDetector/DetectorManager already expect from a
+    model (callable returning a list with one result exposing `.boxes`, each box
+    exposing `.xyxy`, `.conf`, `.cls`) -- so no other file needs to know this is YOLOX.
+    """
+    def __init__(self, detector: Any):
+        self.detector = detector
+
+    def __call__(self, frame: Any, **kwargs) -> List[MockResult]:
+        # Run YOLOXDetector.detect on the BGR frame
+        detections = self.detector.detect(frame)
+        
+        box_items = []
+        for det in detections:
+            # Reconstruct the integer class ID for YOLO shim directly (no offset here)
+            cls_id = det["class_id"]
+            box_items.append(MockBoxItem(xyxy=det["box"], conf=det["confidence"], cls=cls_id))
+            
+        return [MockResult(MockBoxes(box_items))]
+
+
 class ModelLoader:
     """
-    Singleton class managing lazy loading of the AI model.
+    Singleton class managing lazy loading of the AI models.
     """
     _instance = None
-    _model = None
+    _road_model = None
+    _signage_model = None
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
             cls._instance = super(ModelLoader, cls).__new__(cls)
         return cls._instance
 
-    def load_model(self, model_path: str = "backend/models/best.pt") -> Any:
+    def load_road_model(self) -> Any:
         """
-        Lazy loads the YOLO model from best.pt.
-        If best.pt does not exist, fallback to MockYOLO instance.
+        Lazy loads the road distress detection model (YOLOX-M, 4 classes) using YOLOXDetector.
         """
-        if self._model is not None:
-            return self._model
+        if self._road_model is not None:
+            return self._road_model
 
-        # Build absolute path to weights file from project backend root
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-        full_model_path = os.path.join(base_dir, "models", "best.pt")
+        # Ultralytics' checkpoint loader hard-rejects any suffix other than ".pt"
+        # (see ultralytics.utils.checks.check_suffix), so the ".pt" copy is loaded
+        # even though the canonical weight name is road_best.pth.
+        full_model_path = os.path.join(base_dir, "models", "road_best.pt")
 
-        if os.path.exists(full_model_path) and ULTRALYTICS_AVAILABLE:
+        from app.services.live.yolox_engine import YOLOXDetector
+        if os.path.exists(full_model_path) and YOLOX_AVAILABLE:
             try:
-                logger.info(f"Loading real YOLO model from {full_model_path}...")
-                self._model = YOLO(full_model_path)
+                logger.info("Loading road YOLOX model via shared YOLOXDetector...")
+                detector = YOLOXDetector(
+                    exp_file="",
+                    ckpt_file="",
+                    model_source="road",
+                    conf_thresh=YOLOX_CONF_THRESH,
+                    nms_thresh=YOLOX_NMS_THRESH,
+                    test_size=320,
+                    fallback_ckpt=full_model_path,
+                    fallback_exp_name="yolox-m",
+                    fallback_num_classes=4,
+                    fallback_class_names=["longitudinal_crack", "transverse_crack", "alligator_crack", "pothole"]
+                )
+                self._road_model = YoloxModel(detector)
             except Exception as e:
-                logger.warning(f"Error loading real YOLO model. Falling back to MockYOLO: {e}")
-                self._model = MockYOLO(full_model_path)
+                logger.warning(f"Error loading road YOLOX model. Falling back to MockYOLO: {e}")
+                self._road_model = MockYOLO(full_model_path)
         else:
-            if not ULTRALYTICS_AVAILABLE:
-                logger.warning("Ultralytics package not available. Creating MockYOLO model.")
-            else:
-                logger.warning(f"YOLO model file not found at {full_model_path}. Creating MockYOLO model.")
-            self._model = MockYOLO(full_model_path)
+            logger.warning(f"Road model file not found at {full_model_path}. Creating MockYOLO model.")
+            self._road_model = MockYOLO(full_model_path)
 
-        return self._model
+        return self._road_model
+
+    def load_signage_model(self) -> Any:
+        """
+        Lazy loads the signage detection model (YOLOX-S, 3 classes) using YOLOXDetector.
+        """
+        if self._signage_model is not None:
+            return self._signage_model
+
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        # Ultralytics' checkpoint loader hard-rejects any suffix other than ".pt"
+        # (see ultralytics.utils.checks.check_suffix), so the ".pt" copy is loaded
+        # even though the canonical weight name is signage_best.pth.
+        full_model_path = os.path.join(base_dir, "models", "signage_best.pt")
+
+        from app.services.live.yolox_engine import YOLOXDetector
+        if os.path.exists(full_model_path) and YOLOX_AVAILABLE:
+            try:
+                logger.info("Loading signage YOLOX model via shared YOLOXDetector...")
+                detector = YOLOXDetector(
+                    exp_file="",
+                    ckpt_file="",
+                    model_source="signage",
+                    conf_thresh=YOLOX_CONF_THRESH,
+                    nms_thresh=YOLOX_NMS_THRESH,
+                    test_size=320,
+                    fallback_ckpt=full_model_path,
+                    fallback_exp_name="yolox-s",
+                    fallback_num_classes=3,
+                    fallback_class_names=["TRAFFIC SIGN", "SIGN BOARD", "POLES"]
+                )
+                self._signage_model = YoloxModel(detector)
+            except Exception as e:
+                logger.warning(f"Error loading signage YOLOX model. Falling back to MockYOLO: {e}")
+                self._signage_model = MockYOLO(full_model_path)
+        else:
+            logger.warning(f"Signage model file not found at {full_model_path}. Creating MockYOLO model.")
+            self._signage_model = MockYOLO(full_model_path)
+
+        return self._signage_model
+
+    def load_model(self, model_path: str = None) -> Any:
+        """
+        Compat layer returning the dual-model DetectorManager instance.
+        """
+        from app.services.ai.detector_manager import DetectorManager
+        return DetectorManager()

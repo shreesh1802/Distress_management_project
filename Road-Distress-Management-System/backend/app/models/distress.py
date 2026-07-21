@@ -4,7 +4,7 @@ RoadDistress database model for the Road Distress Management System.
 
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
-from sqlalchemy import String, Float, DateTime, ForeignKey, Integer
+from sqlalchemy import String, Float, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.database import Base
@@ -53,8 +53,9 @@ class RoadDistress(Base):
     frame_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     video_timestamp: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     source_type: Mapped[Optional[str]] = mapped_column(String(50), default="manual", nullable=True)
-    detection_image_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    detection_image_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tracking_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    model_source: Mapped[Optional[str]] = mapped_column(String(50), default="road", nullable=True)
     db_first_frame: Mapped[Optional[int]] = mapped_column("first_frame", Integer, nullable=True)
     db_last_frame: Mapped[Optional[int]] = mapped_column("last_frame", Integer, nullable=True)
     db_frames_visible: Mapped[Optional[int]] = mapped_column("frames_visible", Integer, nullable=True)
