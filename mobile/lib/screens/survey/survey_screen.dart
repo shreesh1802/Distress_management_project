@@ -916,16 +916,38 @@ class _SurveyScreenState extends ConsumerState<SurveyScreen> {
       icon: LucideIcons.fileText,
       title: 'Mission Summary',
       children: [
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 18,
-          childAspectRatio: 4.2,
+        // Plain Row/Column grid, not GridView: GridView is Viewport-based
+        // and doesn't implement intrinsic-height computation, which throws
+        // in debug mode (silently breaks hit-testing in release) once this
+        // card sits inside _CardGrid's IntrinsicHeight-wrapped row.
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            for (final item in items)
-              _SummaryItem(label: item.$1, value: item.$2, highlight: item.$3),
+            for (var i = 0; i < items.length; i += 2) ...[
+              if (i > 0) const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _SummaryItem(
+                      label: items[i].$1,
+                      value: items[i].$2,
+                      highlight: items[i].$3,
+                    ),
+                  ),
+                  const SizedBox(width: 18),
+                  Expanded(
+                    child: i + 1 < items.length
+                        ? _SummaryItem(
+                            label: items[i + 1].$1,
+                            value: items[i + 1].$2,
+                            highlight: items[i + 1].$3,
+                          )
+                        : const SizedBox(),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ],
