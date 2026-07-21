@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../data/auth_provider.dart';
+import '../screens/dashboard/dashboard_shell.dart';
 import '../screens/login/login_screen.dart';
+import '../screens/survey/survey_screen.dart';
 
 /// Route paths mirror Road-Distress-Management-System/frontend/src/routes/AppRoutes.tsx
 /// 1:1, so links and navigation logic stay recognizable across both apps.
@@ -12,6 +14,7 @@ class AppRoutes {
 
   static const login = '/login';
   static const survey = '/survey';
+  static const dashboard = '/dashboard';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -37,7 +40,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.survey,
-        builder: (context, state) => const _SurveyPlaceholderScreen(),
+        builder: (context, state) => const SurveyScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.dashboard,
+        builder: (context, state) => const DashboardShell(),
       ),
     ],
   );
@@ -55,17 +62,4 @@ class _AuthListenable extends ChangeNotifier {
   }
 
   final Ref ref;
-}
-
-class _SurveyPlaceholderScreen extends StatelessWidget {
-  const _SurveyPlaceholderScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Text('Inspection Mission Setup — next phase of the Flutter port'),
-      ),
-    );
-  }
 }
