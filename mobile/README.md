@@ -46,7 +46,8 @@ lib/
 │   ├── survey/              # Mission Setup
 │   ├── dashboard/           # Shell (sidebar + top navbar) + Overview
 │   ├── live_detection/      # Live camera detection screen + widgets
-│   └── gis_map/             # GIS Map screen + widgets
+│   ├── gis_map/             # GIS Map screen + widgets
+│   └── upload_video/        # Upload Video screen
 └── theme/                   # Colors, text styles, ThemeData
 ```
 
@@ -60,7 +61,7 @@ lib/
 | Overview Dashboard | Done | Mock data shaped like `apiService`'s responses |
 | Live Detection | Done | **Real backend wiring** — see below |
 | GIS Map | Done | **Real backend data** + a real interactive map — see below |
-| Upload Video | Not started | |
+| Upload Video | Done | **Real backend wiring** — see below |
 | Live Processing | Not started | |
 | Road Distresses | Not started | |
 | Video Review | Not started | |
@@ -142,6 +143,28 @@ Note: the map tiles require real internet access to
 `tile.openstreetmap.org`; they won't load in a fully offline/sandboxed
 environment (same category of limitation as Live Detection needing a real
 backend + camera), but work normally anywhere with a live connection.
+
+## Upload Video: real backend wiring
+
+`lib/screens/upload_video/upload_video_screen.dart` and
+`lib/data/video_api.dart` call the real `/api/v1/videos/*` and
+`/api/v1/reports/generate/*` endpoints — upload (`POST /videos/upload`,
+multipart), list (`GET /videos/`, polled every 8s like the React source),
+delete (`DELETE /videos/{id}`), and PDF report generation. File selection
+uses `file_picker` (click to browse) and `desktop_drop` (drag-and-drop),
+both of which work on Flutter Web.
+
+The upload progress bar is a simulated timer incrementing to 85% while the
+request is in flight, then jumping to 100% on success — this matches the
+React source exactly; `UploadVideo.tsx` never actually wires axios's real
+upload-progress event to its progress bar either, so there was no real
+progress signal to preserve.
+
+Without a backend running, the screen still renders correctly: the upload
+registry fetch fails with a visible "Failed to fetch upload registry."
+banner, and the Pipeline Overview / Processing Queue cards fall back to the
+same static placeholder numbers the React source shows when its `videos`
+array is empty.
 
 ## A couple of Flutter-specific gotchas hit while porting
 

@@ -9,6 +9,7 @@ import '../screens/gis_map/gis_map_screen.dart';
 import '../screens/live_detection/live_detection_screen.dart';
 import '../screens/login/login_screen.dart';
 import '../screens/survey/survey_screen.dart';
+import '../screens/upload_video/upload_video_screen.dart';
 
 /// Route paths mirror Road-Distress-Management-System/frontend/src/routes/AppRoutes.tsx
 /// 1:1, so links and navigation logic stay recognizable across both apps.
@@ -21,6 +22,7 @@ class AppRoutes {
   static const overview = '/overview';
   static const liveMonitoring = '/live-monitoring';
   static const gisMap = '/gis-map';
+  static const uploadVideo = '/upload-video';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -65,6 +67,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.gisMap,
         builder: (context, state) => const DashboardShell(child: GisMapScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.uploadVideo,
+        builder: (context, state) => const DashboardShell(child: UploadVideoScreen()),
       ),
     ],
   );
