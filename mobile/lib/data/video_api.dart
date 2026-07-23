@@ -40,6 +40,38 @@ class UploadedVideo {
       processingStage: json['processing_stage'] as String?,
     );
   }
+
+  UploadedVideo copyWith({String? processingStatus}) {
+    return UploadedVideo(
+      id: id,
+      filename: filename,
+      processingStatus: processingStatus ?? this.processingStatus,
+      uploadTimestamp: uploadTimestamp,
+      filepath: filepath,
+      processedFilepath: processedFilepath,
+      progress: progress,
+      processingStage: processingStage,
+    );
+  }
+}
+
+/// Mirrors the fields of `GET /api/v1/detection/summary` this app actually
+/// reads (`total_detections`, `road_health_score`); the endpoint returns a
+/// larger analytics payload, but the rest isn't used by this screen.
+class DetectionSummary {
+  const DetectionSummary({required this.totalDetections, required this.roadHealthScore});
+
+  final int totalDetections;
+  final double roadHealthScore;
+
+  factory DetectionSummary.fromJson(Map<String, dynamic> json) {
+    return DetectionSummary(
+      totalDetections: (json['total_detections'] as num?)?.toInt() ?? 0,
+      roadHealthScore: (json['road_health_score'] as num?)?.toDouble() ?? 100.0,
+    );
+  }
+
+  static const fallback = DetectionSummary(totalDetections: 0, roadHealthScore: 100.0);
 }
 
 class VideoApiException implements Exception {
@@ -97,6 +129,45 @@ class VideoApi {
     final response = await _client.post(Uri.parse('$kApiV1/reports/generate/$videoId'));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw const VideoApiException('Failed to export PDF report.');
+    }
+  }
+
+  /// Matches apiService's `getDetectionSummary().catch(() => ({...fallback}))`
+  /// — returns the fallback on any failure rather than throwing.
+  Future<DetectionSummary> fetchDetectionSummary() async {
+    try {
+      final response = await _client.get(Uri.parse('$kApiV1/detection/summary'));
+      if (response.statusCode != 200) return DetectionSummary.fallback;
+      return DetectionSummary.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    } catch (_) {
+      return DetectionSummary.fallback;
+    }
+  }
+
+  /// Matches apiService's `getReports().catch(() => [])` — just the count is
+  /// needed here, so the full report list isn't modeled.
+  Future<int> fetchReportsCount() async {
+    try {
+      final uri = Uri.parse('$kApiV1/reports/').replace(queryParameters: {'skip': '0', 'limit': '100'});
+      final response = await _client.get(uri);
+      if (response.statusCode != 200) return 0;
+      return (jsonDecode(response.body) as List<dynamic>).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<void> triggerDetection(int videoId) async {
+    final response = await _client.post(Uri.parse('$kApiV1/detection/video/$videoId'));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      var detail = 'Failed to trigger processing';
+      try {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        detail = body['detail']?.toString() ?? detail;
+      } catch (_) {
+        // Non-JSON error body; fall back to the generic message.
+      }
+      throw VideoApiException(detail);
     }
   }
 

@@ -38,7 +38,9 @@ no real auth backend yet.)
 lib/
 ├── data/                    # API clients and state (Riverpod providers)
 │   ├── auth_provider.dart
-│   └── live_detection_api.dart
+│   ├── live_detection_api.dart
+│   ├── gis_api.dart
+│   └── video_api.dart       # shared by Upload Video and Live Processing
 ├── router/
 │   └── app_router.dart      # go_router routes, mirrors AppRoutes.tsx
 ├── screens/
@@ -47,7 +49,8 @@ lib/
 │   ├── dashboard/           # Shell (sidebar + top navbar) + Overview
 │   ├── live_detection/      # Live camera detection screen + widgets
 │   ├── gis_map/             # GIS Map screen + widgets
-│   └── upload_video/        # Upload Video screen
+│   ├── upload_video/        # Upload Video screen
+│   └── live_processing/     # Live Processing screen
 └── theme/                   # Colors, text styles, ThemeData
 ```
 
@@ -62,7 +65,7 @@ lib/
 | Live Detection | Done | **Real backend wiring** — see below |
 | GIS Map | Done | **Real backend data** + a real interactive map — see below |
 | Upload Video | Done | **Real backend wiring** — see below |
-| Live Processing | Not started | |
+| Live Processing | Done | **Real backend wiring** — see below |
 | Road Distresses | Not started | |
 | Video Review | Not started | |
 | Maintenance | Not started | |
@@ -165,6 +168,28 @@ registry fetch fails with a visible "Failed to fetch upload registry."
 banner, and the Pipeline Overview / Processing Queue cards fall back to the
 same static placeholder numbers the React source shows when its `videos`
 array is empty.
+
+## Live Processing: real backend wiring
+
+`lib/screens/live_processing/live_processing_screen.dart` polls
+`GET /api/v1/videos/` (every 4s, matching the React source), `GET
+/api/v1/detection/summary`, and `GET /api/v1/reports/` for the KPI row, and
+calls `POST /api/v1/detection/video/{id}` to trigger the AI pipeline on the
+selected "waiting" video — reusing `VideoApi` from `video_api.dart`
+(extended with `fetchDetectionSummary`, `fetchReportsCount`, and
+`triggerDetection`) rather than duplicating a client.
+
+The frame-extraction → YOLO detection → object tracking → maintenance-task
+→ report-generation progress bar and milestone stepper are a client-side
+timer simulation in the React source too (there's no backend push channel
+for pipeline progress), so that simulation — including its exact stage
+thresholds and log messages — is ported as-is rather than replaced with
+something real that doesn't exist server-side.
+
+Without a backend running, the screen still renders correctly: the KPI
+row shows zeros, the Footage Registry Queue shows its empty state, and the
+monitor panel prompts "Select a video source to begin surveillance
+monitoring." until a video is loaded.
 
 ## A couple of Flutter-specific gotchas hit while porting
 

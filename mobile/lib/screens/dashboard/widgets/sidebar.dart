@@ -30,7 +30,7 @@ class _DashboardSidebarState extends State<DashboardSidebar> {
     _SidebarMenuItem(AppRoutes.dashboard, 'Dashboard', LucideIcons.layoutDashboard),
     _SidebarMenuItem(AppRoutes.liveMonitoring, 'Live Detection', LucideIcons.radar),
     _SidebarMenuItem(AppRoutes.uploadVideo, 'Upload Video', LucideIcons.upload),
-    _SidebarMenuItem('/live-processing', 'Live Processing', LucideIcons.activity),
+    _SidebarMenuItem(AppRoutes.liveProcessing, 'Live Processing', LucideIcons.activity),
     _SidebarMenuItem(AppRoutes.gisMap, 'GIS Map', LucideIcons.map),
     _SidebarMenuItem('/road-distresses', 'Road Distresses', LucideIcons.shieldAlert),
     _SidebarMenuItem('/maintenance', 'Maintenance', LucideIcons.wrench),
@@ -50,6 +50,7 @@ class _DashboardSidebarState extends State<DashboardSidebar> {
       AppRoutes.liveMonitoring,
       AppRoutes.gisMap,
       AppRoutes.uploadVideo,
+      AppRoutes.liveProcessing,
     };
     if (currentRoutes.contains(path)) {
       context.go(path);
