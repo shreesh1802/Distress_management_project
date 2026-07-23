@@ -9,6 +9,7 @@ import '../screens/gis_map/gis_map_screen.dart';
 import '../screens/live_detection/live_detection_screen.dart';
 import '../screens/live_processing/live_processing_screen.dart';
 import '../screens/login/login_screen.dart';
+import '../screens/road_distresses/road_distresses_screen.dart';
 import '../screens/survey/survey_screen.dart';
 import '../screens/upload_video/upload_video_screen.dart';
 
@@ -25,6 +26,7 @@ class AppRoutes {
   static const gisMap = '/gis-map';
   static const uploadVideo = '/upload-video';
   static const liveProcessing = '/live-processing';
+  static const roadDistresses = '/road-distresses';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -77,6 +79,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.liveProcessing,
         builder: (context, state) => const DashboardShell(child: LiveProcessingScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.roadDistresses,
+        builder: (context, state) => const DashboardShell(child: RoadDistressesScreen()),
       ),
     ],
   );

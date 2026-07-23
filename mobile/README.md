@@ -40,7 +40,8 @@ lib/
 │   ├── auth_provider.dart
 │   ├── live_detection_api.dart
 │   ├── gis_api.dart
-│   └── video_api.dart       # shared by Upload Video and Live Processing
+│   ├── video_api.dart       # shared by Upload Video and Live Processing
+│   └── road_distress_api.dart
 ├── router/
 │   └── app_router.dart      # go_router routes, mirrors AppRoutes.tsx
 ├── screens/
@@ -50,7 +51,8 @@ lib/
 │   ├── live_detection/      # Live camera detection screen + widgets
 │   ├── gis_map/             # GIS Map screen + widgets
 │   ├── upload_video/        # Upload Video screen
-│   └── live_processing/     # Live Processing screen
+│   ├── live_processing/     # Live Processing screen
+│   └── road_distresses/     # Road Distresses screen + widgets
 └── theme/                   # Colors, text styles, ThemeData
 ```
 
@@ -66,7 +68,7 @@ lib/
 | GIS Map | Done | **Real backend data** + a real interactive map — see below |
 | Upload Video | Done | **Real backend wiring** — see below |
 | Live Processing | Done | **Real backend wiring** — see below |
-| Road Distresses | Not started | |
+| Road Distresses | Done | **Real backend data** — see below |
 | Video Review | Not started | |
 | Maintenance | Not started | |
 | Reports | Not started | |
@@ -190,6 +192,40 @@ Without a backend running, the screen still renders correctly: the KPI
 row shows zeros, the Footage Registry Queue shows its empty state, and the
 monitor panel prompts "Select a video source to begin surveillance
 monitoring." until a video is loaded.
+
+## Road Distresses: real backend data
+
+`lib/screens/road_distresses/` ports `RoadDistresses.tsx` against the real
+`GET /api/v1/distress/` endpoint (same one GIS Map uses, but working with
+the raw API record directly rather than GIS Map's synthetic
+state/district/roadName mapping). Search, the advanced filter panel
+(severity/status/type/video ID/priority group/date range), column-sort,
+pagination, configurable column visibility (persisted via
+`SharedPreferences`, the Flutter equivalent of the React source's
+`localStorage` use), row selection with bulk "Mark Reviewed"/"Mark
+Resolved" actions, the inspection side drawer, and per-row "Report"/"GIS"
+actions are all direct ports.
+
+Two things were deliberately trimmed vs. the ~1,100-line React source:
+
+- **No CSV/Excel/JSON export buttons, and no "Export Selected" bulk
+  action.** These are pure frontend blob-download conveniences in the
+  React source (they build a data URI and click a hidden `<a>` tag) rather
+  than anything backend-driven, so they were left out to keep this
+  screen's scope on the real, data-driven parts.
+- **The image lightbox uses Flutter's built-in `InteractiveViewer`**
+  (pinch/drag/double-tap zoom) instead of manually re-implementing the
+  React source's mouse-drag-to-pan + zoom-button transform math — same
+  real capability, idiomatic Flutter widget.
+
+One quirk ported faithfully rather than "fixed": `handleGeneratePDF`'s
+catch branch in the React source shows the *same* success message as the
+happy path, so the user always sees "PDF report generated successfully"
+regardless of whether the API call actually succeeded. That's preserved
+here rather than silently made more "correct," since the goal is matching
+the reference app's actual behavior, warts and all. Similarly, the bulk
+"Mark Reviewed"/"Mark Resolved" actions only mutate local state in the
+React source (no real API call) — that's also preserved as-is.
 
 ## A couple of Flutter-specific gotchas hit while porting
 
