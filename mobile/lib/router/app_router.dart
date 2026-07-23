@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../data/auth_provider.dart';
 import '../screens/dashboard/dashboard_shell.dart';
 import '../screens/dashboard/overview_screen.dart';
+import '../screens/gis_map/gis_map_screen.dart';
 import '../screens/live_detection/live_detection_screen.dart';
 import '../screens/login/login_screen.dart';
 import '../screens/survey/survey_screen.dart';
@@ -19,6 +20,7 @@ class AppRoutes {
   static const dashboard = '/dashboard';
   static const overview = '/overview';
   static const liveMonitoring = '/live-monitoring';
+  static const gisMap = '/gis-map';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -59,6 +61,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.liveMonitoring,
         builder: (context, state) =>
             const DashboardShell(child: LiveDetectionScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.gisMap,
+        builder: (context, state) => const DashboardShell(child: GisMapScreen()),
       ),
     ],
   );

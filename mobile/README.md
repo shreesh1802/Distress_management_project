@@ -45,7 +45,8 @@ lib/
 │   ├── login/
 │   ├── survey/              # Mission Setup
 │   ├── dashboard/           # Shell (sidebar + top navbar) + Overview
-│   └── live_detection/      # Live camera detection screen + widgets
+│   ├── live_detection/      # Live camera detection screen + widgets
+│   └── gis_map/             # GIS Map screen + widgets
 └── theme/                   # Colors, text styles, ThemeData
 ```
 
@@ -58,7 +59,7 @@ lib/
 | Dashboard shell (sidebar/navbar) | Done | |
 | Overview Dashboard | Done | Mock data shaped like `apiService`'s responses |
 | Live Detection | Done | **Real backend wiring** — see below |
-| GIS Map | Not started | |
+| GIS Map | Done | **Real backend data** + a real interactive map — see below |
 | Upload Video | Not started | |
 | Live Processing | Not started | |
 | Road Distresses | Not started | |
@@ -71,8 +72,8 @@ lib/
 | Settings | Not started | |
 
 Everything above "Live Detection" runs against mock/hardcoded data (no
-backend calls). The Live Detection screen is the one exception — it's wired
-to the real FastAPI backend described below.
+backend calls). Live Detection and GIS Map are the two exceptions — both are
+wired to the real FastAPI backend, described below.
 
 ## Live Detection: running it against a real backend
 
@@ -105,6 +106,42 @@ Without a backend running, the screen still renders correctly — it shows a
 "Failed to start live camera" error instead of crashing (exercises the same
 error path the React source's `catch (e) { setError(e.message || ...) }`
 does).
+
+## GIS Map: real data, real interactive map
+
+`lib/screens/gis_map/` and `lib/data/gis_api.dart` call the actual
+`GET /api/v1/distress/` endpoint (same as the React source's
+`apiService.getDistressLogs`, and the same PostgreSQL-backed route as the
+backend's `distress.py`) and map the response into marker data the same way
+`GISMap.tsx`'s `fetchRealDistresses` does. No auth is required for this
+endpoint, so it works standalone without the Live Detection screen's mock
+login being anything more than local gating.
+
+The map itself uses [`flutter_map`](https://pub.dev/packages/flutter_map)
+(the closest Flutter equivalent to the React source's `react-leaflet`) with
+a real OpenStreetMap tile layer — pannable, zoomable, with real
+severity-colored markers you can tap to select.
+
+Deliberately trimmed vs. the ~2,900-line React source, since these are all
+decorative/simulated and not tied to real backend data:
+
+- No multi-basemap layer switcher (OSM only, no ESRI/Topo/CartoDB options)
+- No marker clustering (all markers render individually at every zoom level)
+- No simulated survey-vehicle marker, its route animation, hardcoded highway
+  route polylines, or chainage milestone labels
+- No anchored per-marker popup card (Leaflet's `Popup`) — tapping a marker
+  shows the same detail in the floating card overlay + the Road Details
+  Panel below the map instead, without pulling in an extra popup package
+
+Everything else — KPI row, filters (state/district/type/severity/date
+range, applied the same way as `GISMap.tsx`), the map's KPI strip and
+GPS/telemetry HUD, the Distress Summary Analytics panel, and the full
+history table — is a direct port.
+
+Note: the map tiles require real internet access to
+`tile.openstreetmap.org`; they won't load in a fully offline/sandboxed
+environment (same category of limitation as Live Detection needing a real
+backend + camera), but work normally anywhere with a live connection.
 
 ## A couple of Flutter-specific gotchas hit while porting
 
