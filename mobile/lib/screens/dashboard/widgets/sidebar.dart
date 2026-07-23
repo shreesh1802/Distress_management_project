@@ -28,7 +28,7 @@ class _DashboardSidebarState extends State<DashboardSidebar> {
   static const _menuItems = [
     _SidebarMenuItem('/overview', 'Overview', LucideIcons.layoutDashboard),
     _SidebarMenuItem(AppRoutes.dashboard, 'Dashboard', LucideIcons.layoutDashboard),
-    _SidebarMenuItem('/live-monitoring', 'Live Detection', LucideIcons.radar),
+    _SidebarMenuItem(AppRoutes.liveMonitoring, 'Live Detection', LucideIcons.radar),
     _SidebarMenuItem('/upload-video', 'Upload Video', LucideIcons.upload),
     _SidebarMenuItem('/live-processing', 'Live Processing', LucideIcons.activity),
     _SidebarMenuItem('/gis-map', 'GIS Map', LucideIcons.map),
@@ -47,6 +47,7 @@ class _DashboardSidebarState extends State<DashboardSidebar> {
       AppRoutes.survey,
       AppRoutes.dashboard,
       AppRoutes.overview,
+      AppRoutes.liveMonitoring,
     };
     if (currentRoutes.contains(path)) {
       context.go(path);
