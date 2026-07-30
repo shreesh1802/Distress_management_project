@@ -26,6 +26,7 @@ class DistressRecord {
     this.boxWidth,
     this.boxHeight,
     this.affectedArea,
+    this.detectionImagePath,
   });
 
   final int id;
@@ -44,6 +45,7 @@ class DistressRecord {
   final int? boxWidth;
   final int? boxHeight;
   final double? affectedArea;
+  final String? detectionImagePath;
 
   factory DistressRecord.fromJson(Map<String, dynamic> json) {
     return DistressRecord(
@@ -63,6 +65,7 @@ class DistressRecord {
       boxWidth: (json['box_width'] as num?)?.toInt(),
       boxHeight: (json['box_height'] as num?)?.toInt(),
       affectedArea: (json['affected_area'] as num?)?.toDouble(),
+      detectionImagePath: json['detection_image_path'] as String?,
     );
   }
 

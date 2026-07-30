@@ -41,7 +41,8 @@ lib/
 │   ├── live_detection_api.dart
 │   ├── gis_api.dart
 │   ├── video_api.dart       # shared by Upload Video, Live Processing, Dashboard
-│   └── road_distress_api.dart
+│   ├── road_distress_api.dart
+│   └── maintenance_api.dart
 ├── router/
 │   └── app_router.dart      # go_router routes, mirrors AppRoutes.tsx
 ├── screens/
@@ -53,7 +54,8 @@ lib/
 │   ├── gis_map/             # GIS Map screen + widgets
 │   ├── upload_video/        # Upload Video screen
 │   ├── live_processing/     # Live Processing screen
-│   └── road_distresses/     # Road Distresses screen + widgets
+│   ├── road_distresses/     # Road Distresses screen + widgets
+│   └── maintenance/         # Maintenance screen + widgets
 └── theme/                   # Colors, text styles, ThemeData
 ```
 
@@ -71,6 +73,7 @@ lib/
 | Live Processing | Done | **Real backend wiring** — see below |
 | Road Distresses | Done | **Real backend data** — see below |
 | Dashboard (per-run inspection view) | Done | **Real backend data** — see below. Distinct from Overview — `/dashboard` vs. `/overview` in the React source |
+| Maintenance | Done | **Real backend data** — see below |
 | Video Review | Not started | |
 | Maintenance | Not started | |
 | Reports | Not started | |
@@ -258,6 +261,35 @@ Trimmed vs. the ~1,035-line React source:
 One quirk kept faithfully: the KPI row's "Videos Uploaded" card is
 hardcoded to `42` in the React source regardless of any real data — it's
 ported as the same hardcoded `42` here, not wired to a real count.
+
+## Maintenance: real backend data
+
+`lib/screens/maintenance/` ports `MaintenanceDashboard.tsx`: real data from
+`GET /api/v1/maintenance/recommendations`, `GET /api/v1/distress/`, and
+`GET /api/v1/users/`, joined client-side into `CombinedTask`s exactly as
+the React source does (there's no backend endpoint that returns this
+joined shape directly). The `components/maintenance/*.tsx` files in the
+React source are dead code — never imported by any page or route — so
+nothing there needed porting.
+
+All three view modes are direct ports: **Kanban Board** (5 status columns
+with quick-advance buttons), **Table Registry** (sortable/paginated), and
+**Calendar Schedule** (a real month grid with task badges per day). Also
+ported: the KPI row, the full filter bar (search/status/priority/
+severity/engineer/month), the task details drawer (editable status/
+engineer/due-date — local-state-only, matching the source, since it has
+no update endpoint wired up either), and both analytics charts (priority
+workload bar chart, operations stage pie chart).
+
+Trimmed: the CSV/Excel export buttons and the "PDF Print" button
+(`window.print()`) — pure frontend conveniences with no backend tie, same
+reasoning as the export buttons trimmed from GIS Map and Road Distresses.
+
+This screen's widgets (Kanban cards, table, calendar, drawer) render very
+differently with real task data than with none, so a small widget test
+(`test/maintenance_smoke_test.dart`) pumps each one with sample tasks —
+it caught and fixed three real text-overflow bugs that were invisible
+when testing against this sandbox's empty/error states alone.
 
 ## A couple of Flutter-specific gotchas hit while porting
 
