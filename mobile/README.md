@@ -74,9 +74,8 @@ lib/
 | Road Distresses | Done | **Real backend data** — see below |
 | Dashboard (per-run inspection view) | Done | **Real backend data** — see below. Distinct from Overview — `/dashboard` vs. `/overview` in the React source |
 | Maintenance | Done | **Real backend data** — see below |
+| Reports | Done | **Real backend data** — see below |
 | Video Review | Not started | |
-| Maintenance | Not started | |
-| Reports | Not started | |
 | Analytics | Not started | |
 | History | Not started | |
 | Notifications | Not started | |
@@ -290,6 +289,58 @@ differently with real task data than with none, so a small widget test
 (`test/maintenance_smoke_test.dart`) pumps each one with sample tasks —
 it caught and fixed three real text-overflow bugs that were invisible
 when testing against this sandbox's empty/error states alone.
+
+## Reports: real backend data
+
+`lib/screens/reports/` ports `ReportsDashboard.tsx`: real data from
+`GET /api/v1/reports/`, `GET /api/v1/videos/`, and `GET /api/v1/users/`,
+joined client-side into `ReportItem`s exactly as the React source's
+`loadDashboardData` does — `roadId`/`district`/`distressType`/`severity`
+are faithfully-preserved fake-but-deterministic values derived from
+`videoId % <lookup array>.length` (there's no real per-report geo/distress
+data on the backend to join against, and the source doesn't have any
+either). The `components/reports/*.tsx` files in the React source
+(`ReportGeneratorPanel.tsx`, `ReportsTable.tsx`) are dead code — never
+imported by any page or route — so nothing there needed porting.
+
+Ported as real functionality: the reports registry table (search/format/
+severity/status/date-range/favorites filters, bulk selection, pagination),
+favorites persisted via `SharedPreferences` (mirrors the source's
+`localStorage['road_reports_favorites']`), real PDF/Excel report
+generation from a completed video run (`POST /api/v1/reports/generate/{id}`
+/ `POST /api/v1/reports/excel/{id}`), real deletion
+(`DELETE /api/v1/reports/{id}`), real downloads (opening the backend's
+download URLs in a new tab), staggered bulk download, the "Registry
+Overview" card (distress-classification pie chart — including the
+source's own hardcoded non-zero fallback minimums, so no slice ever shows
+a true zero — plus the severity breakdown bars, which the source computes
+from *all* reports rather than the filtered list, faithfully preserved
+here too), and the document preview modal with its two decorative-but-real
+document mockups (PDF audit cover, mock Excel spreadsheet).
+
+The permanently-disabled "ZIP Batch Export" button is ported as-is
+(disabled, with the source's own tooltip explaining why) — the source
+itself ships it disabled, so there was nothing to trim there.
+
+Trimmed: the "Generate Custom Report" button, its 4 decorative State/
+District/DistressType/Severity filter dropdowns, and the "Schedule
+Report" button. All three are 100% fake — the custom report is fabricated
+client-side behind a `setTimeout` with no backend call at all, and
+"Schedule Report" is just a bare `alert()` — so unlike the PDF/Excel
+preview renderers (which are decorative but preview *real* generated
+reports), these had no real functionality worth preserving. Trimming them
+also means every `ReportItem` in this port always has a real `reportId`,
+which makes the source's dead JSON-preview/JSON-download branches
+(`reportType === 'JSON'` is never actually produced by any real code
+path, custom-report generator included) unreachable, so those weren't
+ported either — see the doc comment on `ReportItem` in
+`lib/data/reports_api.dart` for the full reasoning.
+
+A widget test (`test/reports_smoke_test.dart`) pumps the registry table,
+overview card, and both preview-modal renderers with sample report data,
+following the same rationale as the Maintenance smoke test — this
+sandbox's backend-less error state alone can't exercise how these widgets
+render with real data.
 
 ## A couple of Flutter-specific gotchas hit while porting
 
