@@ -40,7 +40,7 @@ lib/
 │   ├── auth_provider.dart
 │   ├── live_detection_api.dart
 │   ├── gis_api.dart
-│   ├── video_api.dart       # shared by Upload Video and Live Processing
+│   ├── video_api.dart       # shared by Upload Video, Live Processing, Dashboard
 │   └── road_distress_api.dart
 ├── router/
 │   └── app_router.dart      # go_router routes, mirrors AppRoutes.tsx
@@ -48,6 +48,7 @@ lib/
 │   ├── login/
 │   ├── survey/              # Mission Setup
 │   ├── dashboard/           # Shell (sidebar + top navbar) + Overview
+│   ├── dashboard_grid/      # Dashboard screen (per-run inspection view) + widgets
 │   ├── live_detection/      # Live camera detection screen + widgets
 │   ├── gis_map/             # GIS Map screen + widgets
 │   ├── upload_video/        # Upload Video screen
@@ -69,6 +70,7 @@ lib/
 | Upload Video | Done | **Real backend wiring** — see below |
 | Live Processing | Done | **Real backend wiring** — see below |
 | Road Distresses | Done | **Real backend data** — see below |
+| Dashboard (per-run inspection view) | Done | **Real backend data** — see below. Distinct from Overview — `/dashboard` vs. `/overview` in the React source |
 | Video Review | Not started | |
 | Maintenance | Not started | |
 | Reports | Not started | |
@@ -226,6 +228,36 @@ here rather than silently made more "correct," since the goal is matching
 the reference app's actual behavior, warts and all. Similarly, the bulk
 "Mark Reviewed"/"Mark Resolved" actions only mutate local state in the
 React source (no real API call) — that's also preserved as-is.
+
+## Dashboard (per-run inspection view): real backend data
+
+`lib/screens/dashboard_grid/` ports `Dashboard.tsx`/`DashboardGrid.tsx` —
+the screen at `/dashboard`, distinct from `/overview`'s `OverviewDashboard`
+(the one Overview Dashboard above refers to). Fetches real data via
+`GET /api/v1/distress/` and `GET /api/v1/reports/`, reusing
+`RoadDistressApi` and `VideoApi` rather than adding a third client for the
+same endpoints. Includes a real interactive GIS map (flutter_map, same
+approach as the GIS Map screen), the distress distribution donut chart,
+the recent detections feed, a manual field-observations form + registry
+table (local-state-only, matching the source), the KPI row, and the AI
+maintenance recommendation highlight.
+
+Trimmed vs. the ~1,035-line React source:
+
+- **The "Live Camera Feed" card** — entirely simulated in the source
+  (random bounding-box overlays, a fake FPS/frame-count ticker, hardcoded
+  GPS text), with zero backend tie, and redundant with the real Live
+  Detection screen already built elsewhere in this app.
+- **The voice-note recorder** (real mic capture via `getUserMedia`/
+  `MediaRecorder`) and **the snapshot image uploader** — both real browser
+  features in the source, but neither is backend-persisted (recordings and
+  images only live in local blob URLs and vanish on reload), so they were
+  left out rather than pulling in mic-permission and image-picker plumbing
+  for something that doesn't survive a page refresh either way.
+
+One quirk kept faithfully: the KPI row's "Videos Uploaded" card is
+hardcoded to `42` in the React source regardless of any real data — it's
+ported as the same hardcoded `42` here, not wired to a real count.
 
 ## A couple of Flutter-specific gotchas hit while porting
 

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../data/auth_provider.dart';
 import '../screens/dashboard/dashboard_shell.dart';
 import '../screens/dashboard/overview_screen.dart';
+import '../screens/dashboard_grid/dashboard_grid_screen.dart';
 import '../screens/gis_map/gis_map_screen.dart';
 import '../screens/live_detection/live_detection_screen.dart';
 import '../screens/live_processing/live_processing_screen.dart';
@@ -56,7 +57,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.dashboard,
-        builder: (context, state) => const DashboardShell(),
+        builder: (context, state) => const DashboardShell(child: DashboardGridScreen()),
       ),
       GoRoute(
         path: AppRoutes.overview,

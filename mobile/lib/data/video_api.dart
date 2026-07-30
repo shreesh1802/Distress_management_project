@@ -148,13 +148,25 @@ class VideoApi {
   /// needed here, so the full report list isn't modeled.
   Future<int> fetchReportsCount() async {
     try {
-      final uri = Uri.parse('$kApiV1/reports/').replace(queryParameters: {'skip': '0', 'limit': '100'});
-      final response = await _client.get(uri);
-      if (response.statusCode != 200) return 0;
-      return (jsonDecode(response.body) as List<dynamic>).length;
+      return await fetchReportsCountStrict();
     } catch (_) {
       return 0;
     }
+  }
+
+  /// Like [fetchReportsCount], but throws instead of swallowing errors --
+  /// used by DashboardGrid.tsx's port, which calls `getReports` directly
+  /// inside a `Promise.all` with no per-call `.catch`, so a failure there
+  /// should surface via the same error banner as the rest of the dashboard.
+  Future<int> fetchReportsCountStrict({int skip = 0, int limit = 100}) async {
+    final uri = Uri.parse(
+      '$kApiV1/reports/',
+    ).replace(queryParameters: {'skip': '$skip', 'limit': '$limit'});
+    final response = await _client.get(uri);
+    if (response.statusCode != 200) {
+      throw const VideoApiException('Failed to fetch reports.');
+    }
+    return (jsonDecode(response.body) as List<dynamic>).length;
   }
 
   Future<void> triggerDetection(int videoId) async {
