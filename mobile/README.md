@@ -77,8 +77,8 @@ lib/
 | Reports | Done | **Real backend data** — see below |
 | Analytics | Done | **Real backend data** + a real interactive map — see below |
 | History | Done | **Real backend data** — see below |
+| Notifications | Done | Mock data (no backend in the source either) — see below |
 | Video Review | Not started | |
-| Notifications | Not started | |
 | Settings | Not started | |
 
 Everything above "Live Detection" runs against mock/hardcoded data (no
@@ -489,6 +489,46 @@ fix it either (their dropdowns sit on dark/glassmorphic backgrounds, a
 different failure mode than the light-background case fixed here). Those
 two were left as-is — their custom pickers are the correct, already-working
 fix for their situation, not a bug to revert.
+
+## Notifications: mock data (no backend in the source either)
+
+`lib/screens/notifications/` ports `Notifications.tsx` (~1,133 lines).
+Unlike every other screen ported so far, this one has **no backend tie of
+any kind** in the source — there's no `apiService` import and no fetch
+call anywhere in the file, just a fixed local array of 9 notifications
+mutated via local state (mark read/unread, delete, assign). This port
+follows the same "port the mock data as designed" approach already used
+for Overview Dashboard, rather than treating any of it as fake data to
+trim — there's no real/fake split within this screen the way there was in
+History's hybrid real-timeline-plus-fake-system-events. See
+`notification_item.dart` for the exact mock dataset (9 notifications
+across Today/Yesterday/Last 7 Days/Earlier date groups).
+
+Ported in full: the notification feed (collapsible date-group sections,
+priority-colored cards with category icons, meta tags, unread indicators,
+and a per-card action bar), the filter toolbar (6 dropdowns + 6 quick
+chips + search + date range), the detail modal (including the mock
+camera-frame bounding-box simulation for notifications with a
+`thumbnailUrl`), the sidebar widgets (Quick Incident Summary, Alert
+Categories donut, Recent Event Log), the fully-hardcoded "Incident
+Mitigation Timeline" (5 demo steps), and the bottom analytics row (Alert
+Rate Trend line chart, Distribution Ratio donut, Average Mitigation Time
+bar chart) — none of this needed trimming since it's uniformly mock data
+by design, not a hybrid of real and decorative content.
+
+Trimmed: the fake per-KPI-card trend badges and SVG sparklines (arbitrary
+uncomputed percentages layered onto the otherwise-real KPI counts), same
+reasoning as the equivalent trims on Analytics and History's KPI rows.
+
+"Assign" is ported as a dialog with a text field (defaulting to "Crew
+Alpha") in place of the source's `window.prompt`, since Flutter has no
+direct prompt() equivalent; "Refresh" and the assign-confirmation both
+show a `SnackBar` in place of the source's `alert()`.
+
+A widget test (`test/notifications_smoke_test.dart`) pumps every
+widget — including the full 9-item mock dataset through the feed and the
+detail modal's camera-frame simulation — and all of it rendered cleanly
+on the first pass, no overflow fixes needed this time.
 
 ## A couple of Flutter-specific gotchas hit while porting
 

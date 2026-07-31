@@ -13,6 +13,7 @@ import '../screens/login/login_screen.dart';
 import '../screens/analytics/analytics_screen.dart';
 import '../screens/history/history_screen.dart';
 import '../screens/maintenance/maintenance_screen.dart';
+import '../screens/notifications/notifications_screen.dart';
 import '../screens/reports/reports_screen.dart';
 import '../screens/road_distresses/road_distresses_screen.dart';
 import '../screens/survey/survey_screen.dart';
@@ -36,6 +37,7 @@ class AppRoutes {
   static const reports = '/reports';
   static const analytics = '/analytics';
   static const history = '/history';
+  static const notifications = '/notifications';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -108,6 +110,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.history,
         builder: (context, state) => const DashboardShell(child: HistoryScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.notifications,
+        builder: (context, state) => const DashboardShell(child: NotificationsScreen()),
       ),
     ],
   );
