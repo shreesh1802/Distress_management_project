@@ -70,7 +70,20 @@ def startup_event() -> None:
                 logger.info("Database Schema Migration: Added processed_filepath column to uploaded_videos table.")
             except Exception as alt_err:
                 logger.warning(f"ALTER TABLE query for processed_filepath failed: {alt_err}")
-                
+
+        # Self-healing migration for processed_video_path column
+        try:
+            db.execute(text("SELECT processed_video_path FROM uploaded_videos LIMIT 1"))
+            logger.info("Database Schema Check: processed_video_path column already exists.")
+        except Exception:
+            db.rollback()
+            try:
+                db.execute(text("ALTER TABLE uploaded_videos ADD COLUMN processed_video_path VARCHAR(512)"))
+                db.commit()
+                logger.info("Database Schema Migration: Added processed_video_path column to uploaded_videos table.")
+            except Exception as alt_err:
+                logger.warning(f"ALTER TABLE query for processed_video_path failed: {alt_err}")
+
         # Self-healing migration for road_distresses.detection_image_path to TEXT type
         try:
             db.execute(text("ALTER TABLE road_distresses ALTER COLUMN detection_image_path TYPE TEXT"))
