@@ -16,6 +16,7 @@ class UploadedVideo {
     this.processedFilepath,
     this.progress,
     this.processingStage,
+    this.processingDuration,
   });
 
   final int id;
@@ -26,6 +27,7 @@ class UploadedVideo {
   final String? processedFilepath;
   final int? progress;
   final String? processingStage;
+  final double? processingDuration;
 
   factory UploadedVideo.fromJson(Map<String, dynamic> json) {
     return UploadedVideo(
@@ -38,6 +40,7 @@ class UploadedVideo {
       processedFilepath: json['processed_filepath'] as String?,
       progress: (json['progress'] as num?)?.toInt(),
       processingStage: json['processing_stage'] as String?,
+      processingDuration: (json['processing_duration'] as num?)?.toDouble(),
     );
   }
 
@@ -51,6 +54,7 @@ class UploadedVideo {
       processedFilepath: processedFilepath,
       progress: progress,
       processingStage: processingStage,
+      processingDuration: processingDuration,
     );
   }
 }

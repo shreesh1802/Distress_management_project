@@ -10,6 +10,7 @@ import '../screens/gis_map/gis_map_screen.dart';
 import '../screens/live_detection/live_detection_screen.dart';
 import '../screens/live_processing/live_processing_screen.dart';
 import '../screens/login/login_screen.dart';
+import '../screens/analytics/analytics_screen.dart';
 import '../screens/maintenance/maintenance_screen.dart';
 import '../screens/reports/reports_screen.dart';
 import '../screens/road_distresses/road_distresses_screen.dart';
@@ -32,6 +33,7 @@ class AppRoutes {
   static const roadDistresses = '/road-distresses';
   static const maintenance = '/maintenance';
   static const reports = '/reports';
+  static const analytics = '/analytics';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -96,6 +98,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.reports,
         builder: (context, state) => const DashboardShell(child: ReportsScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.analytics,
+        builder: (context, state) => const DashboardShell(child: AnalyticsScreen()),
       ),
     ],
   );

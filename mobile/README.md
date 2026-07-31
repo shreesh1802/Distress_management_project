@@ -75,8 +75,8 @@ lib/
 | Dashboard (per-run inspection view) | Done | **Real backend data** — see below. Distinct from Overview — `/dashboard` vs. `/overview` in the React source |
 | Maintenance | Done | **Real backend data** — see below |
 | Reports | Done | **Real backend data** — see below |
+| Analytics | Done | **Real backend data** + a real interactive map — see below |
 | Video Review | Not started | |
-| Analytics | Not started | |
 | History | Not started | |
 | Notifications | Not started | |
 | Settings | Not started | |
@@ -341,6 +341,67 @@ overview card, and both preview-modal renderers with sample report data,
 following the same rationale as the Maintenance smoke test — this
 sandbox's backend-less error state alone can't exercise how these widgets
 render with real data.
+
+## Analytics: real backend data + a real interactive map
+
+`lib/screens/analytics/` ports `AnalyticsDashboard.tsx` (~1,486 lines, the
+largest single screen in the source): real data from
+`GET /api/v1/detection/summary`, `GET /api/v1/distress/`,
+`GET /api/v1/videos/`, `GET /api/v1/reports/`, and
+`GET /api/v1/maintenance/recommendations`, combined client-side into 11
+charts, a road-health gauge, a real interactive GIS map, an inspections
+registry table, and several executive summary cards — all computed exactly
+as the source's `useMemo` blocks do (severity-weighted road health scoring,
+per-video-run stacked severity counts, priority buckets, cost-per-defect-
+class breakdowns, daily/weekly/monthly detection timelines, damage-area-vs-
+health-impact scatter data, and lat/lng-rounded marker clustering).
+`components/dashboard/MaintenanceAnalytics.tsx` in the React source is dead
+code — never imported by any page or route — so nothing there needed
+porting.
+
+Ported as real, direct functionality: the 8-card KPI row (with same-day
+trend badges), the animated circular Road Health Gauge, the "Geographic
+Mapping Summary" map (via `flutter_map`, clustering same-coordinate
+detections exactly like the source's `clusteredMarkers`, with tap-to-reveal
+info cards standing in for Leaflet's anchored `Popup`), the donut/stacked-
+bar/priority-bar/cost-bar/timeline-line/scatter charts, the severity legend
+click-to-hide toggle, the surveillance run inspections table, the
+Maintenance Tasks Queue and Exported Documents Archive summary cards, and
+the Executive Summary Insights list.
+
+Three computations in the source are themselves dead code, discovered
+while reading it rather than a scope decision: `processingPerformanceData`,
+`availablePerformanceMetrics`, and `confidenceHistogramData` all feed a
+`fullscreenChartId === 'performance'`/`'histogram'` branch of the
+fullscreen chart modal, but no button anywhere in the source ever sets
+`fullscreenChartId` to either value — there's no card for either chart in
+the main layout, so they're unreachable. None of it was ported. Similarly,
+the AI Model Performance card reads `model_name`/`yolo_version`/
+`model_size`/`inference_device`/`inference_speed` off the detection-summary
+response, but the backend's `get_detection_analytics` never actually
+returns any of those keys, so all five always fall back to the source's
+own hardcoded defaults in practice — they're hardcoded in this port too
+(see `widgets/summary_section.dart`), rather than modeled as fetched data
+that never arrives.
+
+Trimmed: the PNG-export button on every chart card (client-side SVG-to-
+canvas-to-PNG with no backend tie) and the "expand to fullscreen" modal for
+each chart (a pure view convenience — every chart's data is already fully
+visible at its normal card size), for the same reasoning as the CSV/export
+trims on earlier screens. The "Analyze" button in the inspections table
+navigates to `/dashboard` rather than the source's `/inspection/:videoId`,
+since the existing `DashboardGridScreen` doesn't support deep-linking to a
+specific run and extending an already-shipped screen was out of scope here.
+
+A widget test (`test/analytics_smoke_test.dart`) pumps every chart/table/
+card widget with sample data — it caught and fixed two real bugs invisible
+against this sandbox's empty/error states: a `BoxDecoration` assertion
+failure in the KPI grid (a `Border` with per-side colors can't be combined
+with `borderRadius` in one decoration; fixed by drawing the colored top
+accent as a `Container` strip inside a `ClipRRect` instead of a border
+side) and a text overflow in the Maintenance/Reports summary cards' footer
+row (fixed the same way as Maintenance's earlier overflow fixes — wrapping
+the value text in `Flexible` with `TextOverflow.ellipsis`).
 
 ## A couple of Flutter-specific gotchas hit while porting
 

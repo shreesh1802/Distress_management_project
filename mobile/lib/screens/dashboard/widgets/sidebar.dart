@@ -35,7 +35,7 @@ class _DashboardSidebarState extends State<DashboardSidebar> {
     _SidebarMenuItem(AppRoutes.roadDistresses, 'Road Distresses', LucideIcons.shieldAlert),
     _SidebarMenuItem(AppRoutes.maintenance, 'Maintenance', LucideIcons.wrench),
     _SidebarMenuItem(AppRoutes.reports, 'Reports', LucideIcons.fileText),
-    _SidebarMenuItem('/analytics', 'Analytics', LucideIcons.barChart3),
+    _SidebarMenuItem(AppRoutes.analytics, 'Analytics', LucideIcons.barChart3),
     _SidebarMenuItem('/history', 'History', LucideIcons.history),
     _SidebarMenuItem('/notifications', 'Notifications', LucideIcons.bell, 2),
     _SidebarMenuItem('/settings', 'Settings', LucideIcons.settings),
@@ -54,6 +54,7 @@ class _DashboardSidebarState extends State<DashboardSidebar> {
       AppRoutes.roadDistresses,
       AppRoutes.maintenance,
       AppRoutes.reports,
+      AppRoutes.analytics,
     };
     if (currentRoutes.contains(path)) {
       context.go(path);
