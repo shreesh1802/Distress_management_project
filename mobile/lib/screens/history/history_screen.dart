@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/reports_api.dart';
 import '../../data/video_api.dart';
+import '../../router/app_router.dart';
 import '../../theme/app_colors.dart';
 import 'timeline_event.dart';
 import 'widgets/activity_timeline.dart';
@@ -456,9 +458,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   void _reviewVideo(UploadedVideo v) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Video Review is not wired up yet.')),
-    );
+    context.go('${AppRoutes.videoReview}/${v.id}');
   }
 
   Future<bool> _confirm(String message) async {

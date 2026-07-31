@@ -18,6 +18,7 @@ import '../screens/reports/reports_screen.dart';
 import '../screens/road_distresses/road_distresses_screen.dart';
 import '../screens/survey/survey_screen.dart';
 import '../screens/upload_video/upload_video_screen.dart';
+import '../screens/video_review/video_review_screen.dart';
 
 /// Route paths mirror Road-Distress-Management-System/frontend/src/routes/AppRoutes.tsx
 /// 1:1, so links and navigation logic stay recognizable across both apps.
@@ -38,6 +39,7 @@ class AppRoutes {
   static const analytics = '/analytics';
   static const history = '/history';
   static const notifications = '/notifications';
+  static const videoReview = '/video-review';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -114,6 +116,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.notifications,
         builder: (context, state) => const DashboardShell(child: NotificationsScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.videoReview,
+        builder: (context, state) => const DashboardShell(child: VideoReviewScreen()),
+      ),
+      GoRoute(
+        path: '${AppRoutes.videoReview}/:id',
+        builder: (context, state) => DashboardShell(
+          child: VideoReviewScreen(videoId: int.tryParse(state.pathParameters['id'] ?? '')),
+        ),
       ),
     ],
   );

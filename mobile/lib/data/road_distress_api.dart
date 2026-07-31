@@ -114,5 +114,33 @@ class RoadDistressApi {
     }
   }
 
+  /// Direct port of VideoReview.tsx's detections-fetch effect: tries
+  /// `GET /api/v1/detection/results/{videoId}` first, and on failure falls
+  /// back to fetching the full distress log and filtering client-side by
+  /// `video_id` -- and if *that* also fails, resolves to an empty list
+  /// rather than throwing (matches the source's innermost catch, which
+  /// only ever sets `detections([])`, never a page-level error banner).
+  Future<List<DistressRecord>> fetchVideoDetections(int videoId) async {
+    try {
+      final response = await _client.get(Uri.parse('$kApiV1/detection/results/$videoId'));
+      if (response.statusCode != 200) {
+        throw const RoadDistressApiException('Failed to fetch video detections');
+      }
+      final body = jsonDecode(response.body) as List<dynamic>;
+      final list = body.map((e) => DistressRecord.fromJson(e as Map<String, dynamic>)).toList();
+      list.sort((a, b) => (a.videoTimestamp ?? 0).compareTo(b.videoTimestamp ?? 0));
+      return list;
+    } catch (_) {
+      try {
+        final all = await fetchDistresses(limit: 500);
+        final filtered = all.where((d) => d.videoId == videoId).toList();
+        filtered.sort((a, b) => (a.videoTimestamp ?? 0).compareTo(b.videoTimestamp ?? 0));
+        return filtered;
+      } catch (_) {
+        return [];
+      }
+    }
+  }
+
   void dispose() => _client.close();
 }

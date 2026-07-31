@@ -78,7 +78,7 @@ lib/
 | Analytics | Done | **Real backend data** + a real interactive map — see below |
 | History | Done | **Real backend data** — see below |
 | Notifications | Done | Mock data (no backend in the source either) — see below |
-| Video Review | Not started | |
+| Video Review | Done | **Real backend data** + real dual video playback — see below |
 | Settings | Not started | |
 
 Everything above "Live Detection" runs against mock/hardcoded data (no
@@ -445,9 +445,8 @@ trims on GIS Map, Road Distresses, and Maintenance).
 the source's own `alert('Restarting AI pipeline... (Simulated)')` — it's
 simulated in the source too, so unlike fully-fake peripheral buttons
 trimmed elsewhere (e.g. Reports' "Schedule Report"), this one is a primary
-action on an otherwise-real card and was kept. "Review Video" shows a
-"not wired up yet" snackbar, since Video Review doesn't exist in this port
-yet (same convention the sidebar already uses for unbuilt destinations).
+action on an otherwise-real card and was kept. "Review Video" navigates to
+`/video-review/:id` (see below) — Video Review is now ported too.
 
 A widget test (`test/history_smoke_test.dart`) pumps every major widget
 with sample data — it caught and fixed a real `BoxConstraints forces an
@@ -529,6 +528,82 @@ A widget test (`test/notifications_smoke_test.dart`) pumps every
 widget — including the full 9-item mock dataset through the feed and the
 detail modal's camera-frame simulation — and all of it rendered cleanly
 on the first pass, no overflow fixes needed this time.
+
+## Video Review: real backend data + real dual video playback
+
+`lib/screens/video_review/` ports `VideoReview.tsx`. It reuses
+`RoadDistressApi`/`VideoApi` (`lib/data/road_distress_api.dart`,
+`lib/data/video_api.dart`) against these real endpoints:
+
+- `GET /videos/` — the video catalog (also used by Upload Video/History).
+- `GET /videos/{id}` — direct-by-id fetch, used when the screen is opened
+  via `/video-review/:id` (from History's "Review Video" button) and the
+  id isn't already in the freshly-fetched list.
+- `GET /videos/{id}/download-processed` — the annotated MP4, played back
+  via `VideoApi.processedVideoUrl(id)`. Hardcoded as a raw URL string in
+  the source rather than a named `apiService` method; ported the same way.
+- `GET /detection/results/{video_id}`, falling back to filtering
+  `GET /distress/` client-side by `video_id` on failure, resolving to an
+  empty list (never throwing) on a second failure —
+  `RoadDistressApi.fetchVideoDetections` mirrors the source's nested
+  try/catch exactly, where only the innermost catch swallows the error.
+
+**Real dual video playback.** This is the first screen needing actual
+video-file playback rather than the MJPEG-stream pattern Live Detection
+uses, so `video_player: ^2.10.0` was added as a new dependency (confirmed
+to support Flutter Web via `video_player_web` before adding it). The
+original and annotated feeds are two independent
+`VideoPlayerController.networkUrl` instances kept in sync by a 100ms
+polling timer: play/pause/seek/speed/volume/mute apply to both
+controllers, and if the annotated feed's position drifts more than 300ms
+from the original's, it's corrected with a `seekTo` and a "re-syncing"
+warning is shown (matching the source's own drift-correction logic and
+warning copy).
+
+Trimmed: "Capture Snapshot" (canvas-to-PNG frame capture) and the
+Picture-in-Picture toggle. Both are real source features, but
+`video_player` doesn't expose the underlying `<video>` DOM element or a
+cross-platform canvas/PiP API on web — reaching them would mean dropping
+to raw `dart:js_interop` hacks disproportionate to what are, in the end,
+peripheral convenience buttons, not the screen's core review
+functionality.
+
+Simplified: "fullscreen review" mode. The source escapes the whole
+viewport via `position:fixed;inset:0` CSS, covering even the browser
+chrome/app sidebar. Here it's an in-place layout toggle (the screen's own
+header/sidebar chrome is replaced by a dark full-width player card) rather
+than a true viewport-escaping route, since plumbing a full-screen route
+past `DashboardShell` for a purely cosmetic effect wasn't worth the
+navigation complexity.
+
+Preserved as a deliberate quirk: unlike every other real-backend screen in
+this port, `VideoReview.tsx` has **no full-page loading/error
+early-return**. A fetch failure only ever renders as a small inline banner
+in the header ("Failed to synchronize video catalog from database.")
+while the rest of the page — both player cards, the controls bar, the
+detections sidebar — still renders normally with empty/placeholder state.
+This port replicates that exactly rather than "fixing" it to match every
+other screen's full-page error takeover.
+
+A widget test (`test/video_review_smoke_test.dart`) exercises
+`DetectionsSidebar` (both tabs, including a long distress-type string) and
+`DualPlayerPanel` with `null` controllers (the no-video/no-annotated-video
+placeholders and the sync-warning banner), avoiding the need to mock
+`video_player`'s platform channels. It caught two real bugs:
+
+- A `RenderFlex` overflow in `DetectionsSidebar`'s inspector tab (the
+  fixed-height sidebar's content `Column` wasn't scrollable) — fixed by
+  wrapping the tab body in `Expanded(child: SingleChildScrollView(...))`.
+- Wrapping the fullscreen player panel in `Theme(data: ThemeData.dark())`
+  made every `Text`/`Icon` without an explicit color invisible (white on
+  the panel's own hardcoded light backgrounds — the same underlying
+  failure mode as the DropdownButton bug above, but from the opposite
+  direction: an ambient dark theme over content designed assuming a light
+  default, rather than a light theme over dark content). Fixed by
+  dropping the `Theme` wrapper entirely, since every sub-panel already
+  uses explicit `AppColors` regardless of ambient theme and gains nothing
+  from it; the speed dropdown's items were also given an explicit
+  `color: AppColors.primaryText` as a defensive fix.
 
 ## A couple of Flutter-specific gotchas hit while porting
 

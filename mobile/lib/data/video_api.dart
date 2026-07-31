@@ -14,6 +14,7 @@ class UploadedVideo {
     required this.uploadTimestamp,
     this.filepath,
     this.processedFilepath,
+    this.processedVideoPath,
     this.progress,
     this.processingStage,
     this.processingDuration,
@@ -25,9 +26,17 @@ class UploadedVideo {
   final DateTime uploadTimestamp;
   final String? filepath;
   final String? processedFilepath;
+  final String? processedVideoPath;
   final int? progress;
   final String? processingStage;
   final double? processingDuration;
+
+  /// Matches VideoReview.tsx's `selectedVideo.processed_filepath ||
+  /// selectedVideo.processed_video_path` presence check (only used to
+  /// decide whether an annotated feed exists -- the actual file is always
+  /// served through the `/download-processed` endpoint, not these paths
+  /// directly).
+  bool get hasProcessedVideo => processedFilepath != null || processedVideoPath != null;
 
   factory UploadedVideo.fromJson(Map<String, dynamic> json) {
     return UploadedVideo(
@@ -38,6 +47,7 @@ class UploadedVideo {
           DateTime.now(),
       filepath: json['filepath'] as String?,
       processedFilepath: json['processed_filepath'] as String?,
+      processedVideoPath: json['processed_video_path'] as String?,
       progress: (json['progress'] as num?)?.toInt(),
       processingStage: json['processing_stage'] as String?,
       processingDuration: (json['processing_duration'] as num?)?.toDouble(),
@@ -52,6 +62,7 @@ class UploadedVideo {
       uploadTimestamp: uploadTimestamp,
       filepath: filepath,
       processedFilepath: processedFilepath,
+      processedVideoPath: processedVideoPath,
       progress: progress,
       processingStage: processingStage,
       processingDuration: processingDuration,
@@ -128,6 +139,16 @@ class VideoApi {
       throw const VideoApiException('Failed to delete video.');
     }
   }
+
+  Future<UploadedVideo> fetchVideoById(int id) async {
+    final response = await _client.get(Uri.parse('$kApiV1/videos/$id'));
+    if (response.statusCode != 200) {
+      throw const VideoApiException('Specified video run log was not found.');
+    }
+    return UploadedVideo.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  String processedVideoUrl(int id) => '$kApiV1/videos/$id/download-processed';
 
   Future<void> generatePdfReport(int videoId) async {
     final response = await _client.post(Uri.parse('$kApiV1/reports/generate/$videoId'));
