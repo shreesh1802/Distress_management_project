@@ -562,10 +562,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       isDense: true,
                       isExpanded: true,
                       hint: const Text('-- Choose Completed Video Run --', style: TextStyle(fontSize: 12)),
-                      style: const TextStyle(fontSize: 12, color: AppColors.primaryText),
                       items: [
                         for (final v in completedVideos)
-                          DropdownMenuItem(value: v.id, child: Text('${v.filename} (ID: ${v.id})', overflow: TextOverflow.ellipsis)),
+                          DropdownMenuItem(
+                            value: v.id,
+                            child: Text(
+                              '${v.filename} (ID: ${v.id})',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12, color: AppColors.primaryText),
+                            ),
+                          ),
                       ],
                       onChanged: (v) => setState(() => _selectedVideoId = v),
                     ),

@@ -458,24 +458,37 @@ when the card's height is intrinsic/unbounded; fixed by using a
 Analytics' KPI-grid accent bug but adapted for an unbounded-height
 container).
 
-**Also discovered while building this screen (pre-existing, not
-introduced here): a real bug affecting every screen with a `DropdownButton`
-filter.** Setting `style:` directly on a `DropdownButton` (instead of on
-each `DropdownMenuItem`'s own `Text`) makes the button's displayed
+**Also discovered while building this screen: a real, pre-existing bug
+affecting every screen with a `DropdownButton` filter (now fixed
+app-wide).** Setting `style:` directly on a `DropdownButton` (instead of
+on each `DropdownMenuItem`'s own `Text`) makes the button's displayed
 selected-item text render invisibly on Flutter Web/CanvasKit, even though
 the text is present in the widget tree (a widget test with `find.text`
-finds it fine — it just doesn't paint). This screen's filter dropdowns hit
-it first and are now fixed (style moved onto each item's `Text`), but the
-same pattern exists in at least `road_distresses_screen.dart`'s filter
-dropdowns (confirmed via screenshot: the Severity/Status/Type/Priority
-Group filters render with empty-looking boxes) and likely other screens'
-`DropdownButton`s built the same way. It went unnoticed until now because
+finds it fine — it just doesn't paint). It went unnoticed until now because
 every other real-backend screen's Playwright verification only ever
 reached the top-level loading/error state before a backend was available —
 History is the first screen whose failure path still renders the "loaded"
-UI (see above), which is what exposed it. Not fixed elsewhere in this
-change since it touches already-shipped screens outside History's scope —
-worth a follow-up pass across the app.
+UI (see above), which is what exposed it.
+
+Once found, the same `style`-on-`DropdownButton` pattern was grepped for
+and fixed across the whole app (style moved onto each item's `Text`
+instead): `road_distresses_screen.dart` (confirmed broken and then fixed
+via before/after screenshots — the Severity/Status/Type/Priority Group
+filters were rendering as empty-looking boxes), `maintenance_screen.dart`,
+`maintenance/widgets/task_drawer.dart`, `reports_screen.dart`,
+`reports/widgets/reports_registry_card.dart`, and
+`dashboard_grid/widgets/manual_observations_section.dart`.
+
+Two screens had already independently discovered and worked around a
+related invisible-dropdown-text issue before this session (see the code
+comments in `gis_map/widgets/gis_filters_panel.dart` and
+`survey/widgets` in `survey_screen.dart`'s `_SurveyDropdown`): both replaced
+`DropdownButton`/`DropdownButtonFormField` entirely with a custom
+modal-sheet picker, because in their case explicit per-item styling *didn't*
+fix it either (their dropdowns sit on dark/glassmorphic backgrounds, a
+different failure mode than the light-background case fixed here). Those
+two were left as-is — their custom pickers are the correct, already-working
+fix for their situation, not a bug to revert.
 
 ## A couple of Flutter-specific gotchas hit while porting
 

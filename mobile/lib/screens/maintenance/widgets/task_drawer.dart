@@ -237,8 +237,13 @@ class TaskDrawer extends StatelessWidget {
               value: options.contains(value) ? value : options.first,
               isExpanded: true,
               isDense: true,
-              style: const TextStyle(fontSize: 12, color: AppColors.primaryText, fontWeight: FontWeight.w600),
-              items: [for (final o in options) DropdownMenuItem(value: o, child: Text(o))],
+              items: [
+                for (final o in options)
+                  DropdownMenuItem(
+                    value: o,
+                    child: Text(o, style: const TextStyle(fontSize: 12, color: AppColors.primaryText, fontWeight: FontWeight.w600)),
+                  ),
+              ],
               onChanged: (v) => onChanged(v ?? value),
             ),
           ),

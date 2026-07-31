@@ -807,9 +807,12 @@ class _MiniSelect extends StatelessWidget {
                 value: value,
                 isDense: true,
                 isExpanded: true,
-                style: const TextStyle(fontSize: 11, color: AppColors.primaryText),
                 items: [
-                  for (final e in options.entries) DropdownMenuItem(value: e.key, child: Text(e.value)),
+                  for (final e in options.entries)
+                    DropdownMenuItem(
+                      value: e.key,
+                      child: Text(e.value, style: const TextStyle(fontSize: 11, color: AppColors.primaryText)),
+                    ),
                 ],
                 onChanged: (v) => onChanged(v ?? ''),
               ),

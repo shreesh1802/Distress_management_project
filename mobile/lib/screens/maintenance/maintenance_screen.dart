@@ -484,8 +484,13 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
         child: DropdownButton<String>(
           value: value,
           isDense: true,
-          style: const TextStyle(fontSize: 12, color: AppColors.primaryText),
-          items: [for (final o in options) DropdownMenuItem(value: o, child: Text(o == 'All' ? allLabel : o))],
+          items: [
+            for (final o in options)
+              DropdownMenuItem(
+                value: o,
+                child: Text(o == 'All' ? allLabel : o, style: const TextStyle(fontSize: 12, color: AppColors.primaryText)),
+              ),
+          ],
           onChanged: (v) => onChanged(v ?? value),
         ),
       ),

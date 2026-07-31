@@ -206,8 +206,10 @@ class _ManualObservationsSectionState extends State<ManualObservationsSection> {
               value: value,
               isExpanded: true,
               isDense: true,
-              style: const TextStyle(fontSize: 13, color: AppColors.primaryText),
-              items: [for (final o in options) DropdownMenuItem(value: o, child: Text(o))],
+              items: [
+                for (final o in options)
+                  DropdownMenuItem(value: o, child: Text(o, style: const TextStyle(fontSize: 13, color: AppColors.primaryText))),
+              ],
               onChanged: (v) => onChanged(v ?? value),
             ),
           ),
