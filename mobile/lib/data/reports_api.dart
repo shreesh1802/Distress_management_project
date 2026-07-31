@@ -248,5 +248,7 @@ class ReportsApi {
 
   String excelReportDownloadUrl(int reportId) => '$kApiV1/reports/excel/download/$reportId';
 
+  String reportPreviewUrl(int reportId) => '$kApiV1/reports/preview/$reportId';
+
   void dispose() => _client.close();
 }

@@ -76,8 +76,8 @@ lib/
 | Maintenance | Done | **Real backend data** — see below |
 | Reports | Done | **Real backend data** — see below |
 | Analytics | Done | **Real backend data** + a real interactive map — see below |
+| History | Done | **Real backend data** — see below |
 | Video Review | Not started | |
-| History | Not started | |
 | Notifications | Not started | |
 | Settings | Not started | |
 
@@ -402,6 +402,80 @@ accent as a `Container` strip inside a `ClipRRect` instead of a border
 side) and a text overflow in the Maintenance/Reports summary cards' footer
 row (fixed the same way as Maintenance's earlier overflow fixes — wrapping
 the value text in `Flexible` with `TextOverflow.ellipsis`).
+
+## History: real backend data
+
+`lib/screens/history/` ports `History.tsx` (~1,535 lines): real data from
+`GET /api/v1/reports/` and `GET /api/v1/videos/`, combined client-side into
+an activity timeline exactly as the source's `allActivities` does (report-
+exported events plus video-uploaded/inference-status events, each with
+deterministic-fake-but-DB-id-derived engineer/district/road/model metadata,
+matching Reports.tsx's own district/severity derivation precedent), a
+sortable/paginated reports archive table, expandable per-video inference
+run cards with a real pipeline-stage tracker, and three real analytics
+charts (category distribution, 7-day activity trend, top event types).
+
+This is the one screen whose source has **no error state at all** --
+`fetchHistory`'s catch block only does `console.error`, there's no
+`setError` anywhere in the file. This port matches that faithfully: a fetch
+failure just leaves `reports`/`videos` empty and every section shows its
+ordinary empty-state copy, rather than the dedicated error banner every
+other screen has. The screenshot below is exactly that empty-but-not-error
+state, since this sandbox has no live backend.
+
+Trimmed: the 8 hardcoded "system events" the source seeds into the
+timeline (Backend Server Restarted, YOLOv8 Model Loaded, Database
+Auto-Backup, Secured Admin Login, Maintenance Task Raised, Road Segment
+Verified, Detection Record Purged, Alert Notification Broadcasted) — 100%
+fabricated strings with no backend tie, seeded (per the source's own code
+comment) just "to make timeline enterprise-grade". Dropping them also
+removes the source's "System Events Log" section (which filters
+specifically for those seeded events, so it would render permanently empty
+otherwise) and the `Maintenance`/`GIS`/`Notifications` timeline categories
+(so the activity-type filter dropdown drops those options too — see
+`timeline_event.dart` and `widgets/history_filters_bar.dart`). Also
+trimmed: the "Recent Active Users" widget (a fully static array of 4
+fabricated names/roles/timestamps), the fake per-KPI-card trend badges and
+SVG sparklines (arbitrary uncomputed percentages, unlike a single static
+fallback label elsewhere), and the "Export Logs" CSV button (client-side
+Blob+`<a>`+click, no backend tie — same reasoning as the CSV/Excel export
+trims on GIS Map, Road Distresses, and Maintenance).
+
+"Retry Pipeline" is ported as a simulated confirmation dialog, mirroring
+the source's own `alert('Restarting AI pipeline... (Simulated)')` — it's
+simulated in the source too, so unlike fully-fake peripheral buttons
+trimmed elsewhere (e.g. Reports' "Schedule Report"), this one is a primary
+action on an otherwise-real card and was kept. "Review Video" shows a
+"not wired up yet" snackbar, since Video Review doesn't exist in this port
+yet (same convention the sidebar already uses for unbuilt destinations).
+
+A widget test (`test/history_smoke_test.dart`) pumps every major widget
+with sample data — it caught and fixed a real `BoxConstraints forces an
+infinite height` crash in the Inference Run Logs cards (a `Row` with
+`CrossAxisAlignment.stretch` doesn't work for a colored side-accent bar
+when the card's height is intrinsic/unbounded; fixed by using a
+`Positioned` strip in a `Stack` instead, the same underlying fix as
+Analytics' KPI-grid accent bug but adapted for an unbounded-height
+container).
+
+**Also discovered while building this screen (pre-existing, not
+introduced here): a real bug affecting every screen with a `DropdownButton`
+filter.** Setting `style:` directly on a `DropdownButton` (instead of on
+each `DropdownMenuItem`'s own `Text`) makes the button's displayed
+selected-item text render invisibly on Flutter Web/CanvasKit, even though
+the text is present in the widget tree (a widget test with `find.text`
+finds it fine — it just doesn't paint). This screen's filter dropdowns hit
+it first and are now fixed (style moved onto each item's `Text`), but the
+same pattern exists in at least `road_distresses_screen.dart`'s filter
+dropdowns (confirmed via screenshot: the Severity/Status/Type/Priority
+Group filters render with empty-looking boxes) and likely other screens'
+`DropdownButton`s built the same way. It went unnoticed until now because
+every other real-backend screen's Playwright verification only ever
+reached the top-level loading/error state before a backend was available —
+History is the first screen whose failure path still renders the "loaded"
+UI (see above), which is what exposed it. Not fixed elsewhere in this
+change since it touches already-shipped screens outside History's scope —
+worth a follow-up pass across the app.
 
 ## A couple of Flutter-specific gotchas hit while porting
 
