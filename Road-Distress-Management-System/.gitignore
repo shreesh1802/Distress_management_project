@@ -103,8 +103,13 @@ docker-data/
 *.zip
 *.mp4
 
-# Model weights
-backend/models/
+# Model weights -- everything in here is ignored by default (scratch/
+# experiment checkpoints, cache files) except the two trained weights the
+# pipeline actually loads at runtime (see app/services/ai/model_loader.py),
+# which are tracked via Git LFS (see backend/.gitattributes).
+backend/models/*
+!backend/models/road_best.pth
+!backend/models/signage_best.pth
 
 # Runtime-generated output
 backend/uploads/
