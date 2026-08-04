@@ -44,6 +44,14 @@ from sqlalchemy import text, inspect
 from app.db.session import get_db, SessionLocal
 import logging
 
+# Application loggers (pipeline_manager, model_loader, etc.) call logger.info()
+# extensively for per-stage/per-frame progress. Without this, Python's root
+# logger defaults to WARNING with no handler, so only warnings/errors reach
+# the console (via the logging module's stderr "handler of last resort") and
+# all pipeline progress is silently swallowed -- making a slow-but-working
+# video processing job indistinguishable from a stuck one in the terminal.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+
 logger = logging.getLogger(__name__)
 
 
