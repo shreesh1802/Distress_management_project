@@ -9,10 +9,10 @@ always fails regardless of file extension or ultralytics version. Real loading b
 YOLOX's own get_exp()/load_state_dict() pattern instead. The exact architecture for each
 checkpoint was determined by inspecting tensor shapes directly (no original exp config
 file was available):
-  - road_best.pt:    stem out_channels=48 (width=0.75), 6 CSP bottleneck blocks in
+  - road_best.pth:    stem out_channels=48 (width=0.75), 6 CSP bottleneck blocks in
                       dark3/dark4 (depth=0.67) -> matches YOLOX-M defaults exactly.
                       head.cls_preds output channels = 4 -> num_classes=4.
-  - signage_best.pt:  stem out_channels=32 (width=0.5), 3 CSP bottleneck blocks in
+  - signage_best.pth:  stem out_channels=32 (width=0.5), 3 CSP bottleneck blocks in
                       dark3/dark4 (depth=0.33) -> matches YOLOX-S defaults exactly.
                       head.cls_preds output channels = 3 -> num_classes=3.
 A strict (non-relaxed) state_dict load was verified to succeed with zero missing/
@@ -203,10 +203,12 @@ class ModelLoader:
             return self._road_model
 
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-        # Ultralytics' checkpoint loader hard-rejects any suffix other than ".pt"
-        # (see ultralytics.utils.checks.check_suffix), so the ".pt" copy is loaded
-        # even though the canonical weight name is road_best.pth.
-        full_model_path = os.path.join(base_dir, "models", "road_best.pt")
+        # Loaded via YOLOXDetector -> torch.load() below, which is extension-
+        # agnostic (the ".pt"-only requirement was specific to ultralytics.YOLO(),
+        # which this file no longer uses -- see the module docstring). Points
+        # directly at the canonical road_best.pth so only one copy of the
+        # (~190MB) checkpoint needs to exist on disk / in Git LFS.
+        full_model_path = os.path.join(base_dir, "models", "road_best.pth")
 
         from app.services.live.yolox_engine import YOLOXDetector
         if os.path.exists(full_model_path) and YOLOX_AVAILABLE:
@@ -242,10 +244,10 @@ class ModelLoader:
             return self._signage_model
 
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-        # Ultralytics' checkpoint loader hard-rejects any suffix other than ".pt"
-        # (see ultralytics.utils.checks.check_suffix), so the ".pt" copy is loaded
-        # even though the canonical weight name is signage_best.pth.
-        full_model_path = os.path.join(base_dir, "models", "signage_best.pt")
+        # See load_road_model() above: extension-agnostic loading via
+        # YOLOXDetector -> torch.load(), so this points directly at the
+        # canonical signage_best.pth (no duplicate ".pt" copy needed).
+        full_model_path = os.path.join(base_dir, "models", "signage_best.pth")
 
         from app.services.live.yolox_engine import YOLOXDetector
         if os.path.exists(full_model_path) and YOLOX_AVAILABLE:

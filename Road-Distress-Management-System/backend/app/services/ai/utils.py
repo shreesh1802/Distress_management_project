@@ -6,7 +6,7 @@ import random
 from typing import Optional, Tuple
 
 # Mapping from class ID to distress type
-# Signage classes (offset by 10 to prevent collision): the real signage_best.pt
+# Signage classes (offset by 10 to prevent collision): the real signage_best.pth
 # checkpoint outputs exactly 3 classes (confirmed via head.cls_preds output shape,
 # see model_loader.py), not 4. The original training class names/order aren't known
 # (no exp config file for this checkpoint is present in this repo), so these are

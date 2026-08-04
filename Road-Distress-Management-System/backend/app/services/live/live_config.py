@@ -65,17 +65,17 @@ DEFAULT_COLOR = (255, 255, 255)
 
 # ---- Fallback model source (used when the live_test/ exp/ckpt above are not
 # present on this machine) ----
-# Falls back to this repo's own backend/models/{road,signage}_best.pt checkpoints
+# Falls back to this repo's own backend/models/{road,signage}_best.pth checkpoints
 # using the built-in YOLOX architectures already confirmed compatible with them:
-# a strict state_dict load (zero missing/unexpected keys) verified road_best.pt
-# is a YOLOX-M model (4 classes) and signage_best.pt is a YOLOX-S model (3
+# a strict state_dict load (zero missing/unexpected keys) verified road_best.pth
+# is a YOLOX-M model (4 classes) and signage_best.pth is a YOLOX-S model (3
 # classes) -- see app/services/ai/model_loader.py for the same derivation used
 # by the offline video pipeline. The real training class names/order for
 # signage aren't known without the original exp file, so these use the same
 # honest placeholder names adopted in app/services/ai/utils.py::CLASS_MAPPING
 # rather than guessing a specific taxonomy.
-FALLBACK_PAVEMENT_CKPT = os.path.join(BACKEND_ROOT, "models", "road_best.pt")
-FALLBACK_SIGNAGE_CKPT = os.path.join(BACKEND_ROOT, "models", "signage_best.pt")
+FALLBACK_PAVEMENT_CKPT = os.path.join(BACKEND_ROOT, "models", "road_best.pth")
+FALLBACK_SIGNAGE_CKPT = os.path.join(BACKEND_ROOT, "models", "signage_best.pth")
 FALLBACK_PAVEMENT_EXP_NAME = "yolox-m"
 FALLBACK_SIGNAGE_EXP_NAME = "yolox-s"
 FALLBACK_PAVEMENT_NUM_CLASSES = 4

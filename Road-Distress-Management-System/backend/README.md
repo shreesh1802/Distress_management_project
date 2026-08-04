@@ -105,7 +105,7 @@ camera.
 
 `app/services/live/live_config.py` looks for YOLOX exp/checkpoint files
 under `../live_test/` (sibling of `backend/`) by default, falling back to
-`backend/models/road_best.pt` and `backend/models/signage_best.pt` if the
+`backend/models/road_best.pth` and `backend/models/signage_best.pth` if the
 former aren't present. Every path and inference setting (camera index,
 confidence/NMS thresholds, capture resolution, persistence cooldown) is
 overridable via environment variables — see the top of `live_config.py` for
