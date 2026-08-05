@@ -22,6 +22,8 @@ reportlab==5.0.0
 alembic==1.18.4
 python-multipart==0.0.32
 opencv-python==4.13.0.92
+imageio==2.37.4
+imageio-ffmpeg==0.6.0
 numpy==2.5.0
 torch==2.12.1
 torchvision==0.27.1

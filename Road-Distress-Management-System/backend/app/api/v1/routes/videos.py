@@ -2,6 +2,7 @@
 Video upload and management routes for the Road Distress Management System.
 """
 
+import os
 from typing import List, Optional
 from fastapi import APIRouter, Depends, File, UploadFile, Form, status, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -57,8 +58,6 @@ def get_storage_summary() -> dict:
     so it reflects reality even if files were added/removed outside the
     API (manual cleanup, a failed pipeline run leaving partial output).
     """
-    import os
-
     backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
     project_root = os.path.abspath(os.path.join(backend_root, ".."))
 

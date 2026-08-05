@@ -52,6 +52,12 @@ def extract_frames(video_path: str, video_id: int, frame_interval: int = 30, in_
         logger.warning(f"Invalid video FPS ({fps}) detected. Defaulting calculation to 30.0 FPS.")
         fps = 30.0
 
+    # Container-reported frame count, purely for the early-stop diagnostic
+    # below -- not treated as ground truth (this metadata is sometimes
+    # inaccurate, e.g. for variable-frame-rate recordings), just a sanity
+    # check against how many frames cv2 actually manages to read.
+    expected_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
     extracted_frames = []
     frame_count = 0
 
@@ -85,4 +91,22 @@ def extract_frames(video_path: str, video_id: int, frame_interval: int = 30, in_
         cap.release()
 
     logger.info(f"Extracted {len(extracted_frames)} frames from video {video_id} (Total read frames: {frame_count}).")
+
+    # cv2.VideoCapture.read() can silently start returning False partway
+    # through a real-world file (corrupt GOP boundary, a codec/container
+    # quirk common in phone/dashcam recordings) well before the actual end
+    # of the video -- it looks identical to a normal end-of-file, so this
+    # is the only signal that distinguishes "video genuinely had this many
+    # frames" from "cv2 gave up partway through and silently under-processed
+    # the rest, missing whatever distresses were in the untouched portion".
+    if expected_frame_count > 0 and frame_count < expected_frame_count * 0.9:
+        logger.warning(
+            f"Video {video_id}: cv2 only read {frame_count} of an expected "
+            f"~{expected_frame_count} frames (container metadata) -- likely "
+            f"stopped early due to a decode issue partway through the file, "
+            f"not because the video actually ended. Distresses in the "
+            f"unread portion (frames {frame_count}-{expected_frame_count}) "
+            f"were never analyzed."
+        )
+
     return extracted_frames

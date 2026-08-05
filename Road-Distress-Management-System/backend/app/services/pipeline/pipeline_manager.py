@@ -233,9 +233,20 @@ def generate_processed_video(db: Session, video_id: int) -> str:
     """
     Reconstructs an MP4 video from the annotated and original frames,
     saves it under uploads/processed/, and updates the db field.
+
+    Encodes with imageio's bundled ffmpeg (libx264/yuv420p), not
+    cv2.VideoWriter: opencv-python's bundled ffmpeg build has no software
+    H.264 encoder available in this environment (only hardware encoders,
+    which fail with no such device present) and silently falls back to
+    the 'mp4v' (MPEG-4 Part 2) codec instead -- a codec Chrome's/Firefox's
+    native <video> element (what Flutter Web's video_player uses) cannot
+    decode at all. The write succeeds, the pipeline reports "completed",
+    the file is valid and downloadable, but it never renders in-browser --
+    it just shows as a permanently blank "AI Annotated Feed" panel.
     """
     import cv2
     import os
+    import imageio
     from app.crud.video import get_video, update_video
     from app.schemas.video import UploadedVideoUpdate
     
@@ -278,21 +289,24 @@ def generate_processed_video(db: Session, video_id: int) -> str:
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     
-    # Initialize VideoWriter using original FPS and resolution
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(processed_filepath, fourcc, fps, (w, h))
-    
+    # imageio expects RGB frames; cv2.imread/VideoCapture both give BGR, so
+    # every frame gets flipped with cv2.cvtColor right before being handed
+    # to the writer.
+    out = imageio.get_writer(
+        processed_filepath, fps=fps, codec='libx264', format='FFMPEG', pixelformat='yuv420p'
+    )
+
     frame_count = 0
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-                
+
             # Check if annotated frame exists (reusing existing annotated frames)
             annotated_filename = f"annotated_frame_{frame_count:06d}.jpg"
             annotated_path = os.path.join(detections_dir, annotated_filename)
-            
+
             if os.path.exists(annotated_path):
                 frame_img = cv2.imread(annotated_path)
                 if frame_img is not None:
@@ -303,12 +317,12 @@ def generate_processed_video(db: Session, video_id: int) -> str:
                     frame_to_write = frame
             else:
                 frame_to_write = frame
-                
-            out.write(frame_to_write)
+
+            out.append_data(cv2.cvtColor(frame_to_write, cv2.COLOR_BGR2RGB))
             frame_count += 1
     finally:
         cap.release()
-        out.release()
+        out.close()
         
     video_update = UploadedVideoUpdate(
         processed_filepath=relative_processed_path,
