@@ -6,12 +6,13 @@ import random
 from typing import Optional, Tuple
 
 # Mapping from class ID to distress type
-# Signage classes (offset by 10 to prevent collision): the real signage_best.pth
-# checkpoint outputs exactly 3 classes (confirmed via head.cls_preds output shape,
-# see model_loader.py), not 4. The original training class names/order aren't known
-# (no exp config file for this checkpoint is present in this repo), so these are
-# honest placeholders rather than a guessed specific taxonomy -- update them once
-# the real names are confirmed.
+# Signage classes (offset by 10 to prevent collision): confirmed against the real
+# signage_yolox_s_exp.py used to train signage_best.pth ("signage detection:
+# TRAFFIC SIGN, SIGN BOARD, POLES", nc=3, matching the checkpoint's 3-class
+# head.cls_preds output shape -- see model_loader.py).
+# Pavement classes confirmed against the real pavement_train.yaml used to train
+# road_best.pth (nc: 4, names: 0=longitudinal_crack, 1=transverse_crack,
+# 2=alligator_crack, 3=pothole).
 CLASS_MAPPING = {
     0: "longitudinal_crack",
     1: "transverse_crack",

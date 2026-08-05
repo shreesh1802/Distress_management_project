@@ -220,10 +220,18 @@ class ModelLoader:
                     model_source="road",
                     conf_thresh=YOLOX_CONF_THRESH,
                     nms_thresh=YOLOX_NMS_THRESH,
-                    test_size=320,
+                    # Matches the model's actual training resolution (pavement_yolox_m_exp.py:
+                    # input_size=test_size=(640,640)) -- unlike the live camera pipeline
+                    # (live_config.py TEST_SIZE=256), the offline upload pipeline has no
+                    # real-time framerate constraint, so there's no reason to trade accuracy
+                    # for speed here.
+                    test_size=640,
                     fallback_ckpt=full_model_path,
                     fallback_exp_name="yolox-m",
                     fallback_num_classes=4,
+                    # Confirmed against the real pavement_train.yaml used to train
+                    # road_best.pth (nc: 4, names: 0=longitudinal_crack, 1=transverse_crack,
+                    # 2=alligator_crack, 3=pothole) -- not a guess.
                     fallback_class_names=["longitudinal_crack", "transverse_crack", "alligator_crack", "pothole"]
                 )
                 self._road_model = YoloxModel(detector)
@@ -259,10 +267,15 @@ class ModelLoader:
                     model_source="signage",
                     conf_thresh=YOLOX_CONF_THRESH,
                     nms_thresh=YOLOX_NMS_THRESH,
-                    test_size=320,
+                    # See load_road_model() above: matches signage_yolox_s_exp.py's
+                    # actual training resolution (640x640), not the live-camera-only
+                    # speed tradeoff.
+                    test_size=640,
                     fallback_ckpt=full_model_path,
                     fallback_exp_name="yolox-s",
                     fallback_num_classes=3,
+                    # Confirmed via signage_yolox_s_exp.py's own header comment
+                    # ("signage detection: TRAFFIC SIGN, SIGN BOARD, POLES") -- not a guess.
                     fallback_class_names=["TRAFFIC SIGN", "SIGN BOARD", "POLES"]
                 )
                 self._signage_model = YoloxModel(detector)
