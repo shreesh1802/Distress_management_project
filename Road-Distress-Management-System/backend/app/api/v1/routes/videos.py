@@ -47,6 +47,42 @@ def get_videos(
     return retrieve_videos_list(db=db, skip=skip, limit=limit)
 
 
+@router.get("/storage/summary")
+def get_storage_summary() -> dict:
+    """
+    Real disk usage of the project's uploads/ and reports/ directories
+    (raw video files, extracted frames, annotated detection crops,
+    processed/annotated videos, generated PDF/Excel reports). Walks the
+    actual filesystem rather than summing a stored-at-upload-time field,
+    so it reflects reality even if files were added/removed outside the
+    API (manual cleanup, a failed pipeline run leaving partial output).
+    """
+    import os
+
+    backend_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    project_root = os.path.abspath(os.path.join(backend_root, ".."))
+
+    def dir_size_bytes(path: str) -> int:
+        total = 0
+        for dirpath, _dirnames, filenames in os.walk(path):
+            for fname in filenames:
+                fpath = os.path.join(dirpath, fname)
+                if os.path.isfile(fpath):
+                    total += os.path.getsize(fpath)
+        return total
+
+    uploads_bytes = dir_size_bytes(os.path.join(backend_root, "uploads"))
+    reports_bytes = dir_size_bytes(os.path.join(project_root, "reports"))
+    total_bytes = uploads_bytes + reports_bytes
+
+    return {
+        "uploads_bytes": uploads_bytes,
+        "reports_bytes": reports_bytes,
+        "total_bytes": total_bytes,
+        "total_gb": round(total_bytes / (1024 ** 3), 3)
+    }
+
+
 @router.get("/{id}", response_model=UploadedVideoResponse)
 def get_video_by_id(
     id: int, 

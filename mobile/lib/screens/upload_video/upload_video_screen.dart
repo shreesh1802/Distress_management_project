@@ -24,6 +24,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> {
   final _api = VideoApi();
   Timer? _pollTimer;
   Timer? _progressTimer;
+  Timer? _elapsedTicker;
 
   List<UploadedVideo> _videos = [];
   bool _isLoading = true;
@@ -32,18 +33,38 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> {
   int _uploadProgress = 0;
   String _uploadingFileName = '';
   String? _error;
+  double _storageUsedGb = 0.0;
 
   @override
   void initState() {
     super.initState();
     _fetchVideos();
-    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) => _fetchVideos());
+    _fetchStorage();
+    _pollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      _fetchVideos();
+      _fetchStorage();
+    });
+    // Ticks the UI every second so any currently-processing video's live
+    // elapsed-time display (real wall-clock time since processing_started_at,
+    // not a fake fixed number) keeps advancing between the 8s poll refreshes.
+    _elapsedTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_videos.any((v) => v.processingStatus.toLowerCase() == 'processing')) {
+        setState(() {});
+      }
+    });
+  }
+
+  Future<void> _fetchStorage() async {
+    final gb = await _api.fetchStorageUsedGb();
+    if (!mounted) return;
+    setState(() => _storageUsedGb = gb);
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
     _progressTimer?.cancel();
+    _elapsedTicker?.cancel();
     _api.dispose();
     super.dispose();
   }
@@ -179,7 +200,14 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> {
             v.processingStatus.toLowerCase() == 'queued')
         .length;
     final failedJobs = _videos.where((v) => v.processingStatus.toLowerCase() == 'failed').length;
-    final storageUsedGB = (totalJobs * 0.42 + 12.2);
+    final completedDurations = _videos
+        .where((v) => v.processingStatus.toLowerCase() == 'completed' && v.processingDuration != null)
+        .map((v) => v.processingDuration!)
+        .toList();
+    final avgProcessingSeconds = completedDurations.isEmpty
+        ? null
+        : completedDurations.reduce((a, b) => a + b) / completedDurations.length;
+    final storageUsedGB = _storageUsedGb;
     final storagePercentage = storageUsedGB.clamp(0, 100).toDouble();
 
     return Column(
@@ -226,10 +254,11 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> {
                     onBrowse: _pickFile,
                   ),
                   _PipelineOverviewCard(
-                    filesUploaded: totalJobs > 0 ? totalJobs + 150 : 156,
-                    processing: pendingJobs > 0 ? pendingJobs : 5,
-                    completed: completedJobs > 0 ? completedJobs : 142,
-                    failed: failedJobs > 0 ? failedJobs : 3,
+                    filesUploaded: totalJobs,
+                    processing: pendingJobs,
+                    completed: completedJobs,
+                    failed: failedJobs,
+                    avgProcessingSeconds: avgProcessingSeconds,
                   ),
                 ),
                 SizedBox(height: narrow ? 24 : 24),
@@ -423,15 +452,22 @@ class _PipelineOverviewCard extends StatelessWidget {
     required this.processing,
     required this.completed,
     required this.failed,
+    required this.avgProcessingSeconds,
   });
 
   final int filesUploaded;
   final int processing;
   final int completed;
   final int failed;
+  final double? avgProcessingSeconds;
 
   @override
   Widget build(BuildContext context) {
+    final avgTimeLabel = avgProcessingSeconds == null
+        ? '—'
+        : avgProcessingSeconds! < 60
+            ? '${avgProcessingSeconds!.toStringAsFixed(1)} sec'
+            : '${(avgProcessingSeconds! / 60).toStringAsFixed(1)} min';
     return _PremiumCard(
       title: 'Pipeline Overview',
       child: Column(
@@ -440,7 +476,7 @@ class _PipelineOverviewCard extends StatelessWidget {
           _StatRow('Processing', '$processing'),
           _StatRow('Completed', '$completed'),
           _StatRow('Failed', '$failed'),
-          _StatRow('Avg Time', '1.3 sec', isLast: true),
+          _StatRow('Avg Time', avgTimeLabel, isLast: true),
         ],
       ),
     );
@@ -541,11 +577,21 @@ class _ProcessingQueueCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final processingVideos = videos.where((v) => v.processingStatus.toLowerCase() == 'processing');
     final completedVideos = videos.where((v) => v.processingStatus.toLowerCase() == 'completed').take(3);
-    final showStub = !isUploading && videos.isEmpty;
+    final isEmpty = !isUploading && processingVideos.isEmpty && completedVideos.isEmpty;
 
     return _PremiumCard(
       title: 'Processing Queue',
-      child: ConstrainedBox(
+      child: isEmpty
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text(
+                  'No videos in the queue yet.',
+                  style: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+                ),
+              ),
+            )
+          : ConstrainedBox(
         constraints: const BoxConstraints(maxHeight: 200),
         child: SingleChildScrollView(
           child: Table(
@@ -577,12 +623,20 @@ class _ProcessingQueueCard extends StatelessWidget {
                   'processing',
                   uploadProgress,
                 ),
-              for (final v in processingVideos) _queueRow(v.filename, 'processing', 80),
-              for (final v in completedVideos) _queueRow(v.filename, 'completed', 100),
-              if (showStub) ...[
-                _queueRow('video1.mp4', 'processing', 76),
-                _queueRow('road2.mp4', 'completed', 100),
-              ],
+              for (final v in processingVideos)
+                _queueRow(
+                  v.filename,
+                  'processing',
+                  v.progress ?? 0,
+                  elapsedLabel: _formatElapsed(v.processingStartedAt),
+                ),
+              for (final v in completedVideos)
+                _queueRow(
+                  v.filename,
+                  'completed',
+                  100,
+                  elapsedLabel: v.processingDuration != null ? '${v.processingDuration!.toStringAsFixed(1)}s total' : null,
+                ),
             ],
           ),
         ),
@@ -590,7 +644,7 @@ class _ProcessingQueueCard extends StatelessWidget {
     );
   }
 
-  TableRow _queueRow(String name, String status, int progress) {
+  TableRow _queueRow(String name, String status, int progress, {String? elapsedLabel}) {
     return TableRow(
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.cardBorder)),
@@ -607,28 +661,62 @@ class _ProcessingQueueCard extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: status == 'completed'
-              ? const Text('✓', style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold))
-              : Row(
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(3),
-                        child: LinearProgressIndicator(
-                          value: progress / 100,
-                          minHeight: 6,
-                          backgroundColor: const Color(0xFFE5E7EB),
-                          valueColor: const AlwaysStoppedAnimation(AppColors.primaryText),
+                    const Text('✓', style: TextStyle(color: Color(0xFF2E7D32), fontWeight: FontWeight.bold)),
+                    if (elapsedLabel != null) ...[
+                      const SizedBox(width: 6),
+                      Text(elapsedLabel, style: const TextStyle(fontSize: 10, color: AppColors.secondaryText)),
+                    ],
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(3),
+                            child: LinearProgressIndicator(
+                              value: progress / 100,
+                              minHeight: 6,
+                              backgroundColor: const Color(0xFFE5E7EB),
+                              valueColor: const AlwaysStoppedAnimation(AppColors.primaryText),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Text('$progress%', style: const TextStyle(fontSize: 10)),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    Text('$progress%', style: const TextStyle(fontSize: 10)),
+                    if (elapsedLabel != null) ...[
+                      const SizedBox(height: 2),
+                      Text(elapsedLabel, style: const TextStyle(fontSize: 9, color: AppColors.secondaryText)),
+                    ],
                   ],
                 ),
         ),
       ],
     );
   }
+}
+
+/// Real wall-clock elapsed time since processing_started_at (the backend
+/// timestamp), not a fixed/fake number -- ticks live via the parent
+/// screen's 1s _elapsedTicker. Returns null when the video hasn't actually
+/// started processing yet (no timestamp to compute from).
+String? _formatElapsed(DateTime? startedAt) {
+  if (startedAt == null) return null;
+  final elapsed = DateTime.now().toUtc().difference(startedAt.toUtc());
+  if (elapsed.isNegative) return null;
+  final totalSeconds = elapsed.inSeconds;
+  if (totalSeconds < 60) return '${totalSeconds}s elapsed';
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '${minutes}m ${seconds}s elapsed';
 }
 
 class _CloudStorageCard extends StatelessWidget {

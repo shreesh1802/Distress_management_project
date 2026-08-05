@@ -18,6 +18,7 @@ class UploadedVideo {
     this.progress,
     this.processingStage,
     this.processingDuration,
+    this.processingStartedAt,
   });
 
   final int id;
@@ -30,6 +31,7 @@ class UploadedVideo {
   final int? progress;
   final String? processingStage;
   final double? processingDuration;
+  final DateTime? processingStartedAt;
 
   /// Matches VideoReview.tsx's `selectedVideo.processed_filepath ||
   /// selectedVideo.processed_video_path` presence check (only used to
@@ -51,6 +53,9 @@ class UploadedVideo {
       progress: (json['progress'] as num?)?.toInt(),
       processingStage: json['processing_stage'] as String?,
       processingDuration: (json['processing_duration'] as num?)?.toDouble(),
+      processingStartedAt: json['processing_started_at'] != null
+          ? DateTime.tryParse(json['processing_started_at'] as String)
+          : null,
     );
   }
 
@@ -66,6 +71,7 @@ class UploadedVideo {
       progress: progress,
       processingStage: processingStage,
       processingDuration: processingDuration,
+      processingStartedAt: processingStartedAt,
     );
   }
 }
@@ -205,6 +211,22 @@ class VideoApi {
         // Non-JSON error body; fall back to the generic message.
       }
       throw VideoApiException(detail);
+    }
+  }
+
+  /// Real disk usage of uploads/ + reports/, from GET /videos/storage/summary
+  /// (a plain filesystem walk on the backend). Returns 0.0 on any failure
+  /// rather than throwing, matching the fallback-friendly pattern already
+  /// used for [fetchDetectionSummary] -- storage is a secondary stat, not
+  /// something that should block the rest of the screen from rendering.
+  Future<double> fetchStorageUsedGb() async {
+    try {
+      final response = await _client.get(Uri.parse('$kApiV1/videos/storage/summary'));
+      if (response.statusCode != 200) return 0.0;
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return (body['total_gb'] as num?)?.toDouble() ?? 0.0;
+    } catch (_) {
+      return 0.0;
     }
   }
 

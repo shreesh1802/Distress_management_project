@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -16,13 +15,17 @@ class _ActivityLog {
   final _LogType type;
 }
 
+/// Matches the real stage strings pipeline_manager.py actually sets on
+/// UploadedVideo.processing_stage, in order (10% / 25% / 80% / 90% / 95% /
+/// 100%) -- not an arbitrary/simulated vocabulary, since this screen now
+/// displays the real polled progress instead of a client-side animation.
 const _kMilestones = [
   'Uploading Video',
   'Extracting Frames',
-  'Running YOLO Detection',
-  'Tracking Objects',
-  'Generating Maintenance Tasks',
-  'Generating Report',
+  'Running AI Detection',
+  'Saving Results',
+  'Generating Reports',
+  'Finalizing Inspection',
   'Completed',
 ];
 
@@ -43,8 +46,7 @@ class LiveProcessingScreen extends StatefulWidget {
 class _LiveProcessingScreenState extends State<LiveProcessingScreen> {
   final _api = VideoApi();
   Timer? _pollTimer;
-  Timer? _progressTimer;
-  final _random = Random();
+  Timer? _elapsedTicker;
 
   List<UploadedVideo> _videos = [];
   UploadedVideo? _selectedVideo;
@@ -69,12 +71,19 @@ class _LiveProcessingScreenState extends State<LiveProcessingScreen> {
     super.initState();
     _fetchData();
     _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => _fetchData());
+    // Ticks the elapsed-time display live between the 4s poll refreshes;
+    // the progress/stage numbers themselves only update on each real poll.
+    _elapsedTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_selectedVideo?.processingStatus.toLowerCase() == 'processing') {
+        setState(() {});
+      }
+    });
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
-    _progressTimer?.cancel();
+    _elapsedTicker?.cancel();
     _api.dispose();
     super.dispose();
   }
@@ -108,8 +117,13 @@ class _LiveProcessingScreenState extends State<LiveProcessingScreen> {
       } else if (videoList.isNotEmpty) {
         next = videoList.first;
       }
+      // Re-applies every poll while status stays "processing", not just on
+      // the first transition into it -- real progress/stage advance across
+      // multiple polls within that same status, so this needs to keep
+      // re-syncing from the backend's real numbers each time, not just once.
+      final stillProcessing = next?.processingStatus.toLowerCase() == 'processing';
       if (next != null &&
-          (next.id != _statusAppliedForId || next.processingStatus != _statusAppliedValue)) {
+          (next.id != _statusAppliedForId || next.processingStatus != _statusAppliedValue || stillProcessing)) {
         setState(() => _selectedVideo = next);
         _applyStatusEffects(next);
       } else if (next?.id != _selectedVideo?.id) {
@@ -140,9 +154,12 @@ class _LiveProcessingScreenState extends State<LiveProcessingScreen> {
     return '$hour12:$mm:$ss $period';
   }
 
+  /// Reads real progress/stage straight from the polled UploadedVideo record
+  /// (progress 0-100, processing_stage set by pipeline_manager.py at each
+  /// real step) instead of running a client-side simulated timer -- called
+  /// on every poll while status stays "processing" so it keeps re-syncing
+  /// as the real numbers advance, not just once on the status transition.
   void _applyStatusEffects(UploadedVideo video) {
-    _progressTimer?.cancel();
-    _progressTimer = null;
     _statusAppliedForId = video.id;
     _statusAppliedValue = video.processingStatus;
 
@@ -157,54 +174,47 @@ class _LiveProcessingScreenState extends State<LiveProcessingScreen> {
         _LogType.success,
       );
     } else if (status == 'failed') {
+      final failureDetail = video.processingStage ?? 'Unknown error';
       setState(() {
-        _progress = 100;
+        _progress = video.progress ?? 0;
         _currentStage = 'Failed';
       });
-      _addLogOnce(
-        'Pipeline failure: OpenCV frame extraction or inference loop failed. Check server logs.',
-        _LogType.error,
-      );
+      _addLogOnce('Pipeline failure: $failureDetail', _LogType.error);
     } else if (status == 'processing') {
+      final realStage = video.processingStage ?? 'Extracting Frames';
       setState(() {
-        _progress = 10;
-        _currentStage = 'Extracting Frames';
+        _progress = video.progress ?? 0;
+        _currentStage = realStage;
       });
-      _addLogOnce('Triggered detection pipeline. Initializing camera stream.', _LogType.info);
-
-      var simProgress = 10;
-      _progressTimer = Timer.periodic(const Duration(milliseconds: 800), (timer) {
-        simProgress += _random.nextInt(4) + 1;
-        if (simProgress > 95) simProgress = 95;
-        setState(() => _progress = simProgress);
-
-        if (simProgress < 35) {
-          setState(() => _currentStage = 'Extracting Frames');
-          _addLogOnce('Decompressing video stream and caching frame segments.', _LogType.info);
-        } else if (simProgress < 65) {
-          setState(() => _currentStage = 'Running YOLO Detection');
-          _addLogOnce(
-            'Running YOLO inference weights. Scanning frames for road distress markers.',
-            _LogType.info,
-          );
-        } else if (simProgress < 80) {
-          setState(() => _currentStage = 'Tracking Objects');
-          _addLogOnce(
-            'Matching IoU bounding boxes across frame sequences to filter duplicate records.',
-            _LogType.info,
-          );
-        } else if (simProgress < 90) {
-          setState(() => _currentStage = 'Generating Maintenance Tasks');
-          _addLogOnce('Executing priority recommendation engine and logging tasks.', _LogType.success);
-        } else {
-          setState(() => _currentStage = 'Generating Report');
-        }
-      });
+      _logForRealStage(realStage);
     } else {
       setState(() {
         _progress = 0;
         _currentStage = 'Pending';
       });
+    }
+  }
+
+  void _logForRealStage(String stage) {
+    switch (stage) {
+      case 'Extracting Frames':
+        _addLogOnce('Decompressing video stream and caching frame segments.', _LogType.info);
+        break;
+      case 'Running AI Detection':
+        _addLogOnce(
+          'Running YOLOX inference weights. Scanning frames for road distress markers.',
+          _LogType.info,
+        );
+        break;
+      case 'Saving Results':
+        _addLogOnce('Persisting detection records and computing severity metrics.', _LogType.info);
+        break;
+      case 'Generating Reports':
+        _addLogOnce('Executing priority recommendation engine and compiling reports.', _LogType.success);
+        break;
+      case 'Finalizing Inspection':
+        _addLogOnce('Finalizing inspection record and generating annotated video.', _LogType.info);
+        break;
     }
   }
 
@@ -694,7 +704,18 @@ class _MonitorCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Progress Rate', style: TextStyle(fontSize: 11, color: AppColors.secondaryText)),
-              Text('$progress%', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+              Row(
+                children: [
+                  if (status == 'processing' && video?.processingStartedAt != null) ...[
+                    Text(
+                      _formatElapsedLive(video!.processingStartedAt!),
+                      style: const TextStyle(fontSize: 10, color: AppColors.secondaryText),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Text('$progress%', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 4),
@@ -889,4 +910,15 @@ class _MilestonesStepper extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Real wall-clock elapsed time since processing_started_at, ticked live by
+/// _elapsedTicker -- not a fixed/simulated number.
+String _formatElapsedLive(DateTime startedAt) {
+  final elapsed = DateTime.now().toUtc().difference(startedAt.toUtc());
+  final totalSeconds = elapsed.isNegative ? 0 : elapsed.inSeconds;
+  if (totalSeconds < 60) return '${totalSeconds}s';
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '${minutes}m ${seconds}s';
 }

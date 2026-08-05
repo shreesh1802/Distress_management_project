@@ -75,6 +75,14 @@ async def handle_video_upload(
     unique_filename = f"{uuid.uuid4().hex}_{sanitized}"
     target_filepath = os.path.join(UPLOAD_DIR, unique_filename)
 
+    # Re-ensure the directory exists at save time, not just at import time:
+    # module-level `os.makedirs(UPLOAD_DIR, exist_ok=True)` above only runs
+    # once when this module is first imported, so if the directory is
+    # removed afterward (e.g. by a data-reset script) while the server
+    # keeps running, every upload fails with ENOENT until the process is
+    # restarted. This makes a save resilient to that without requiring one.
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+
     # 4. Stream file in chunks to disk to enforce file size and preserve memory
     total_bytes = 0
     try:
