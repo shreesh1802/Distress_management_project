@@ -36,11 +36,22 @@ try:
 except ImportError:
     YOLOX_AVAILABLE = False
 
-# Empirically reasonable thresholds for these two models (matching the values already
-# tuned and used in backend/models/webcam_test_combined.py); YOLOX's own Exp defaults
-# (test_conf=0.01, nmsthre=0.65) are tuned for mAP evaluation, not for display/production.
-YOLOX_CONF_THRESH = 0.3
+# NMS matches the value tuned and used in backend/models/webcam_test_combined.py
+# (the live-camera reference script); YOLOX's own Exp default (nmsthre=0.65) is
+# tuned for mAP evaluation, not display/production.
 YOLOX_NMS_THRESH = 0.45
+
+# Confidence threshold for the OFFLINE video pipeline specifically -- deliberately
+# higher than the live-camera script's 0.3. That value makes sense for a live feed
+# a human is watching in real time and can visually discount weak guesses from; it
+# doesn't make sense here, where every detection above threshold becomes a
+# permanent, unreviewed database row shown as fact in Road Distresses/reports.
+# Raising this cuts the weakest/most uncertain false positives (e.g. a 0.51
+# "unknown" or a 0.61 guess in an implausible location) -- it does NOT fix
+# genuinely wrong detections the model is confident about (e.g. a tree canopy
+# mislabeled "SIGN BOARD" at 0.94); that reflects the trained model's real
+# accuracy ceiling on this kind of footage, not something a threshold can hide.
+YOLOX_CONF_THRESH = 0.6
 
 
 class MockBoxItem:
