@@ -92,6 +92,8 @@ void main() {
         selectedVideo: UploadedVideo(id: 10, filename: 'Video_10.mp4', processingStatus: 'completed', uploadTimestamp: DateTime(2026, 7, 20)),
         originalController: null,
         annotatedController: null,
+        originalLoadFailed: false,
+        annotatedLoadFailed: false,
         hasAnnotatedVideo: false,
         isPlaying: false,
         currentTime: Duration.zero,
@@ -130,6 +132,8 @@ void main() {
         selectedVideo: null,
         originalController: null,
         annotatedController: null,
+        originalLoadFailed: false,
+        annotatedLoadFailed: false,
         hasAnnotatedVideo: false,
         isPlaying: false,
         currentTime: Duration.zero,
@@ -154,5 +158,41 @@ void main() {
     )));
     await tester.pumpAndSettle();
     expect(find.text('No footage selected.'), findsWidgets);
+  });
+
+  testWidgets('DualPlayerPanel shows a failed-to-load state, not an infinite spinner', (tester) async {
+    await tester.pumpWidget(_wrap(SizedBox(
+      width: 1200,
+      child: DualPlayerPanel(
+        selectedVideo: UploadedVideo(id: 11, filename: 'Video_11.mp4', processingStatus: 'completed', uploadTimestamp: DateTime(2026, 7, 20)),
+        originalController: null,
+        annotatedController: null,
+        originalLoadFailed: true,
+        annotatedLoadFailed: true,
+        hasAnnotatedVideo: true,
+        isPlaying: false,
+        currentTime: Duration.zero,
+        duration: const Duration(seconds: 60),
+        playbackSpeed: 1.0,
+        volume: 0.8,
+        isMuted: false,
+        syncWarning: null,
+        detections: const [],
+        selectedDetection: null,
+        isFullscreen: false,
+        onPlayPause: () {},
+        onStop: () {},
+        onReplay: () {},
+        onSeek: (_) {},
+        onSpeedChange: (_) {},
+        onVolumeChange: (_) {},
+        onToggleMute: () {},
+        onFocusDetection: (_) {},
+        onToggleFullscreen: () {},
+      ),
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('Failed to load video.'), findsNWidgets(2));
+    expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 }

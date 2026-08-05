@@ -75,6 +75,8 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
 
   VideoPlayerController? _originalController;
   VideoPlayerController? _annotatedController;
+  bool _originalLoadFailed = false;
+  bool _annotatedLoadFailed = false;
   Timer? _syncTimer;
 
   @override
@@ -159,11 +161,23 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
       _duration = Duration.zero;
       _syncWarning = null;
       _activeTab = 'list';
+      _originalLoadFailed = false;
+      _annotatedLoadFailed = false;
     });
 
+    // video_player_web's initialize() can hang forever rather than reject
+    // when the browser's underlying <video> element fires an error event
+    // (unsupported codec, unreachable URL, etc.) -- confirmed directly: a
+    // raw HTML5 <video> in the same failure scenario dispatches a genuine
+    // 'error' event within ~1s, but the Flutter-side Future never settles
+    // on it, so the existing try/catch below never gets a chance to run.
+    // The .timeout() forces a give-up after a reasonable wait so a bad
+    // video shows a clear "failed to load" placeholder instead of an
+    // infinite spinner.
+    const initTimeout = Duration(seconds: 15);
     try {
       final original = VideoPlayerController.networkUrl(Uri.parse(_resolveOriginalUrl(video)));
-      await original.initialize();
+      await original.initialize().timeout(initTimeout);
       await original.setVolume(_isMuted ? 0 : _volume);
       await original.setPlaybackSpeed(_playbackSpeed);
       original.addListener(_onOriginalStatusChange);
@@ -171,17 +185,19 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
       if (mounted) setState(() => _duration = original.value.duration);
     } catch (_) {
       _originalController = null;
+      _originalLoadFailed = true;
     }
 
     if (video.hasProcessedVideo) {
       try {
         final annotated = VideoPlayerController.networkUrl(Uri.parse(_videoApi.processedVideoUrl(video.id)));
-        await annotated.initialize();
+        await annotated.initialize().timeout(initTimeout);
         await annotated.setVolume(_isMuted ? 0 : _volume);
         await annotated.setPlaybackSpeed(_playbackSpeed);
         _annotatedController = annotated;
       } catch (_) {
         _annotatedController = null;
+        _annotatedLoadFailed = true;
       }
     }
     if (mounted) setState(() {});
@@ -390,6 +406,8 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
         selectedVideo: _selectedVideo,
         originalController: _originalController,
         annotatedController: _annotatedController,
+        originalLoadFailed: _originalLoadFailed,
+        annotatedLoadFailed: _annotatedLoadFailed,
         hasAnnotatedVideo: _selectedVideo?.hasProcessedVideo ?? false,
         isPlaying: _isPlaying,
         currentTime: _currentTime,

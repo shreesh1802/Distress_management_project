@@ -25,6 +25,8 @@ class DualPlayerPanel extends StatelessWidget {
     required this.selectedVideo,
     required this.originalController,
     required this.annotatedController,
+    required this.originalLoadFailed,
+    required this.annotatedLoadFailed,
     required this.hasAnnotatedVideo,
     required this.isPlaying,
     required this.currentTime,
@@ -50,6 +52,8 @@ class DualPlayerPanel extends StatelessWidget {
   final UploadedVideo? selectedVideo;
   final VideoPlayerController? originalController;
   final VideoPlayerController? annotatedController;
+  final bool originalLoadFailed;
+  final bool annotatedLoadFailed;
   final bool hasAnnotatedVideo;
   final bool isPlaying;
   final Duration currentTime;
@@ -80,8 +84,8 @@ class DualPlayerPanel extends StatelessWidget {
         LayoutBuilder(
           builder: (context, constraints) {
             final narrow = constraints.maxWidth < 700;
-            final original = _playerCard('Original Surveillance Feed', originalController, selectedVideo != null, false);
-            final annotated = _playerCard('AI Annotated Feed', annotatedController, hasAnnotatedVideo, true);
+            final original = _playerCard('Original Surveillance Feed', originalController, selectedVideo != null, false, originalLoadFailed);
+            final annotated = _playerCard('AI Annotated Feed', annotatedController, hasAnnotatedVideo, true, annotatedLoadFailed);
             if (narrow) {
               return Column(children: [original, const SizedBox(height: 12), annotated]);
             }
@@ -106,7 +110,13 @@ class DualPlayerPanel extends StatelessWidget {
     );
   }
 
-  Widget _playerCard(String label, VideoPlayerController? controller, bool shouldHaveContent, bool isAnnotated) {
+  Widget _playerCard(
+    String label,
+    VideoPlayerController? controller,
+    bool shouldHaveContent,
+    bool isAnnotated,
+    bool loadFailed,
+  ) {
     return Container(
       height: 260,
       clipBehavior: Clip.antiAlias,
@@ -135,6 +145,10 @@ class DualPlayerPanel extends StatelessWidget {
           else if (isAnnotated && !shouldHaveContent)
             _placeholder(LucideIcons.tv, 'Annotated Video Unresolved',
                 subtitle: 'Processing not complete or annotated MP4 not yet generated.', color: AppColors.warning)
+          else if (loadFailed)
+            _placeholder(LucideIcons.alertTriangle, 'Failed to load video.',
+                subtitle: 'The file may be unreachable, corrupted, or in an unsupported format.',
+                color: AppColors.danger)
           else
             const Center(child: CircularProgressIndicator(color: Colors.white)),
           Positioned(
