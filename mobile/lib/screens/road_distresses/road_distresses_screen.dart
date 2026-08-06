@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/road_distress_api.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/distress_icons.dart';
 import 'distress_colors.dart';
 import 'widgets/image_lightbox.dart';
 import 'widgets/inspection_drawer.dart';
@@ -1153,7 +1154,14 @@ class _TableCard extends StatelessWidget {
         if (visibleColumns['detection_id'] ?? true)
           DataCell(Text('RD-${item.id}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700))),
         if (visibleColumns['distress_type'] ?? true)
-          DataCell(Text(formatDistressType(item.distressType), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+          DataCell(Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(distressTypeIcon(item.distressType), size: 14, color: distressTypeIconColor(item.distressType)),
+              const SizedBox(width: 6),
+              Text(formatDistressType(item.distressType), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            ],
+          )),
         if (visibleColumns['severity'] ?? true)
           DataCell(
             Container(

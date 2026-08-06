@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../data/gis_api.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/distress_icons.dart';
 import '../severity_colors.dart';
 
 /// Direct port of RoadDetailsPanel.tsx: shows the selected marker's detail
@@ -152,9 +153,21 @@ class RoadDetailsPanel extends StatelessWidget {
                       'AI Recommendation',
                       style: TextStyle(fontSize: 13, color: AppColors.secondaryText),
                     ),
-                    Text(
-                      '${formatDistressType(d.distressType)} Repair',
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    Flexible(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(distressTypeIcon(d.distressType), size: 14, color: distressTypeIconColor(d.distressType)),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              '${formatDistressType(d.distressType)} Repair',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),

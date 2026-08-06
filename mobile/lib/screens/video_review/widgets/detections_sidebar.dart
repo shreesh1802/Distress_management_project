@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../data/road_distress_api.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/distress_icons.dart';
 import '../video_review_helpers.dart';
 
 /// Direct port of VideoReview.tsx's right sidebar: a "Detections (N)" /
@@ -92,7 +93,7 @@ class DetectionsSidebar extends StatelessWidget {
   // visible in the viewport, however large `detections` gets.
   static const List<(String, double)> _kColumns = [
     ('Tracking ID', 64),
-    ('Type', 140),
+    ('Type', 158),
     ('Severity', 72),
     ('Time', 56),
     ('Frame', 56),
@@ -171,7 +172,20 @@ class DetectionsSidebar extends StatelessWidget {
             const SizedBox(width: _kColumnSpacing),
             SizedBox(
               width: _kColumns[1].$2,
-              child: Text(formatDistressType(det.distressType), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(distressTypeIcon(det.distressType), size: 13, color: distressTypeIconColor(det.distressType)),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      formatDistressType(det.distressType),
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(width: _kColumnSpacing),
             SizedBox(
@@ -236,11 +250,36 @@ class DetectionsSidebar extends StatelessWidget {
                 child: const Text('Annotated Visual Crop', style: TextStyle(fontSize: 9, color: Colors.white)),
               ),
             ),
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Container(
+                padding: const EdgeInsets.all(5),
+                decoration: BoxDecoration(color: const Color(0x99000000), borderRadius: BorderRadius.circular(20)),
+                child: Icon(distressTypeIcon(det.distressType), size: 14, color: distressTypeIconColor(det.distressType)),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 12),
         _field('Tracking ID:', '#${det.trackingId ?? det.id}'),
-        _field('Distress Type:', formatDistressType(det.distressType)),
+        _fieldWidget(
+          'Distress Type:',
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(distressTypeIcon(det.distressType), size: 13, color: distressTypeIconColor(det.distressType)),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  formatDistressType(det.distressType),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+        ),
         _fieldWidget(
           'Severity Rating:',
           Container(

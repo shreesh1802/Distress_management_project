@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../data/road_distress_api.dart';
+import '../../../theme/distress_icons.dart';
 import '../distress_colors.dart';
 
 const _kFallbackImage =
@@ -88,7 +89,24 @@ class InspectionDrawer extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     _row('Tracking ID:', d.trackingId?.toString() ?? 'TRK-MOCK-${d.id}'),
-                    _row('Distress Type:', formatDistressType(d.distressType)),
+                    _rowWidget(
+                      'Distress Type:',
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(distressTypeIcon(d.distressType), size: 14, color: distressTypeIconColor(d.distressType)),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              formatDistressType(d.distressType),
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                     _rowWidget(
                       'Severity:',
                       Container(

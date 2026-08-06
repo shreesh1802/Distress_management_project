@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../data/road_distress_api.dart';
 import '../../data/video_api.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/distress_icons.dart';
 import 'widgets/dashboard_gis_map_card.dart';
 import 'widgets/manual_observations_section.dart';
 
@@ -588,9 +589,19 @@ class _RecentDetectionsFeed extends StatelessWidget {
                                 ],
                               ),
                               const SizedBox(height: 6),
-                              Text(
-                                d.distressType.replaceAll('_', ' '),
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(distressTypeIcon(d.distressType), size: 13, color: distressTypeIconColor(d.distressType)),
+                                  const SizedBox(width: 5),
+                                  Flexible(
+                                    child: Text(
+                                      d.distressType.replaceAll('_', ' '),
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 6),
                               Text('Road ID: ${d.id}', style: const TextStyle(fontSize: 10, color: AppColors.secondaryText)),

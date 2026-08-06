@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../data/gis_api.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/distress_icons.dart';
 import '../severity_colors.dart';
 
 /// Direct(ish) port of GISMapContainer.tsx + LeafletMap.tsx: a real pannable
@@ -488,7 +489,7 @@ class _DistressMarker extends StatelessWidget {
               BoxShadow(color: Color(0x66000000), blurRadius: 4),
             ],
           ),
-          child: const SizedBox.expand(),
+          child: Icon(distressTypeIcon(distress.distressType), size: 12, color: Colors.white),
         ),
       ),
     );
@@ -635,7 +636,7 @@ class _FloatingSelectedCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(LucideIcons.shieldAlert, size: 15, color: color),
+              Icon(distressTypeIcon(distress.distressType), size: 15, color: color),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(

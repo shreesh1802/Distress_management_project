@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../data/road_distress_api.dart';
+import '../../../theme/distress_icons.dart';
 import '../distress_colors.dart';
 
 const _kFallbackImage =
@@ -114,7 +115,12 @@ class _ImageLightboxState extends State<ImageLightbox> {
                     ),
                   ),
                 ),
-                _MetaField('Type', formatDistressType(d.distressType)),
+                _MetaField(
+                  'Type',
+                  formatDistressType(d.distressType),
+                  icon: distressTypeIcon(d.distressType),
+                  iconColor: distressTypeIconColor(d.distressType),
+                ),
                 _MetaField(
                   'Severity',
                   d.severity.toUpperCase(),
@@ -180,10 +186,12 @@ class _IconBtn extends StatelessWidget {
 }
 
 class _MetaField extends StatelessWidget {
-  const _MetaField(this.label, this.value, {this.valueColor});
+  const _MetaField(this.label, this.value, {this.valueColor, this.icon, this.iconColor});
   final String label;
   final String value;
   final Color? valueColor;
+  final IconData? icon;
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -194,7 +202,21 @@ class _MetaField extends StatelessWidget {
         children: [
           Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
           const SizedBox(height: 2),
-          Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: valueColor ?? Colors.white)),
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 14, color: iconColor ?? Colors.white),
+                const SizedBox(width: 6),
+              ],
+              Flexible(
+                child: Text(
+                  value,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: valueColor ?? Colors.white),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

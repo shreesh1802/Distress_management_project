@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../../data/gis_api.dart';
 import '../../../theme/app_colors.dart';
+import '../../../theme/distress_icons.dart';
 import '../severity_colors.dart';
 
 /// Direct port of DistressSummary.tsx: severity split bars on the left,
@@ -143,7 +144,12 @@ class DistressSummaryPanel extends StatelessWidget {
                     const SizedBox(height: 10),
                     _InsightRow(LucideIcons.mapPin, 'Most Affected State', mostAffectedState),
                     _InsightRow(LucideIcons.compass, 'Most Affected District', mostAffectedDistrict),
-                    _InsightRow(LucideIcons.layers, 'Most Common Type', mostCommonType),
+                    _InsightRow(
+                      rawType == 'N/A' ? LucideIcons.layers : distressTypeIcon(rawType),
+                      'Most Common Type',
+                      mostCommonType,
+                      iconColor: rawType == 'N/A' ? null : distressTypeIconColor(rawType),
+                    ),
                     _InsightRow(
                       LucideIcons.alertTriangle,
                       'Avg Confidence Score',
@@ -230,11 +236,12 @@ class _SplitRow extends StatelessWidget {
 }
 
 class _InsightRow extends StatelessWidget {
-  const _InsightRow(this.icon, this.label, this.value);
+  const _InsightRow(this.icon, this.label, this.value, {this.iconColor});
 
   final IconData icon;
   final String label;
   final String value;
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +252,7 @@ class _InsightRow extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, size: 13, color: AppColors.secondaryText),
+              Icon(icon, size: 13, color: iconColor ?? AppColors.secondaryText),
               const SizedBox(width: 6),
               Text(label, style: const TextStyle(fontSize: 11, color: AppColors.secondaryText)),
             ],
