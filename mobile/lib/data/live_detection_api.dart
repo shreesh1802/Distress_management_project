@@ -4,11 +4,12 @@ import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// Matches the React source's `API_BASE_URL = import.meta.env.VITE_API_URL
-/// || 'http://127.0.0.1:8000'` (LiveMonitoringDashboard.tsx). The backend
-/// isn't deployed anywhere yet — it only ever runs locally next to whichever
-/// machine has the USB camera attached — so there's no env-based override
-/// here, just the same default.
-const String kApiBaseUrl = 'http://127.0.0.1:8000';
+/// || 'http://127.0.0.1:8000'` (LiveMonitoringDashboard.tsx). Same idea via
+/// Flutter's compile-time --dart-define: defaults to localhost for local
+/// dev (`flutter run -d chrome` needs no flag), overridden for a real
+/// deployment with:
+///   flutter build web --release --dart-define=API_BASE_URL=https://your-domain-or-ip
+const String kApiBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://127.0.0.1:8000');
 const String kApiV1 = '$kApiBaseUrl/api/v1';
 
 /// Mirrors the backend's `GET /api/v1/live/status` (and the `status` field
