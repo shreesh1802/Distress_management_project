@@ -521,6 +521,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
                   child: DropdownButton<int>(
                     value: _selectedVideo?.id,
                     isDense: true,
+                    isExpanded: true,
                     items: [
                       for (final v in _videos)
                         DropdownMenuItem(
