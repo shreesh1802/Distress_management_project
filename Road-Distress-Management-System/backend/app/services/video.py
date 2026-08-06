@@ -22,8 +22,8 @@ from app.crud.video import (
 
 logger = logging.getLogger(__name__)
 
-# Enforce 100MB max file size
-MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
+# Enforce 500MB max file size
+MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024
 
 # Setup target uploads directory relative to backend root
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -101,7 +101,7 @@ async def handle_video_upload(
                         os.remove(target_filepath)
                     raise HTTPException(
                         status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        detail=f"Video file exceeds maximum size limit of 100MB."
+                        detail=f"Video file exceeds maximum size limit of 500MB."
                     )
                 buffer.write(chunk)
     except HTTPException:
