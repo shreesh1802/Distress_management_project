@@ -1453,6 +1453,296 @@ def generate_video_excel_report(db: Session, video_id: int) -> str:
     ws7.column_dimensions["B"].width = 15
 
     # ----------------------------------------------------
+    # SHEETS 8-11: NSV-style survey report tabs
+    # ----------------------------------------------------
+    # Modeled on a real Network Survey Vehicle (NSV) condition report format
+    # (tab names/columns like "Summary", "100m", "Potholes", and the IRC:82
+    # permissible-limit criteria table) supplied as a reference. That report
+    # is built from laser profilometer/rut-bar sensor data on a highway
+    # corridor; this system only has point-in-time AI video detections
+    # (type, GPS, timestamp, confidence, bounding box). Wherever a real
+    # figure exists in our own data it's used directly (counts, chainage
+    # derived from GPS/timestamp, severity, damage area); a handful of
+    # fields the video pipeline has no way to measure (pothole depth in mm,
+    # lane number, highway number) are explicitly filled with a labeled
+    # placeholder rather than a real reading -- flagged in orange with a
+    # cell comment, never presented as a real measurement.
+    color_primary = "1F4E78"
+    color_header = "2E6DA4"
+    color_accent = "D9E1F2"
+    color_zebra = "F2F6FC"
+    placeholder_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
+    placeholder_font = Font(name=font_family, size=11, italic=True, color="9C5700")
+
+    from openpyxl.comments import Comment
+
+    def placeholder_cell(ws, row, col, value):
+        cell = ws.cell(row=row, column=col, value=value)
+        cell.fill = placeholder_fill
+        cell.font = placeholder_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.comment = Comment(
+            "Placeholder: not measurable from AI video detections (requires NSV/laser "
+            "profilometer sensor survey equipment). Not a real reading.",
+            "Road Distress Management System"
+        )
+        return cell
+
+    REAL_CLASS_LABELS = {
+        "longitudinal_crack": "Longitudinal Crack",
+        "transverse_crack": "Transverse Crack",
+        "alligator_crack": "Alligator Crack",
+        "pothole": "Pothole",
+        "poles": "Poles",
+        "traffic sign": "Traffic Sign",
+        "sign board": "Sign Board",
+    }
+
+    def banner(ws, text, last_col):
+        ws.merge_cells(start_row=1, start_column=1, end_row=2, end_column=last_col)
+        for r in range(1, 3):
+            for c in range(1, last_col + 1):
+                ws.cell(row=r, column=c).fill = PatternFill(start_color=color_primary, end_color=color_primary, fill_type="solid")
+                ws.cell(row=r, column=c).border = thin_border
+        cell = ws.cell(row=1, column=1, value=text)
+        cell.font = Font(name=font_family, size=14, bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    def header_row(ws, row, headers):
+        for col_idx, text in enumerate(headers):
+            cell = ws.cell(row=row, column=col_idx + 1, value=text)
+            cell.font = Font(name=font_family, size=11, bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color=color_header, end_color=color_header, fill_type="solid")
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = thin_border
+        ws.row_dimensions[row].height = 26
+
+    def autosize(ws, skip_rows):
+        for col in ws.columns:
+            max_len = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                if cell.row in skip_rows or cell.value is None:
+                    continue
+                max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 16)
+
+    # --- Sheet 8: NSV Style - Permissible Limits Reference ---
+    ws8 = wb.create_sheet(title="NSV Style - Criteria")
+    banner(ws8, "PERMISSIBLE DISTRESS LIMITS - REFERENCE (IRC:82-2023)", 2)
+    ws8.cell(row=4, column=1, value=(
+        "Reproduced from the reference NSV survey report format's 'Repair and Maintenance asper CA' "
+        "tab. These are the National Highway maintenance criteria under IRC:82-2023 -- a published "
+        "standard, not project-specific data. This AI video pipeline detects individual distress "
+        "instances (with GPS + timestamp), not the lane-length percentage these limits are defined "
+        "against, so they're included here as reference only; see the 'NSV Style - Summary' tab for "
+        "how this system's own real counts compare."
+    )).font = italic_font
+    ws8.cell(row=4, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws8.merge_cells("A4:B4")
+    ws8.row_dimensions[4].height = 60
+
+    header_row(ws8, 6, ["S. No.", "Nature of Defect or Deficiency (Carriageway and Paved Shoulder)"])
+    criteria_rows = [
+        (1, "Roughness value exceeding 2400 mm/km as per IRC:82-2023"),
+        (2, "Potholes"),
+        (3, "Cracking exceeding 10% of road surface area as per IRC:82-2023"),
+        (4, "Rutting exceeding 10mm road surface area as per IRC:82-2023"),
+        (5, "Ravelling exceeding 10% of road surface as per IRC:82-2023"),
+    ]
+    for idx, (num, text) in enumerate(criteria_rows):
+        r = 7 + idx
+        fill_color = color_zebra if idx % 2 == 1 else "FFFFFF"
+        c1 = ws8.cell(row=r, column=1, value=num)
+        c1.alignment = Alignment(horizontal="center", vertical="center")
+        c2 = ws8.cell(row=r, column=2, value=text)
+        c2.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        for c in (c1, c2):
+            c.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+            c.border = thin_border
+            c.font = regular_font
+    ws8.column_dimensions["A"].width = 10
+    ws8.column_dimensions["B"].width = 90
+
+    # --- Sheet 9: NSV Style - Summary ---
+    ws9 = wb.create_sheet(title="NSV Style - Summary")
+    banner(ws9, "ROAD DISTRESS AUDIT - NSV-STYLE DISTRESS SUMMARY", 5)
+
+    ws9.cell(row=4, column=1, value="Total Distress Instances Detected:").font = bold_font
+    ws9.cell(row=4, column=2, value=len(distresses)).font = bold_font
+    ws9.cell(row=5, column=1, value="Video:").font = bold_font
+    ws9.cell(row=5, column=2, value=video.filename).font = regular_font
+
+    header_row(ws9, 7, ["Distress Type", "Permissible Limit (IRC:82-2023)", "Total Detected", "Requiring Rectification (High/Critical)", "% Requiring Rectification"])
+
+    type_counts = {}
+    for d in distresses:
+        key = d.distress_type.lower()
+        type_counts.setdefault(key, []).append(d)
+
+    # Real published limits only exist for the 4 sensor-measured categories
+    # (defined as % of lane length, not applicable to point counts); every
+    # other real class this pipeline detects has no published count-based
+    # limit, so it's marked N/A rather than invented.
+    limit_map = {
+        "pothole": "See IRC:82-2023 (no count-based limit published)",
+    }
+
+    row_cursor = 8
+    for key in sorted(type_counts.keys()):
+        items = type_counts[key]
+        label = REAL_CLASS_LABELS.get(key, key.replace("_", " ").title())
+        total = len(items)
+        needs_fix = sum(1 for d in items if d.severity.lower() in ("high", "critical"))
+        pct = needs_fix / total if total else 0.0
+
+        c1 = ws9.cell(row=row_cursor, column=1, value=label)
+        c1.font = bold_font
+        c2 = ws9.cell(row=row_cursor, column=2, value=limit_map.get(key, "N/A (not a sensor-measured category)"))
+        c2.font = italic_font
+        c3 = ws9.cell(row=row_cursor, column=3, value=total)
+        c4 = ws9.cell(row=row_cursor, column=4, value=needs_fix)
+        c5 = ws9.cell(row=row_cursor, column=5, value=pct)
+        c5.number_format = "0.0%"
+        fill_color = color_zebra if row_cursor % 2 == 0 else "FFFFFF"
+        for c in (c1, c2, c3, c4, c5):
+            c.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+            c.border = thin_border
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True) if c is c2 else Alignment(horizontal="left" if c is c1 else "center", vertical="center")
+        row_cursor += 1
+
+    total_row = row_cursor
+    ws9.cell(row=total_row, column=1, value="All Distress Types").font = bold_font
+    ws9.cell(row=total_row, column=3, value=f"=SUM(C8:C{total_row - 1})").font = bold_font
+    ws9.cell(row=total_row, column=4, value=f"=SUM(D8:D{total_row - 1})").font = bold_font
+    t5 = ws9.cell(row=total_row, column=5, value=f"=IFERROR(D{total_row}/C{total_row},0)")
+    t5.font = bold_font
+    t5.number_format = "0.0%"
+    for c in range(1, 6):
+        cell = ws9.cell(row=total_row, column=c)
+        cell.fill = PatternFill(start_color=color_accent, end_color=color_accent, fill_type="solid")
+        cell.border = double_bottom_border
+    autosize(ws9, {1, 2, 4, 5})
+    ws9.column_dimensions["B"].width = 34
+
+    # --- Sheet 10: NSV Style - 100m Segments ---
+    ws10 = wb.create_sheet(title="NSV Style - 100m")
+    class_keys_sorted = sorted(type_counts.keys())
+    seg_headers = ["NH No.", "Start Chainage", "End Chainage", "Length (m)"] + \
+        [REAL_CLASS_LABELS.get(k, k.replace("_", " ").title()) for k in class_keys_sorted] + \
+        ["Dominant Severity", "Priority Rank"]
+    banner(ws10, "ROAD DISTRESS AUDIT - NSV-STYLE 100m CHAINAGE SEGMENTS", len(seg_headers))
+    ws10.cell(row=4, column=1, value=(
+        "NH No. is a placeholder (this pipeline does not capture a highway route number); chainage is "
+        "derived from each detection's real video timestamp at an assumed 50 km/h survey speed, the same "
+        "method already used on the 'Chainage Analysis' tab."
+    )).font = italic_font
+    ws10.merge_cells(start_row=4, start_column=1, end_row=4, end_column=len(seg_headers))
+    ws10.row_dimensions[4].height = 28
+
+    header_row(ws10, 6, seg_headers)
+
+    seg_row = 7
+    for i in range(num_intervals):
+        start_m = i * interval_length
+        end_m = (i + 1) * interval_length
+        interval_items = [d for d, dist in distress_chainages if start_m <= dist < end_m]
+        if not interval_items:
+            continue
+
+        counts_by_class = {k: 0 for k in class_keys_sorted}
+        for d in interval_items:
+            key = d.distress_type.lower()
+            if key in counts_by_class:
+                counts_by_class[key] += 1
+
+        severities = [d.severity.lower() for d in interval_items]
+        if "critical" in severities:
+            dom_sev, priority = "Critical", "P1"
+        elif "high" in severities:
+            dom_sev, priority = "High", "P2"
+        elif "medium" in severities:
+            dom_sev, priority = "Medium", "P3"
+        else:
+            dom_sev, priority = "Low", "P4"
+
+        placeholder_cell(ws10, seg_row, 1, "NH0000")
+        c2 = ws10.cell(row=seg_row, column=2, value=f"{int(start_m)}")
+        c3 = ws10.cell(row=seg_row, column=3, value=f"{int(end_m)}")
+        c4 = ws10.cell(row=seg_row, column=4, value=end_m - start_m)
+        for c in (c2, c3, c4):
+            c.alignment = Alignment(horizontal="center", vertical="center")
+
+        col_idx = 5
+        for k in class_keys_sorted:
+            cell = ws10.cell(row=seg_row, column=col_idx, value=counts_by_class[k])
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            col_idx += 1
+
+        sev_col = ws10.cell(row=seg_row, column=col_idx, value=dom_sev)
+        sev_color = {"Critical": "C62828", "High": "EF6C00", "Medium": "D6A23A", "Low": "3B82F6"}[dom_sev]
+        sev_col.font = Font(name=font_family, size=11, bold=True, color=sev_color)
+        sev_col.alignment = Alignment(horizontal="center", vertical="center")
+        col_idx += 1
+        prio_col = ws10.cell(row=seg_row, column=col_idx, value=priority)
+        prio_col.font = Font(name=font_family, size=11, bold=True, color=sev_color)
+        prio_col.alignment = Alignment(horizontal="center", vertical="center")
+
+        fill_color = color_zebra if seg_row % 2 == 0 else "FFFFFF"
+        for c in range(2, len(seg_headers) + 1):
+            cell = ws10.cell(row=seg_row, column=c)
+            cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+            cell.border = thin_border
+        seg_row += 1
+
+    if seg_row == 7:
+        ws10.cell(row=7, column=1, value="No geo-tagged detections available to segment.").font = italic_font
+    autosize(ws10, {1, 4})
+    ws10.freeze_panes = "A7"
+
+    # --- Sheet 11: NSV Style - Potholes ---
+    ws11 = wb.create_sheet(title="NSV Style - Potholes")
+    pothole_headers = ["NH No.", "Chainage (m)", "Lane No.", "Area (Sq m)", "Max Depth (mm)", "Average Depth (mm)", "Severity"]
+    banner(ws11, "ROAD DISTRESS AUDIT - NSV-STYLE POTHOLE LOG", len(pothole_headers))
+    ws11.cell(row=4, column=1, value=(
+        "NH No. and Lane No. are placeholders (not captured by this pipeline). Area is the real damage "
+        "area computed from the AI bounding box. Max/Average Depth require a laser depth sensor this "
+        "video-based pipeline does not have, so they're placeholders, not real measurements."
+    )).font = italic_font
+    ws11.merge_cells(start_row=4, start_column=1, end_row=4, end_column=len(pothole_headers))
+    ws11.row_dimensions[4].height = 40
+    header_row(ws11, 6, pothole_headers)
+
+    potholes = [d for d in distresses if d.distress_type.lower() == "pothole"]
+    pothole_chainage = {d.id: dist for d, dist in distress_chainages}
+    p_row = 7
+    for idx, d in enumerate(sorted(potholes, key=lambda x: pothole_chainage.get(x.id, 0))):
+        placeholder_cell(ws11, p_row, 1, "NH0000")
+        c2 = ws11.cell(row=p_row, column=2, value=round(pothole_chainage.get(d.id, 0.0), 1))
+        c2.alignment = Alignment(horizontal="center", vertical="center")
+        placeholder_cell(ws11, p_row, 3, "L1")
+        c4 = ws11.cell(row=p_row, column=4, value=d.affected_area)
+        c4.number_format = "0.000"
+        c4.alignment = Alignment(horizontal="center", vertical="center")
+        placeholder_cell(ws11, p_row, 5, "N/A")
+        placeholder_cell(ws11, p_row, 6, "N/A")
+        c7 = ws11.cell(row=p_row, column=7, value=d.severity.capitalize())
+        sev_color = {"critical": "C62828", "high": "EF6C00", "medium": "D6A23A", "low": "3B82F6"}.get(d.severity.lower(), "3B82F6")
+        c7.font = Font(name=font_family, size=11, bold=True, color=sev_color)
+        c7.alignment = Alignment(horizontal="center", vertical="center")
+
+        fill_color = color_zebra if idx % 2 == 1 else "FFFFFF"
+        for c in (c2, c4, c7):
+            c.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
+            c.border = thin_border
+        p_row += 1
+
+    if p_row == 7:
+        ws11.cell(row=7, column=1, value="No pothole detections in this video.").font = italic_font
+    autosize(ws11, {1, 4})
+    ws11.freeze_panes = "A7"
+
+    # ----------------------------------------------------
     # GLOBAL FORMATTING & METADATA UPGRADES
     # ----------------------------------------------------
     # Freeze panes lock configurations
