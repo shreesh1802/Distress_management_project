@@ -268,6 +268,7 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> {
                     uploadingFileName: _uploadingFileName,
                     uploadProgress: _uploadProgress,
                     videos: _videos,
+                    avgProcessingSeconds: avgProcessingSeconds,
                   ),
                   _CloudStorageCard(
                     storageUsedGB: storageUsedGB,
@@ -566,12 +567,18 @@ class _ProcessingQueueCard extends StatelessWidget {
     required this.uploadingFileName,
     required this.uploadProgress,
     required this.videos,
+    required this.avgProcessingSeconds,
   });
 
   final bool isUploading;
   final String uploadingFileName;
   final int uploadProgress;
   final List<UploadedVideo> videos;
+  // Real average of past completed videos' processing_duration -- null
+  // until at least one video has actually finished processing. Used to
+  // show an honest ETA for videos currently in the queue rather than
+  // leaving processing time unstated.
+  final double? avgProcessingSeconds;
 
   @override
   Widget build(BuildContext context) {
@@ -622,6 +629,7 @@ class _ProcessingQueueCard extends StatelessWidget {
                   uploadingFileName.isEmpty ? 'Surveillance footage' : uploadingFileName,
                   'processing',
                   uploadProgress,
+                  elapsedLabel: avgProcessingSeconds != null ? '~${_formatSeconds(avgProcessingSeconds!)} est.' : null,
                 ),
               for (final v in processingVideos)
                 _queueRow(
@@ -629,6 +637,7 @@ class _ProcessingQueueCard extends StatelessWidget {
                   'processing',
                   v.progress ?? 0,
                   elapsedLabel: _formatElapsed(v.processingStartedAt),
+                  etaLabel: _formatEta(v.processingStartedAt, avgProcessingSeconds),
                 ),
               for (final v in completedVideos)
                 _queueRow(
@@ -644,7 +653,7 @@ class _ProcessingQueueCard extends StatelessWidget {
     );
   }
 
-  TableRow _queueRow(String name, String status, int progress, {String? elapsedLabel}) {
+  TableRow _queueRow(String name, String status, int progress, {String? elapsedLabel, String? etaLabel}) {
     return TableRow(
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.cardBorder)),
@@ -696,12 +705,35 @@ class _ProcessingQueueCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(elapsedLabel, style: const TextStyle(fontSize: 9, color: AppColors.secondaryText)),
                     ],
+                    if (etaLabel != null) ...[
+                      const SizedBox(height: 2),
+                      Text(etaLabel, style: const TextStyle(fontSize: 9, color: AppColors.secondaryText)),
+                    ],
                   ],
                 ),
         ),
       ],
     );
   }
+}
+
+String _formatSeconds(double seconds) {
+  if (seconds < 60) return '${seconds.toStringAsFixed(0)}s';
+  return '${(seconds / 60).toStringAsFixed(1)}m';
+}
+
+/// Estimated remaining time = (real historical average processing_duration)
+/// minus (real elapsed time so far), floored at 0. Only shown once at least
+/// one video has actually finished processing (avgSeconds != null) --
+/// otherwise there's no real data to estimate from, and this deliberately
+/// shows nothing rather than a fabricated number.
+String? _formatEta(DateTime? startedAt, double? avgSeconds) {
+  if (startedAt == null || avgSeconds == null) return null;
+  final elapsedSeconds = DateTime.now().toUtc().difference(startedAt.toUtc()).inSeconds;
+  if (elapsedSeconds < 0) return null;
+  final remaining = avgSeconds - elapsedSeconds;
+  if (remaining <= 0) return '~any moment now (est.)';
+  return '~${_formatSeconds(remaining)} remaining (est.)';
 }
 
 /// Real wall-clock elapsed time since processing_started_at (the backend

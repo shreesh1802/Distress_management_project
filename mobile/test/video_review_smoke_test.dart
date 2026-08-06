@@ -195,4 +195,40 @@ void main() {
     expect(find.text('Failed to load video.'), findsNWidgets(2));
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
+
+  testWidgets('DetectionsSidebar stays responsive with a large detection count', (tester) async {
+    final many = List.generate(2000, (i) => DistressRecord(
+      id: i,
+      distressType: 'pothole',
+      severity: 'medium',
+      confidenceScore: 0.8,
+      latitude: 18.5,
+      longitude: 73.8,
+      detectedAt: DateTime(2026, 7, 20),
+      status: 'detected',
+      videoId: 10,
+      videoTimestamp: i * 0.5,
+      trackingId: i,
+    ));
+    // A real processed video can carry hundreds/thousands of tracked
+    // detections, unlike the hand-picked samples above. The list must be
+    // virtualized (only visible rows built) rather than eagerly building
+    // every row -- an unbounded build here is what made the real Video
+    // Review screen appear to freeze on a real upload.
+    await tester.pumpWidget(_wrap(SizedBox(
+      width: 420,
+      height: 700,
+      child: DetectionsSidebar(
+        detections: many,
+        selectedDetection: null,
+        activeTab: 'list',
+        isLoading: false,
+        onTabChanged: (_) {},
+        onSelect: (_) {},
+        onNavigate: (_) {},
+      ),
+    )));
+    await tester.pump();
+    expect(find.text('Detections (2000)'), findsOneWidget);
+  });
 }

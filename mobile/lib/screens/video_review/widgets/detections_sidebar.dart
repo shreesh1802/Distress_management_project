@@ -48,12 +48,15 @@ class DetectionsSidebar extends StatelessWidget {
           ),
           const Divider(height: 1),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(14),
-              child: activeTab == 'details' && selectedDetection != null
-                  ? _inspector(selectedDetection!)
-                  : _list(),
-            ),
+            child: activeTab == 'details' && selectedDetection != null
+                ? SingleChildScrollView(
+                    padding: const EdgeInsets.all(14),
+                    child: _inspector(selectedDetection!),
+                  )
+                : Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: _list(),
+                  ),
           ),
         ],
       ),
@@ -80,6 +83,25 @@ class DetectionsSidebar extends StatelessWidget {
     );
   }
 
+  // (label, width) per column. A real processed video can carry hundreds or
+  // thousands of tracked detections -- rendering that many rows via
+  // DataTable (which builds its entire `rows` list eagerly, with no
+  // virtualization) locks up the tab for as long as that build takes,
+  // which can look and feel exactly like a page freeze. Fixed-width
+  // columns + ListView.builder below only ever build the rows actually
+  // visible in the viewport, however large `detections` gets.
+  static const List<(String, double)> _kColumns = [
+    ('Tracking ID', 64),
+    ('Type', 140),
+    ('Severity', 72),
+    ('Time', 56),
+    ('Frame', 56),
+    ('Conf', 48),
+  ];
+  static const double _kColumnSpacing = 16;
+  static double get _kTableWidth =>
+      _kColumns.fold(0.0, (sum, c) => sum + c.$2) + _kColumnSpacing * (_kColumns.length - 1);
+
   Widget _list() {
     if (isLoading) {
       return const Padding(
@@ -95,38 +117,88 @@ class DetectionsSidebar extends StatelessWidget {
     }
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: DataTable(
-        headingRowHeight: 32,
-        dataRowMinHeight: 36,
-        dataRowMaxHeight: 40,
-        columnSpacing: 16,
-        columns: const [
-          DataColumn(label: Text('Tracking ID', style: TextStyle(fontSize: 11))),
-          DataColumn(label: Text('Type', style: TextStyle(fontSize: 11))),
-          DataColumn(label: Text('Severity', style: TextStyle(fontSize: 11))),
-          DataColumn(label: Text('Time', style: TextStyle(fontSize: 11))),
-          DataColumn(label: Text('Frame', style: TextStyle(fontSize: 11))),
-          DataColumn(label: Text('Conf', style: TextStyle(fontSize: 11))),
-        ],
-        rows: [
-          for (final det in detections)
-            DataRow(
-              color: selectedDetection?.id == det.id ? WidgetStateProperty.all(AppColors.accentBlueLight) : null,
-              onSelectChanged: (_) => onSelect(det),
-              cells: [
-                DataCell(Text('#${det.trackingId ?? det.id}', style: const TextStyle(fontSize: 11, fontFamily: 'monospace'))),
-                DataCell(Text(formatDistressType(det.distressType), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600))),
-                DataCell(Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(color: severityColor(det.severity).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
-                  child: Text(det.severity.toUpperCase(), style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: severityColor(det.severity))),
-                )),
-                DataCell(Text(formatTime(Duration(milliseconds: ((det.videoTimestamp ?? 0) * 1000).round())), style: const TextStyle(fontSize: 11, fontFamily: 'monospace'))),
-                DataCell(Text('${det.frameNumber ?? ((det.videoTimestamp ?? 0) * 30).floor()}', style: const TextStyle(fontSize: 11, fontFamily: 'monospace'))),
-                DataCell(Text('${((det.confidenceScore == 0 ? 0.85 : det.confidenceScore) * 100).round()}%', style: const TextStyle(fontSize: 11, fontFamily: 'monospace'))),
-              ],
+      child: SizedBox(
+        width: _kTableWidth,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _headerRow(),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.builder(
+                itemCount: detections.length,
+                itemExtent: 40,
+                itemBuilder: (context, index) => _dataRow(detections[index]),
+              ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _headerRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          for (int i = 0; i < _kColumns.length; i++) ...[
+            if (i > 0) const SizedBox(width: _kColumnSpacing),
+            SizedBox(
+              width: _kColumns[i].$2,
+              child: Text(_kColumns[i].$1, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  Widget _dataRow(DistressRecord det) {
+    final selected = selectedDetection?.id == det.id;
+    return InkWell(
+      onTap: () => onSelect(det),
+      child: Container(
+        height: 40,
+        color: selected ? AppColors.accentBlueLight : null,
+        alignment: Alignment.centerLeft,
+        child: Row(
+          children: [
+            SizedBox(
+              width: _kColumns[0].$2,
+              child: Text('#${det.trackingId ?? det.id}', style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+            ),
+            const SizedBox(width: _kColumnSpacing),
+            SizedBox(
+              width: _kColumns[1].$2,
+              child: Text(formatDistressType(det.distressType), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+            ),
+            const SizedBox(width: _kColumnSpacing),
+            SizedBox(
+              width: _kColumns[2].$2,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(color: severityColor(det.severity).withValues(alpha: 0.15), borderRadius: BorderRadius.circular(6)),
+                child: Text(det.severity.toUpperCase(), style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: severityColor(det.severity))),
+              ),
+            ),
+            const SizedBox(width: _kColumnSpacing),
+            SizedBox(
+              width: _kColumns[3].$2,
+              child: Text(formatTime(Duration(milliseconds: ((det.videoTimestamp ?? 0) * 1000).round())), style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+            ),
+            const SizedBox(width: _kColumnSpacing),
+            SizedBox(
+              width: _kColumns[4].$2,
+              child: Text('${det.frameNumber ?? ((det.videoTimestamp ?? 0) * 30).floor()}', style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+            ),
+            const SizedBox(width: _kColumnSpacing),
+            SizedBox(
+              width: _kColumns[5].$2,
+              child: Text('${((det.confidenceScore == 0 ? 0.85 : det.confidenceScore) * 100).round()}%', style: const TextStyle(fontSize: 11, fontFamily: 'monospace')),
+            ),
+          ],
+        ),
       ),
     );
   }
