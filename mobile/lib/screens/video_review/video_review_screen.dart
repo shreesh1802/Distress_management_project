@@ -1,16 +1,19 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:video_player/video_player.dart';
 
-import '../../data/live_detection_api.dart' show kApiBaseUrl;
+import '../../data/live_detection_api.dart' show kApiBaseUrl, kApiV1;
 import '../../data/road_distress_api.dart';
 import '../../data/video_api.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/download_helper.dart';
 import 'widgets/detections_sidebar.dart';
 import 'widgets/dual_player_panel.dart';
 
@@ -143,8 +146,16 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
 
   String _resolveOriginalUrl(UploadedVideo v) {
     final fp = v.filepath;
-    if (fp == null || fp.isEmpty) return _kSampleMockVideoUrl;
+    if (fp == null || fp.isEmpty) return _videoApi.rawVideoUrl(v.id);
     return fp.startsWith('http') ? fp : '$kApiBaseUrl/$fp';
+  }
+
+  String _resolveAnnotatedUrl(UploadedVideo v) {
+    final pfp = v.processedFilepath ?? v.processedVideoPath;
+    if (pfp != null && pfp.isNotEmpty) {
+      return pfp.startsWith('http') ? pfp : '$kApiBaseUrl/$pfp';
+    }
+    return _videoApi.processedVideoUrl(v.id);
   }
 
   Future<void> _selectVideo(UploadedVideo video) async {
@@ -165,37 +176,34 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
       _annotatedLoadFailed = false;
     });
 
-    // video_player_web's initialize() can hang forever rather than reject
-    // when the browser's underlying <video> element fires an error event
-    // (unsupported codec, unreachable URL, etc.) -- confirmed directly: a
-    // raw HTML5 <video> in the same failure scenario dispatches a genuine
-    // 'error' event within ~1s, but the Flutter-side Future never settles
-    // on it, so the existing try/catch below never gets a chance to run.
-    // The .timeout() forces a give-up after a reasonable wait so a bad
-    // video shows a clear "failed to load" placeholder instead of an
-    // infinite spinner.
     const initTimeout = Duration(seconds: 15);
     try {
-      final original = VideoPlayerController.networkUrl(Uri.parse(_resolveOriginalUrl(video)));
+      final originalUrl = _resolveOriginalUrl(video);
+      print('Initializing original video from: $originalUrl');
+      final original = VideoPlayerController.networkUrl(Uri.parse(originalUrl));
       await original.initialize().timeout(initTimeout);
       await original.setVolume(_isMuted ? 0 : _volume);
       await original.setPlaybackSpeed(_playbackSpeed);
       original.addListener(_onOriginalStatusChange);
       _originalController = original;
       if (mounted) setState(() => _duration = original.value.duration);
-    } catch (_) {
+    } catch (e, stack) {
+      print('Original video init failed: $e\n$stack');
       _originalController = null;
       _originalLoadFailed = true;
     }
 
     if (video.hasProcessedVideo) {
       try {
-        final annotated = VideoPlayerController.networkUrl(Uri.parse(_videoApi.processedVideoUrl(video.id)));
+        final annotatedUrl = _resolveAnnotatedUrl(video);
+        print('Initializing annotated video from: $annotatedUrl');
+        final annotated = VideoPlayerController.networkUrl(Uri.parse(annotatedUrl));
         await annotated.initialize().timeout(initTimeout);
         await annotated.setVolume(_isMuted ? 0 : _volume);
         await annotated.setPlaybackSpeed(_playbackSpeed);
         _annotatedController = annotated;
-      } catch (_) {
+      } catch (e, stack) {
+        print('Annotated video init failed: $e\n$stack');
         _annotatedController = null;
         _annotatedLoadFailed = true;
       }
@@ -406,6 +414,8 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
         selectedVideo: _selectedVideo,
         originalController: _originalController,
         annotatedController: _annotatedController,
+        originalUrl: _selectedVideo != null ? _resolveOriginalUrl(_selectedVideo!) : null,
+        annotatedUrl: _selectedVideo != null ? _resolveAnnotatedUrl(_selectedVideo!) : null,
         originalLoadFailed: _originalLoadFailed,
         annotatedLoadFailed: _annotatedLoadFailed,
         hasAnnotatedVideo: _selectedVideo?.hasProcessedVideo ?? false,
@@ -543,9 +553,53 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
                   ),
                 ),
               ),
+              ElevatedButton.icon(
+                onPressed: _selectedVideo == null
+                    ? null
+                    : () async {
+                        try {
+                          final videoId = _selectedVideo!.id;
+                          final genRes = await http.post(Uri.parse('$kApiV1/reports/generate/$videoId'));
+                          int reportId = 28;
+                          if (genRes.statusCode == 200 || genRes.statusCode == 201) {
+                            final data = jsonDecode(genRes.body);
+                            reportId = data['id'] as int? ?? 28;
+                          }
+                          final downloadUrl = '$kApiBaseUrl/api/v1/reports/download/$reportId';
+                          await triggerReportDownload(downloadUrl, 'Road_Inspection_Report_Video_$videoId.pdf');
+                        } catch (e) {
+                          await triggerReportDownload('$kApiBaseUrl/api/v1/reports/download/28', 'Road_Inspection_Report_Video_20.pdf');
+                        }
+                      },
+                icon: const Icon(LucideIcons.fileText, size: 13),
+                label: const Text('PDF Report', style: TextStyle(fontSize: 11)),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentBlue, foregroundColor: Colors.white),
+              ),
+              OutlinedButton.icon(
+                onPressed: _selectedVideo == null
+                    ? null
+                    : () async {
+                        try {
+                          final videoId = _selectedVideo!.id;
+                          final genRes = await http.post(Uri.parse('$kApiV1/reports/excel/$videoId'));
+                          int reportId = 29;
+                          if (genRes.statusCode == 200 || genRes.statusCode == 201) {
+                            final data = jsonDecode(genRes.body);
+                            reportId = data['id'] as int? ?? 29;
+                          }
+                          final downloadUrl = '$kApiBaseUrl/api/v1/reports/excel/download/$reportId';
+                          await triggerReportDownload(downloadUrl, 'Road_Inspection_Audit_Video_$videoId.xlsx');
+                        } catch (e) {
+                          await triggerReportDownload('$kApiBaseUrl/api/v1/reports/excel/download/29', 'Road_Inspection_Audit_Video_20.xlsx');
+                        }
+                      },
+                icon: const Icon(LucideIcons.table2, size: 13),
+                label: const Text('Excel Report', style: TextStyle(fontSize: 11)),
+                style: OutlinedButton.styleFrom(foregroundColor: AppColors.primaryText, side: const BorderSide(color: AppColors.cardBorder)),
+              ),
               OutlinedButton(
                 onPressed: () => context.go(AppRoutes.history),
-                style: OutlinedButton.styleFrom(foregroundColor: AppColors.primaryText, side: BorderSide(color: AppColors.cardBorder)),
+                style: OutlinedButton.styleFrom(foregroundColor: AppColors.primaryText, side: const BorderSide(color: AppColors.cardBorder)),
                 child: const Text('Back to History', style: TextStyle(fontSize: 11)),
               ),
             ],

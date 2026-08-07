@@ -116,24 +116,150 @@ class DetectionsSidebar extends StatelessWidget {
         child: Center(child: Text('No road distresses detected in this run.', style: TextStyle(color: AppColors.secondaryText))),
       );
     }
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SizedBox(
-        width: _kTableWidth,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _headerRow(),
-            const Divider(height: 1),
-            Expanded(
-              child: ListView.builder(
-                itemCount: detections.length,
-                itemExtent: 40,
-                itemBuilder: (context, index) => _dataRow(detections[index]),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 500) {
+          // Mobile card list with video clip jump button
+          return ListView.separated(
+            itemCount: detections.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 8),
+            itemBuilder: (context, index) => _mobileDetectionCard(detections[index]),
+          );
+        }
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: _kTableWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _headerRow(),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: detections.length,
+                    itemExtent: 40,
+                    itemBuilder: (context, index) => _dataRow(detections[index]),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _mobileDetectionCard(DistressRecord det) {
+    final selected = selectedDetection?.id == det.id;
+    final color = severityColor(det.severity);
+    final timeStr = formatTime(Duration(milliseconds: ((det.videoTimestamp ?? 0) * 1000).round()));
+    final conf = '((det.confidenceScore == 0 ? 0.85 : det.confidenceScore) * 100).round()%';
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: selected ? AppColors.accentBlueLight : const Color(0xFF1E2937),
+        border: Border.all(color: selected ? AppColors.accentBlue : AppColors.cardBorder),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(distressTypeIcon(det.distressType), size: 16, color: distressTypeIconColor(det.distressType)),
+                  const SizedBox(width: 6),
+                  Text(
+                    formatDistressType(det.distressType),
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(color: color.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(4)),
+                child: Text(
+                  det.severity.toUpperCase(),
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: color),
+                ),
+              ),
+            ],
+          ),
+          if (det.resolvedImageUrl != null) ...[
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Image.network(
+                  det.resolvedImageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    color: const Color(0xFF111827),
+                    alignment: Alignment.center,
+                    child: const Icon(LucideIcons.image, size: 24, color: Colors.white38),
+                  ),
+                ),
               ),
             ),
           ],
-        ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Tracking ID: #${det.trackingId ?? det.id}  •  Frame: ${det.frameNumber ?? ((det.videoTimestamp ?? 0) * 30).floor()}',
+                style: const TextStyle(fontSize: 10, color: AppColors.secondaryText),
+              ),
+              Text(
+                'AI Conf: ${((det.confidenceScore == 0 ? 0.85 : det.confidenceScore) * 100).round()}%',
+                style: const TextStyle(fontSize: 10, color: AppColors.accentBlue, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(LucideIcons.mapPin, size: 12, color: AppColors.secondaryText),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${det.latitude.toStringAsFixed(4)}° N, ${det.longitude.toStringAsFixed(4)}° E',
+                    style: const TextStyle(fontSize: 10, color: AppColors.secondaryText),
+                  ),
+                ],
+              ),
+              InkWell(
+                onTap: () => onSelect(det),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.accentBlue,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(LucideIcons.play, size: 11, color: Colors.white),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Play Clip ($timeStr)',
+                        style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -130,13 +130,24 @@ class _UploadVideoScreenState extends State<UploadVideoScreen> {
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
-      withData: true,
-    );
-    final file = result?.files.firstOrNull;
-    if (file?.bytes != null) {
-      _handleUploadFile(file!.bytes!, file.name);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.video,
+        withData: true,
+      );
+      final file = result?.files.firstOrNull;
+      if (file != null) {
+        final bytes = file.bytes;
+        if (bytes != null && bytes.isNotEmpty) {
+          await _handleUploadFile(bytes, file.name);
+        } else {
+          setState(() => _error = 'Selected file could not be read into memory.');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = 'File picking error: ${e.toString()}');
+      }
     }
   }
 
@@ -402,17 +413,46 @@ class _UploadAreaCard extends StatelessWidget {
                       style: TextStyle(fontSize: 12, color: AppColors.secondaryText),
                     ),
                     const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(color: AppColors.cardBorder),
-                        borderRadius: BorderRadius.circular(9999),
-                      ),
-                      child: const Text(
-                        'Browse Files',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border.all(color: AppColors.cardBorder),
+                            borderRadius: BorderRadius.circular(9999),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(LucideIcons.file, size: 13),
+                              SizedBox(width: 4),
+                              Text(
+                                'Browse Files',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF191D17),
+                            borderRadius: BorderRadius.circular(9999),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(LucideIcons.camera, size: 13, color: Colors.white),
+                              SizedBox(width: 4),
+                              Text(
+                                'Camera',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

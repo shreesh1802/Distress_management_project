@@ -154,6 +154,8 @@ class VideoApi {
     return UploadedVideo.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  String rawVideoUrl(int id) => '$kApiV1/videos/$id/stream-raw';
+
   String processedVideoUrl(int id) => '$kApiV1/videos/$id/download-processed';
 
   Future<void> generatePdfReport(int videoId) async {

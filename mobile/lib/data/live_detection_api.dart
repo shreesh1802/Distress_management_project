@@ -3,14 +3,28 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-/// Matches the React source's `API_BASE_URL = import.meta.env.VITE_API_URL
-/// || 'http://127.0.0.1:8000'` (LiveMonitoringDashboard.tsx). Same idea via
-/// Flutter's compile-time --dart-define: defaults to localhost for local
-/// dev (`flutter run -d chrome` needs no flag), overridden for a real
-/// deployment with:
-///   flutter build web --release --dart-define=API_BASE_URL=https://your-domain-or-ip
-const String kApiBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://127.0.0.1:8000');
-const String kApiV1 = '$kApiBaseUrl/api/v1';
+import 'package:flutter/foundation.dart';
+
+/// Dynamic API Base URL calculation:
+/// Supports local dev, IP-based network access, and origin proxying on public tunnels
+String get kApiBaseUrl {
+  if (kIsWeb) {
+    final host = Uri.base.host;
+    if (host == 'localhost' || host == '127.0.0.1') {
+      return 'http://127.0.0.1:8000';
+    }
+    if (RegExp(r'^\d+\.\d+\.\d+\.\d+$').hasMatch(host)) {
+      return 'http://$host:8000';
+    }
+    final origin = Uri.base.origin;
+    if (origin.isNotEmpty && !origin.startsWith('file:')) {
+      return origin;
+    }
+  }
+  return 'http://127.0.0.1:8000';
+}
+
+String get kApiV1 => '$kApiBaseUrl/api/v1';
 
 /// Mirrors the backend's `GET /api/v1/live/status` (and the `status` field
 /// pushed over the `/live/ws` WebSocket).

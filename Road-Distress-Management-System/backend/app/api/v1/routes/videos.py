@@ -96,13 +96,44 @@ def get_video_by_id(
 from fastapi.responses import FileResponse
 from fastapi import HTTPException
 
+@router.get("/{id}/stream-raw")
+def stream_raw_video(
+    id: int,
+    db: Session = Depends(get_db)
+) -> FileResponse:
+    """
+    Stream the raw inspection video file inline for web video player.
+    """
+    video = retrieve_video_metadata(db=db, video_id=id)
+    if not video or not video.filepath:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Raw video file for video ID {id} not found."
+        )
+        
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    full_path = os.path.join(base_dir, video.filepath)
+    
+    if not os.path.exists(full_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Raw video file was not found on server disk at: {video.filepath}"
+        )
+        
+    return FileResponse(
+        path=full_path,
+        media_type="video/mp4",
+        headers={"Content-Disposition": "inline"}
+    )
+
+
 @router.get("/{id}/download-processed")
 def download_processed_video(
     id: int,
     db: Session = Depends(get_db)
 ) -> FileResponse:
     """
-    Download the generated processed annotated video file by video ID.
+    Stream the generated processed annotated video file by video ID inline.
     """
     video = retrieve_video_metadata(db=db, video_id=id)
     if not video:
@@ -126,11 +157,10 @@ def download_processed_video(
             detail=f"Processed video file was not found on server disk at: {video.processed_filepath}"
         )
         
-    filename = os.path.basename(full_path)
     return FileResponse(
         path=full_path,
         media_type="video/mp4",
-        filename=filename
+        headers={"Content-Disposition": "inline"}
     )
 
 

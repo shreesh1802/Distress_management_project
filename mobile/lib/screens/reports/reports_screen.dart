@@ -9,6 +9,7 @@ import '../../data/maintenance_api.dart';
 import '../../data/reports_api.dart';
 import '../../data/video_api.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/download_helper.dart';
 import 'widgets/registry_overview_card.dart';
 import 'widgets/report_preview_modal.dart';
 import 'widgets/reports_registry_card.dart';
@@ -206,7 +207,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final url = report.reportType == 'EXCEL'
         ? _reportsApi.excelReportDownloadUrl(report.reportId)
         : _reportsApi.reportDownloadUrl(report.reportId);
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    final ext = report.reportType == 'EXCEL' ? 'xlsx' : 'pdf';
+    await triggerReportDownload(url, '${report.id}.$ext');
   }
 
   void _handleBulkDownload() {
