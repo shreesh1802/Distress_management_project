@@ -258,13 +258,16 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return _PremiumCard(
       radius: 20,
-      child: Wrap(
+      child: LayoutBuilder(
+        builder: (context, constraints) => Wrap(
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
         runSpacing: 16,
         spacing: 16,
         children: [
-          Row(
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+            child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
@@ -285,7 +288,8 @@ class _Header extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 16),
-              Column(
+              Flexible(
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -307,8 +311,10 @@ class _Header extends StatelessWidget {
                     ),
                   ),
                 ],
+                ),
               ),
             ],
+            ),
           ),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -352,6 +358,7 @@ class _Header extends StatelessWidget {
             ],
           ),
         ],
+        ),
       ),
     );
   }

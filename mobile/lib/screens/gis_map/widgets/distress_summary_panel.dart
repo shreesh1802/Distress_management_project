@@ -250,19 +250,27 @@ class _InsightRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 13, color: iconColor ?? AppColors.secondaryText),
-              const SizedBox(width: 6),
-              Text(label, style: const TextStyle(fontSize: 11, color: AppColors.secondaryText)),
-            ],
+          Flexible(
+            child: Row(
+              children: [
+                Icon(icon, size: 13, color: iconColor ?? AppColors.secondaryText),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(label, style: const TextStyle(fontSize: 11, color: AppColors.secondaryText)),
+                ),
+              ],
+            ),
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppColors.primaryText,
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primaryText,
+              ),
             ),
           ),
         ],
