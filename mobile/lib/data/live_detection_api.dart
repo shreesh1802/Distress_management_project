@@ -8,6 +8,10 @@ import 'package:flutter/foundation.dart';
 /// Dynamic API Base URL calculation:
 /// Supports local dev, IP-based network access, and origin proxying on public tunnels
 String get kApiBaseUrl {
+  const customUrl = String.fromEnvironment('API_BASE_URL');
+  if (customUrl.isNotEmpty) {
+    return customUrl;
+  }
   if (kIsWeb) {
     final host = Uri.base.host;
     if (host == 'localhost' || host == '127.0.0.1') {
@@ -21,7 +25,7 @@ String get kApiBaseUrl {
       return origin;
     }
   }
-  return 'http://127.0.0.1:8000';
+  return 'https://tender-radios-eat.loca.lt';
 }
 
 String get kApiV1 => '$kApiBaseUrl/api/v1';

@@ -283,6 +283,25 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 # frontend can reference them directly, e.g. /uploads/detections/live/<file>.jpg
 import os
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 _uploads_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
 os.makedirs(_uploads_dir, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+
+
+@app.get("/download-apk", tags=["APK Download"])
+@app.get("/app-release.apk", tags=["APK Download"])
+def download_apk():
+    """
+    Download the Road Distress Monitoring System Android APK installer.
+    """
+    apk_path = os.path.join(_uploads_dir, "RoadDistress.apk")
+    if os.path.exists(apk_path):
+        return FileResponse(
+            path=apk_path,
+            filename="RoadDistress_v1.0.0.apk",
+            media_type="application/vnd.android.package-archive"
+        )
+    raise HTTPException(status_code=404, detail="APK build file not found.")
+

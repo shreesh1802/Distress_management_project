@@ -1,10 +1,8 @@
-import 'dart:ui_web' as ui_web;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:web/web.dart' as web;
 
 import '../../../theme/app_colors.dart';
+import 'web_video_player_helper.dart';
 
 class WebVideoCard extends StatefulWidget {
   const WebVideoCard({
@@ -38,63 +36,11 @@ class WebVideoCard extends StatefulWidget {
 
 class _WebVideoCardState extends State<WebVideoCard> {
   late String _viewId;
-  web.HTMLVideoElement? _videoElement;
 
   @override
   void initState() {
     super.initState();
     _viewId = 'web-video-${widget.videoUrl.hashCode}-${DateTime.now().microsecondsSinceEpoch}';
-
-    if (kIsWeb) {
-      final video = web.document.createElement('video') as web.HTMLVideoElement;
-      video.src = widget.videoUrl;
-      video.controls = false;
-      video.autoplay = false;
-      video.muted = widget.isMuted;
-      video.playbackRate = widget.playbackSpeed;
-      video.preload = 'auto';
-      video.playsInline = true;
-      video.setAttribute('playsinline', 'true');
-      video.setAttribute('webkit-playsinline', 'true');
-      video.setAttribute('preload', 'auto');
-      video.style.width = '100%';
-      video.style.height = '100%';
-      video.style.objectFit = 'contain';
-      video.style.backgroundColor = '#111827';
-      video.load();
-      video.currentTime = 0.05;
-      _videoElement = video;
-
-      ui_web.platformViewRegistry.registerViewFactory(_viewId, (int viewId) => video);
-    }
-  }
-
-  @override
-  void didUpdateWidget(WebVideoCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final video = _videoElement;
-    if (video == null) return;
-
-    if (widget.isPlaying != oldWidget.isPlaying) {
-      if (widget.isPlaying) {
-        video.play();
-      } else {
-        video.pause();
-      }
-    }
-
-    if ((widget.currentTime - oldWidget.currentTime).abs() > const Duration(milliseconds: 300)) {
-      video.currentTime = widget.currentTime.inMilliseconds / 1000.0;
-    }
-
-    if (widget.playbackSpeed != oldWidget.playbackSpeed) {
-      video.playbackRate = widget.playbackSpeed;
-    }
-
-    if (widget.volume != oldWidget.volume || widget.isMuted != oldWidget.isMuted) {
-      video.volume = widget.isMuted ? 0.0 : widget.volume;
-      video.muted = widget.isMuted;
-    }
   }
 
   @override
@@ -159,14 +105,18 @@ class _WebVideoCardState extends State<WebVideoCard> {
               ],
             ),
           ),
-          // Video viewport frame
+          // Video Viewport (Web HTML5 Player on Web, Native Video Fallback on Mobile)
           Expanded(
-            child: kIsWeb
-                ? GestureDetector(
-                    onTap: widget.onTap,
-                    child: HtmlElementView(viewType: _viewId),
-                  )
-                : const Center(child: Icon(LucideIcons.video, size: 32, color: Colors.white54)),
+            child: buildWebVideoPlayer(
+              viewId: _viewId,
+              videoUrl: widget.videoUrl,
+              isPlaying: widget.isPlaying,
+              currentTime: widget.currentTime,
+              playbackSpeed: widget.playbackSpeed,
+              volume: widget.volume,
+              isMuted: widget.isMuted,
+              onTap: widget.onTap,
+            ),
           ),
         ],
       ),

@@ -30,59 +30,70 @@ Distress_management_project/
 │   │   │   └── reports/                    # Reports Registry & PDF/Excel Download Triggers
 │   │   └── utils/
 │   │       └── download_helper.dart        # JS Blob & cross-platform report downloader
-│   └── build/web/                         # Compiled Production Web Assets
+│   └── build/
+│       ├── web/                           # Compiled Production Web Assets (served on port 8080)
+│       └── app/outputs/flutter-apk/       # Android APK release builds
 │
 └── Road-Distress-Management-System/
     └── backend/                            # FastAPI AI Backend & Database
         ├── app/
-        │   ├── main.py                     # FastAPI Application Entry, CORS & Auto-Seeding
+        │   ├── main.py                     # FastAPI Application Entry, CORS, APK Download & Auto-Seeding
         │   ├── api/v1/routes/              # API Route Handlers (videos, detection, reports)
         │   ├── models/                     # SQLAlchemy Models (distress.py, video.py, report.py)
         │   └── services/                   # PDF & Excel Generators, AI Pipeline Utils
-        └── uploads/                        # Raw Videos, Processed Videos & AI Crop Images
+        └── uploads/                        # Raw Videos, Processed Videos, AI Crops & APK builds
             ├── videos/                     # Raw surveillance MP4 files (+faststart H.264)
             ├── processed/                  # AI annotated MP4 files (H.264)
-            └── crops/                      # Zoomed-in AI distress crop image snippets
+            ├── crops/                      # Zoomed-in AI distress crop image snippets
+            └── RoadDistress.apk            # Android APK installer (downloadable via /download-apk)
 ```
 
 ---
 
 ## ⚙️ How to Start the System (Exact Terminal Commands)
 
-To make both the mobile/web frontend and backend fully operational, execute these **3 terminal commands**:
+To make both the mobile/web frontend and backend fully operational, execute these **3 terminal commands** — each in a **separate PowerShell / Terminal window**:
 
-### 1️⃣ Terminal 1: Start FastAPI Backend Server (Port 8000)
-Open PowerShell / CMD:
+### 1️⃣ Terminal 1 — Start FastAPI Backend Server (Port 8000)
+
 ```powershell
-cd c:\Users\0095\GitHub\Distress_management_project\Road-Distress-Management-System\backend
+cd <path-to-repo>\Road-Distress-Management-System\backend
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+> **Tip**: To find `<path-to-repo>`, run `git rev-parse --show-toplevel` from anywhere inside the cloned folder.
+
 - **Backend API**: `http://127.0.0.1:8000`
 - **Swagger Docs**: `http://127.0.0.1:8000/docs`
+- **APK Download**: `http://127.0.0.1:8000/download-apk`
 - **Auto-Seeding**: Automatically verifies and seeds Video 20, 8 road distress detection records, and audit reports on startup.
 
 ---
 
-### 2️⃣ Terminal 2: Start Multithreaded Web & Proxy Server (Port 8080)
-Open a second PowerShell / CMD window:
+### 2️⃣ Terminal 2 — Start Multithreaded Web & Proxy Server (Port 8080)
+
 ```powershell
-cd c:\Users\0095\GitHub\Distress_management_project\Road-Distress-Management-System\backend
-.\.venv\Scripts\python.exe C:\Users\0095\.gemini\antigravity\brain\ce728cc7-11e1-4296-81fe-cb95c880af10\scratch\serve_no_cache.py
+cd <path-to-repo>\Road-Distress-Management-System\backend
+.\.venv\Scripts\python.exe scripts\serve_no_cache.py
 ```
+
 - **Local Desktop Access**: `http://localhost:8080`
-- **Wi-Fi Mobile Access**: `http://<your-active-wifi-ip>:8080` (Automatically auto-detected and printed in the console banner)
-- **Reverse Proxy**: Automatically proxies `/api/` database requests and `/uploads/` video media to port 8000 with multithreaded socket isolation.
+- **Wi-Fi Mobile Access**: `http://<your-wifi-ip>:8080` *(auto-detected — shown in the console banner)*
+- **APK Download (LAN)**: `http://<your-wifi-ip>:8080/download-apk`
+- **Reverse Proxy**: Automatically proxies `/api/`, `/uploads/`, and `/download-apk` to port 8000.
 
 ---
 
-### 3️⃣ Terminal 3: Start Public Mobile Tunnel (For 4G / 5G Cellular Data)
-Open a third PowerShell / CMD window:
+### 3️⃣ Terminal 3 — Start Public Mobile Tunnel (For 4G / 5G Cellular Data)
+
 ```powershell
-cd c:\Users\0095\GitHub\Distress_management_project\Road-Distress-Management-System\backend
-.\.venv\Scripts\python.exe C:\Users\0095\.gemini\antigravity\brain\ce728cc7-11e1-4296-81fe-cb95c880af10\scratch\run_stable_tunnel.py
+cd <path-to-repo>\Road-Distress-Management-System\backend
+.\.venv\Scripts\python.exe scripts\run_stable_tunnel.py
 ```
-- **Public Mobile HTTPS URL**: Prints a zero-password `https://*.loca.lt` link.
-- **Cellular Access**: Open this link in any browser on 4G / 5G mobile data or outside the local Wi-Fi network.
+
+- **Public Mobile HTTPS URL**: Prints a zero-password `https://*.loca.lt` link in the console banner.
+- **Cellular Access**: Open the `*.loca.lt` URL in any browser on 4G / 5G mobile data — works outside the local Wi-Fi network.
+- **APK Download (Public)**: `https://<your-tunnel-url>.loca.lt/download-apk`
 
 ---
 
@@ -93,6 +104,36 @@ cd c:\Users\0095\GitHub\Distress_management_project\Road-Distress-Management-Sys
 | **Local Desktop** | Laptop / PC | `http://localhost:8080` |
 | **Local Wi-Fi** | iPhone / Android on Wi-Fi | `http://<your-wifi-ip>:8080` *(See Terminal 2 banner)* |
 | **Mobile Data (4G/5G)** | Any Smartphone | `https://*.loca.lt` *(See Terminal 3 banner)* |
+| **Download Android APK** | Android Phone | `https://<tunnel-url>.loca.lt/download-apk` |
+
+> **Note on Tunnel URLs**: localtunnel URLs are temporary and change every time Terminal 3 is restarted. Always look at the banner printed in Terminal 3 for the current active URL.
+
+---
+
+## 📲 Android APK Installation Guide
+
+The system provides a downloadable APK for native Android access with real-time push notifications and offline-capable caching.
+
+### Step 1 — Get the Download Link
+When Terminal 3 is running, your APK download link is:
+```
+https://<tunnel-url>.loca.lt/download-apk
+```
+Copy this link from the Terminal 3 console banner.
+
+### Step 2 — Install on Android
+1. Open the APK download link in your Android browser (Chrome recommended).
+2. Tap the downloaded `.apk` file to install.
+3. If prompted with *"Install from unknown sources"*, go to **Settings → Security → Install Unknown Apps** and enable it for your browser.
+4. Open the app — it will automatically connect to the backend via the public tunnel URL.
+
+### Step 3 — Build a New APK (For Developers)
+To rebuild the APK with a new tunnel URL baked in:
+```powershell
+cd <path-to-repo>\mobile
+flutter build apk --release --dart-define=API_BASE_URL=https://<your-tunnel-url>.loca.lt
+```
+The built APK will be at: `mobile\build\app\outputs\flutter-apk\app-release.apk`
 
 ---
 
@@ -111,3 +152,8 @@ cd c:\Users\0095\GitHub\Distress_management_project\Road-Distress-Management-Sys
 
 4. **PDF & Excel Report Downloads**:
    - Prominent **PDF Report** and **Excel Report** buttons generate dynamic safety audit files via FastAPI and trigger direct native JS Blob file downloads on mobile and desktop devices.
+
+5. **Android APK (Native Mobile App)**:
+   - A compiled Android APK is served directly via the `/download-apk` backend endpoint.
+   - Can be shared via the public tunnel URL (`https://*.loca.lt/download-apk`) for instant installation on any Android device — no app store required.
+
