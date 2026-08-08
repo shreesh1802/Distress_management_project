@@ -129,6 +129,33 @@ class ProxyNoCacheHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
             pass
 
+    def do_PUT(self):
+        try:
+            if self.path.startswith('/api/'):
+                return self._proxy('PUT')
+            self.send_response(501)
+            self.end_headers()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            pass
+
+    def do_DELETE(self):
+        try:
+            if self.path.startswith('/api/'):
+                return self._proxy('DELETE')
+            self.send_response(501)
+            self.end_headers()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            pass
+
+    def do_PATCH(self):
+        try:
+            if self.path.startswith('/api/'):
+                return self._proxy('PATCH')
+            self.send_response(501)
+            self.end_headers()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+            pass
+
     def handle(self):
         """Override handle to trap socket connection resets silently without stack traces."""
         try:
