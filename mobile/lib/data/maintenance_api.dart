@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiV1;
 
 /// Direct Dart port of `MaintenanceTaskResponse` (raw, unmapped) as used by
@@ -63,7 +64,7 @@ class AppUser {
 class MaintenanceApi {
   MaintenanceApi();
 
-  final http.Client _client = http.Client();
+  final http.Client _client = CustomHttpClient();
 
   Future<List<MaintenanceRecommendation>> fetchRecommendations() async {
     final response = await _client.get(Uri.parse('$kApiV1/maintenance/recommendations'));

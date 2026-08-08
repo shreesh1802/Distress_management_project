@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiV1;
 import 'maintenance_api.dart' show AppUser;
 import 'video_api.dart' show UploadedVideo;
@@ -207,7 +208,7 @@ class ReportsApiException implements Exception {
 class ReportsApi {
   ReportsApi();
 
-  final http.Client _client = http.Client();
+  final http.Client _client = CustomHttpClient();
 
   Future<List<ReportRecord>> fetchReports({int skip = 0, int limit = 1000}) async {
     final uri = Uri.parse(

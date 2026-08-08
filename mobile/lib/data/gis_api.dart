@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiBaseUrl, kApiV1;
 
 /// Direct Dart port of `RoadDistress` in
@@ -149,7 +150,7 @@ class GisFiltersState {
 class GisApi {
   GisApi();
 
-  final http.Client _client = http.Client();
+  final http.Client _client = CustomHttpClient();
 
   Future<List<RoadDistress>> fetchDistressLogs({
     int skip = 0,

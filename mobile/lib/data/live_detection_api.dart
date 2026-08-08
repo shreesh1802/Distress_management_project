@@ -1,9 +1,10 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-import 'package:flutter/foundation.dart';
+import 'custom_http_client.dart';
 
 /// Dynamic API Base URL calculation:
 /// Supports local dev, IP-based network access, and origin proxying on public tunnels
@@ -25,7 +26,7 @@ String get kApiBaseUrl {
       return origin;
     }
   }
-  return 'https://tender-radios-eat.loca.lt';
+  return 'https://funny-terms-cheer.loca.lt';
 }
 
 String get kApiV1 => '$kApiBaseUrl/api/v1';
@@ -134,7 +135,7 @@ class LiveDetectionException implements Exception {
 class LiveDetectionApi {
   LiveDetectionApi();
 
-  final http.Client _client = http.Client();
+  final http.Client _client = CustomHttpClient();
 
   Future<void> start({required int cameraIndex}) async {
     final response = await _client.post(

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiV1;
 
 /// Direct Dart port of `UploadedVideoResponse` in apiService.ts.
@@ -107,7 +108,7 @@ class VideoApiException implements Exception {
 class VideoApi {
   VideoApi();
 
-  final http.Client _client = http.Client();
+  final http.Client _client = CustomHttpClient();
 
   Future<List<UploadedVideo>> fetchVideos({int skip = 0, int limit = 100}) async {
     final uri = Uri.parse(

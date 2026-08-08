@@ -1,5 +1,6 @@
 import 'package:http/http.dart' as http;
 
+import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiV1;
 
 class AnalyticsApiException implements Exception {
@@ -23,7 +24,7 @@ class AnalyticsApiException implements Exception {
 class AnalyticsApi {
   AnalyticsApi();
 
-  final http.Client _client = http.Client();
+  final http.Client _client = CustomHttpClient();
 
   Future<void> pingDetectionSummary() async {
     final response = await _client.get(Uri.parse('$kApiV1/detection/summary'));
