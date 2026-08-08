@@ -28,7 +28,7 @@ void _showServerConfigDialog(BuildContext context) {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Enter your computer\'s Wi-Fi IP address or active tunnel URL to connect:',
+            'Enter your computer\'s Wi-Fi IP address (port 8000) or active tunnel URL to connect:',
             style: TextStyle(color: Colors.white70, fontSize: 12),
           ),
           const SizedBox(height: 12),
@@ -38,32 +38,10 @@ void _showServerConfigDialog(BuildContext context) {
             decoration: InputDecoration(
               filled: true,
               fillColor: Colors.black26,
-              hintText: 'e.g. http://172.16.211.238:8080',
+              hintText: 'e.g. http://192.168.1.42:8000',
               hintStyle: const TextStyle(color: Colors.white30, fontSize: 12),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             ),
-          ),
-          const SizedBox(height: 14),
-          const Text('Quick Presets:', style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            children: [
-              ActionChip(
-                backgroundColor: Colors.white10,
-                label: const Text('Local Wi-Fi IP', style: TextStyle(color: Colors.lightGreenAccent, fontSize: 11)),
-                onPressed: () {
-                  controller.text = 'http://172.16.211.238:8080';
-                },
-              ),
-              ActionChip(
-                backgroundColor: Colors.white10,
-                label: const Text('Reset Default', style: TextStyle(color: Colors.white70, fontSize: 11)),
-                onPressed: () {
-                  controller.text = 'http://172.16.211.238:8080';
-                },
-              ),
-            ],
           ),
         ],
       ),

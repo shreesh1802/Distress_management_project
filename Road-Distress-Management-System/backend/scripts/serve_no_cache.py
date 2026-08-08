@@ -7,7 +7,9 @@ import urllib.error
 import sys
 
 PORT = 8080
-DIRECTORY = r"c:\Users\0095\GitHub\Distress_management_project\mobile\build\web"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
+DIRECTORY = os.path.join(REPO_ROOT, "mobile", "build", "web")
 BACKEND_BASE = "http://127.0.0.1:8000"
 
 def get_wifi_ip():

@@ -1,17 +1,16 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'data/custom_http_client.dart';
+import 'data/http_overrides_stub.dart'
+    if (dart.library.io) 'data/http_overrides_io.dart';
+import 'data/live_detection_api.dart';
 import 'router/app_router.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (!kIsWeb) {
-    HttpOverrides.global = GlobalHttpOverrides();
-  }
+  configureHttpOverrides();
+  await loadSavedServerUrl();
   runApp(const ProviderScope(child: RoadDistressApp()));
 }
 

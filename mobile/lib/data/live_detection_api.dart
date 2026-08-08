@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'custom_http_client.dart';
@@ -9,15 +10,32 @@ import 'custom_http_client.dart';
 /// Global override for dynamic server URL changes inside the app
 String? gCustomServerUrl;
 
+const _kServerUrlPrefsKey = 'custom_server_url';
+
+/// Restores a previously saved backend URL (set via [setCustomServerUrl]) so
+/// the user doesn't have to re-enter it on every app launch.
+Future<void> loadSavedServerUrl() async {
+  final prefs = await SharedPreferences.getInstance();
+  final saved = prefs.getString(_kServerUrlPrefsKey);
+  if (saved != null && saved.isNotEmpty) {
+    gCustomServerUrl = saved;
+  }
+}
+
 void setCustomServerUrl(String newUrl) {
   var clean = newUrl.trim();
   if (clean.endsWith('/')) {
     clean = clean.substring(0, clean.length - 1);
   }
   if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-    clean = 'https://$clean';
+    // Bare host/IP entries are almost always a LAN backend serving plain
+    // HTTP, not HTTPS — default accordingly.
+    clean = 'http://$clean';
   }
   gCustomServerUrl = clean;
+  SharedPreferences.getInstance().then((prefs) {
+    prefs.setString(_kServerUrlPrefsKey, clean);
+  });
 }
 
 /// Dynamic API Base URL calculation:
@@ -43,7 +61,10 @@ String get kApiBaseUrl {
       return origin;
     }
   }
-  return 'http://172.16.211.238:8080';
+  // No saved/env URL and not running on web: fall back to localhost. Real
+  // devices must set the backend URL once via the in-app connection dialog
+  // (persisted afterwards by setCustomServerUrl/loadSavedServerUrl).
+  return 'http://localhost:8000';
 }
 
 String get kApiV1 => '$kApiBaseUrl/api/v1';
