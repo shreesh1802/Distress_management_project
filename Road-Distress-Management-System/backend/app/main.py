@@ -279,17 +279,16 @@ api_router.include_router(live.router, prefix="/live", tags=["Live Camera Detect
 # Bind centralized API version 1 router to application
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-# Serve uploads/ (video frames, detection snapshots, live-camera snapshots) so the
-# frontend can reference them directly, e.g. /uploads/detections/live/<file>.jpg
 import os
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 _uploads_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
 os.makedirs(_uploads_dir, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
 
-
+# NOTE: /download-apk MUST be registered BEFORE app.mount("/uploads") because
+# FastAPI's StaticFiles mount acts as a catch-all sub-app and will shadow any
+# routes registered after it at the same router level.
 @app.get("/download-apk", tags=["APK Download"])
 @app.get("/app-release.apk", tags=["APK Download"])
 def download_apk():
@@ -304,4 +303,10 @@ def download_apk():
             media_type="application/vnd.android.package-archive"
         )
     raise HTTPException(status_code=404, detail="APK build file not found.")
+
+# Serve uploads/ (video frames, detection snapshots, live-camera snapshots) so the
+# frontend can reference them directly, e.g. /uploads/detections/live/<file>.jpg
+# IMPORTANT: This mount must come LAST — after all @app.get() routes are registered.
+app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+
 
