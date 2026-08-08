@@ -6,9 +6,26 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'custom_http_client.dart';
 
+/// Global override for dynamic server URL changes inside the app
+String? gCustomServerUrl;
+
+void setCustomServerUrl(String newUrl) {
+  var clean = newUrl.trim();
+  if (clean.endsWith('/')) {
+    clean = clean.substring(0, clean.length - 1);
+  }
+  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    clean = 'https://$clean';
+  }
+  gCustomServerUrl = clean;
+}
+
 /// Dynamic API Base URL calculation:
-/// Supports local dev, IP-based network access, and origin proxying on public tunnels
+/// Supports local dev, IP-based network access, in-app custom URLs, and public tunnels
 String get kApiBaseUrl {
+  if (gCustomServerUrl != null && gCustomServerUrl!.isNotEmpty) {
+    return gCustomServerUrl!;
+  }
   const customUrl = String.fromEnvironment('API_BASE_URL');
   if (customUrl.isNotEmpty) {
     return customUrl;
@@ -26,7 +43,7 @@ String get kApiBaseUrl {
       return origin;
     }
   }
-  return 'https://funny-terms-cheer.loca.lt';
+  return 'http://172.16.211.238:8080';
 }
 
 String get kApiV1 => '$kApiBaseUrl/api/v1';
