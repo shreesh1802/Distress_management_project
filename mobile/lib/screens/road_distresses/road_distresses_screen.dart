@@ -490,11 +490,24 @@ class _RoadDistressesScreenState extends State<RoadDistressesScreen> {
           ],
         ),
         if (_drawerItem != null)
-          InspectionDrawer(
-            record: _drawerItem!,
-            onClose: () => setState(() => _drawerItem = null),
-            onDownloadPdf: () => _handleGeneratePdf(_drawerItem!.id),
-            onLocateGis: () => context.go(AppRoutes.gisMap),
+          // Pins the drawer to the Stack's own top/bottom edge so it gets a
+          // *finite* height constraint. Left unconstrained deliberately: the
+          // drawer sizes its own width (see InspectionDrawer's Container).
+          // Without this, the Stack sits inside DashboardShell's
+          // SingleChildScrollView, which hands its child an unbounded
+          // height -- that unbounded height used to reach the drawer's
+          // Container(height: double.infinity) and break the Expanded
+          // scroll region inside it (shrunken image, overflowing text).
+          Positioned(
+            top: 0,
+            bottom: 0,
+            right: 0,
+            child: InspectionDrawer(
+              record: _drawerItem!,
+              onClose: () => setState(() => _drawerItem = null),
+              onDownloadPdf: () => _handleGeneratePdf(_drawerItem!.id),
+              onLocateGis: () => context.go(AppRoutes.gisMap),
+            ),
           ),
       ],
     );
