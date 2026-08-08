@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -81,6 +82,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
   bool _originalLoadFailed = false;
   bool _annotatedLoadFailed = false;
   Timer? _syncTimer;
+  Duration _annotatedWebPosition = Duration.zero;
 
   @override
   void initState() {
@@ -169,6 +171,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
       _selectedVideo = video;
       _isPlaying = false;
       _currentTime = Duration.zero;
+      _annotatedWebPosition = Duration.zero;
       _duration = Duration.zero;
       _syncWarning = null;
       _activeTab = 'list';
@@ -221,8 +224,39 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
     if (playing != _isPlaying) setState(() => _isPlaying = playing);
   }
 
+  // Web playback is driven by two independent HTML5 <video> elements
+  // (see web_video_player_web.dart) that are the ones actually on screen.
+  // Polling a third, hidden `video_player` controller here (as done below
+  // for native) and forcing the visible pair to chase its position doubles
+  // decode/network load and fights the visible elements' own drift, which
+  // is what made one of them stall while the other kept playing. On web,
+  // position/sync are instead pushed from the visible elements themselves
+  // via `_onOriginalWebPosition`/`_onAnnotatedWebPosition`.
+  void _onOriginalWebPosition(Duration position) {
+    if (!mounted) return;
+    setState(() {
+      _currentTime = position;
+      _syncWarning = _computeWebSyncWarning();
+    });
+  }
+
+  void _onAnnotatedWebPosition(Duration position) {
+    if (!mounted) return;
+    _annotatedWebPosition = position;
+    final warning = _computeWebSyncWarning();
+    if (warning != _syncWarning) setState(() => _syncWarning = warning);
+  }
+
+  String? _computeWebSyncWarning() {
+    if (_annotatedWebPosition == Duration.zero) return null;
+    final diff = (_currentTime - _annotatedWebPosition).abs();
+    if (diff <= const Duration(milliseconds: 300)) return null;
+    return 'Re-syncing feeds (offset: ${(diff.inMilliseconds / 1000).toStringAsFixed(2)}s)';
+  }
+
   void _startSyncTimer() {
     _syncTimer?.cancel();
+    if (kIsWeb) return;
     _syncTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (!_isPlaying || !mounted) return;
       final orig = _originalController;
@@ -257,6 +291,11 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
     if (_selectedVideo == null) return;
     final playState = !_isPlaying;
     setState(() => _isPlaying = playState);
+    // On web the visible players own their play/pause (driven by `isPlaying`
+    // in web_video_player_web.dart); the hidden controllers below exist only
+    // for metadata on web and must stay paused so they don't compete for
+    // bandwidth/CPU with the visible pair.
+    if (kIsWeb) return;
     if (playState) {
       await _originalController?.play();
       await _annotatedController?.play();
@@ -270,7 +309,10 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
     setState(() {
       _isPlaying = false;
       _currentTime = Duration.zero;
+      _annotatedWebPosition = Duration.zero;
+      _syncWarning = null;
     });
+    if (kIsWeb) return;
     await _originalController?.pause();
     await _originalController?.seekTo(Duration.zero);
     await _annotatedController?.pause();
@@ -279,18 +321,21 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
 
   Future<void> _handleSeek(Duration time) async {
     setState(() => _currentTime = time);
+    if (kIsWeb) return;
     await _originalController?.seekTo(time);
     await _annotatedController?.seekTo(time);
   }
 
   void _handleSpeedChange(double speed) {
     setState(() => _playbackSpeed = speed);
+    if (kIsWeb) return;
     _originalController?.setPlaybackSpeed(speed);
     _annotatedController?.setPlaybackSpeed(speed);
   }
 
   void _handleVolumeChange(double v) {
     setState(() => _volume = v);
+    if (kIsWeb) return;
     final applied = _isMuted ? 0.0 : v;
     _originalController?.setVolume(applied);
     _annotatedController?.setVolume(applied);
@@ -298,6 +343,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
 
   void _handleToggleMute() {
     setState(() => _isMuted = !_isMuted);
+    if (kIsWeb) return;
     final applied = _isMuted ? 0.0 : _volume;
     _originalController?.setVolume(applied);
     _annotatedController?.setVolume(applied);
@@ -438,6 +484,8 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
         onToggleMute: _handleToggleMute,
         onFocusDetection: _focusDetection,
         onToggleFullscreen: () => setState(() => _isFullscreenReview = !_isFullscreenReview),
+        onOriginalPositionUpdate: _onOriginalWebPosition,
+        onAnnotatedPositionUpdate: _onAnnotatedWebPosition,
       ),
     );
   }

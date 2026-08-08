@@ -17,6 +17,7 @@ class WebVideoCard extends StatefulWidget {
     required this.onTap,
     this.onToggleFullscreen,
     this.isFullscreen = false,
+    this.onPositionUpdate,
   });
 
   final String label;
@@ -29,6 +30,7 @@ class WebVideoCard extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback? onToggleFullscreen;
   final bool isFullscreen;
+  final ValueChanged<Duration>? onPositionUpdate;
 
   @override
   State<WebVideoCard> createState() => _WebVideoCardState();
@@ -116,6 +118,7 @@ class _WebVideoCardState extends State<WebVideoCard> {
               volume: widget.volume,
               isMuted: widget.isMuted,
               onTap: widget.onTap,
+              onPositionUpdate: widget.onPositionUpdate,
             ),
           ),
         ],

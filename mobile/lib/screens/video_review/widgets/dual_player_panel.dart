@@ -39,6 +39,8 @@ class DualPlayerPanel extends StatefulWidget {
     required this.onToggleMute,
     required this.onFocusDetection,
     required this.onToggleFullscreen,
+    this.onOriginalPositionUpdate,
+    this.onAnnotatedPositionUpdate,
   });
 
   final UploadedVideo? selectedVideo;
@@ -69,6 +71,8 @@ class DualPlayerPanel extends StatefulWidget {
   final VoidCallback onToggleMute;
   final ValueChanged<DistressRecord> onFocusDetection;
   final VoidCallback onToggleFullscreen;
+  final ValueChanged<Duration>? onOriginalPositionUpdate;
+  final ValueChanged<Duration>? onAnnotatedPositionUpdate;
 
   @override
   State<DualPlayerPanel> createState() => _DualPlayerPanelState();
@@ -101,6 +105,7 @@ class _DualPlayerPanelState extends State<DualPlayerPanel> {
                       _isOriginalFullscreen = !_isOriginalFullscreen;
                       if (_isOriginalFullscreen) _isAnnotatedFullscreen = false;
                     }),
+                    onPositionUpdate: widget.onOriginalPositionUpdate,
                   )
                 : _playerCard('Original Surveillance Feed', widget.originalController, widget.selectedVideo != null, false, widget.originalLoadFailed);
 
@@ -119,6 +124,7 @@ class _DualPlayerPanelState extends State<DualPlayerPanel> {
                       _isAnnotatedFullscreen = !_isAnnotatedFullscreen;
                       if (_isAnnotatedFullscreen) _isOriginalFullscreen = false;
                     }),
+                    onPositionUpdate: widget.onAnnotatedPositionUpdate,
                   )
                 : _playerCard('AI Annotated Feed', widget.annotatedController, widget.hasAnnotatedVideo, true, widget.annotatedLoadFailed);
 

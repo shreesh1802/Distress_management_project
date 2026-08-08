@@ -10,6 +10,7 @@ Widget buildWebVideoPlayer({
   required double volume,
   required bool isMuted,
   required VoidCallback onTap,
+  ValueChanged<Duration>? onPositionUpdate,
 }) {
   return GestureDetector(
     onTap: onTap,
