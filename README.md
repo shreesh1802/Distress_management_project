@@ -50,6 +50,51 @@ Distress_management_project/
 
 ---
 
+## 🧰 First-Time Setup (once per machine)
+
+The commands below assume a `.venv` already exists with dependencies installed and the
+database initialized. If this is a fresh clone, do this first from
+`Road-Distress-Management-System\backend`:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+By default the backend expects PostgreSQL on `localhost:5432`. For local/laptop hosting
+without installing Postgres, create a `backend\.env` file pointing at SQLite instead
+(the ORM has no Postgres-specific types, so this works as a drop-in for local use):
+
+```
+DATABASE_URL=sqlite:///./road_distress.db
+BACKEND_CORS_ORIGINS=*
+```
+
+Then create the tables and seed the default admin account:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.db.init_db
+```
+
+Also build the Flutter web/APK outputs at least once (from `mobile/`):
+
+```powershell
+flutter pub get
+flutter build web --release
+flutter build apk --release
+copy build\app\outputs\flutter-apk\app-release.apk ..\Road-Distress-Management-System\backend\uploads\RoadDistress.apk
+```
+
+(`backend/uploads/RoadDistress.apk` is gitignored and not part of the repo — it must be
+placed there locally for `/download-apk` to serve it.)
+
+On first launch, the native Android app has no way to auto-detect the backend's address
+(that trick only works for the web build, via the browser's origin). Open the app's
+connection dialog once and enter your laptop's Wi-Fi IP, e.g. `http://192.168.1.42:8000`
+— it's saved on-device afterward via `shared_preferences`, so this is a one-time step.
+
+---
+
 ## ⚙️ How to Start the System (Exact Terminal Commands)
 
 To make both the mobile/web frontend and backend fully operational, execute these **3 terminal commands** — each in a **separate PowerShell / Terminal window**:
