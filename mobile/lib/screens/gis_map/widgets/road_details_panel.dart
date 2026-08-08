@@ -263,13 +263,19 @@ class _MetaRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 13, color: AppColors.secondaryText)),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: valueColor ?? AppColors.primaryText,
+          Flexible(
+            child: Text(label, style: const TextStyle(fontSize: 13, color: AppColors.secondaryText)),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: valueColor ?? AppColors.primaryText,
+              ),
             ),
           ),
         ],

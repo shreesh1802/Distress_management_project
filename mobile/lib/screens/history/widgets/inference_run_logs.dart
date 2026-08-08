@@ -234,14 +234,18 @@ class _InferenceRunLogsState extends State<InferenceRunLogs> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                Wrap(
-                  spacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    _metaPill('⌛ ${details.duration}'),
-                    _metaPill('🎯 ${details.confidence}'),
-                    _metaPill('🚨 ${details.detectionCount} Distresses'),
-                  ],
+                Flexible(
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _metaPill('⌛ ${details.duration}'),
+                      _metaPill('🎯 ${details.confidence}'),
+                      _metaPill('🚨 ${details.detectionCount} Distresses'),
+                    ],
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Container(
