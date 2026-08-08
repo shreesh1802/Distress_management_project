@@ -521,13 +521,16 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
         border: Border.all(color: AppColors.cardBorder),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Wrap(
+      child: LayoutBuilder(
+        builder: (context, constraints) => Wrap(
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
         spacing: 14,
         runSpacing: 10,
         children: [
-          Row(
+          ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+            child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
@@ -538,7 +541,8 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
                 child: const Icon(LucideIcons.video, size: 20, color: AppColors.accentBlue),
               ),
               const SizedBox(width: 12),
-              Column(
+              Flexible(
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -548,8 +552,10 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
                     style: TextStyle(fontSize: 11, color: AppColors.secondaryText),
                   ),
                 ],
+                ),
               ),
             ],
+            ),
           ),
           Wrap(
             spacing: 10,
@@ -653,6 +659,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
             ],
           ),
         ],
+        ),
       ),
     );
   }
