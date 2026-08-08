@@ -120,7 +120,7 @@ export default function TopNavbar() {
           {dropdownOpen && (
             <div className="top-navbar__menu" role="menu" aria-label="User actions">
               <div className="top-navbar__menu-header">
-                <span className="font-bold">Daksh Agarwal</span>
+                <span className="font-bold">Monitoring Engineer (ME)</span>
                 <span className="small-caption">Admin Engineer</span>
               </div>
               <div className="top-navbar__menu-divider" role="separator" />

@@ -82,8 +82,8 @@ interface SystemInfo {
 export default function SettingsDashboard() {
   // 1. Profile Settings State
   const [profile, setProfile] = useState<ProfileSettings>({
-    name: 'Daksh Agarwal',
-    email: 'daksh.agarwal@example.com',
+    name: 'Monitoring Engineer (ME)',
+    email: 'me.monitoring@roaddistress.org',
     role: 'Lead System Administrator',
     department: 'Urban Infrastructure Operations',
     phoneNumber: '+1 (555) 019-2834'
@@ -345,8 +345,8 @@ export default function SettingsDashboard() {
   const handleResetSettings = () => {
     if (confirm('Are you sure you want to reset current modifications back to session defaults?')) {
       setProfile({
-        name: 'Daksh Agarwal',
-        email: 'daksh.agarwal@example.com',
+        name: 'Monitoring Engineer (ME)',
+        email: 'me.monitoring@roaddistress.org',
         role: 'Lead System Administrator',
         department: 'Urban Infrastructure Operations',
         phoneNumber: '+1 (555) 019-2834'

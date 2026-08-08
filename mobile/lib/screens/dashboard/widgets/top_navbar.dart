@@ -313,7 +313,7 @@ class _ProfileMenu extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Daksh Agarwal',
+                'Monitoring Engineer (ME)',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,

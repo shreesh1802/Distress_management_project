@@ -13,7 +13,7 @@ Distress_management_project/
 ├── mobile/                                 # Flutter Cross-Platform App (Web, Android, iOS)
 │   ├── lib/
 │   │   ├── main.dart                      # Application Entrypoint & Theme Configuration
-│   │   ├── router/app_router.dart          # GoRouter Navigation Setup (Bypasses auth for demo)
+│   │   ├── router/app_router.dart          # GoRouter Navigation Setup
 │   │   ├── data/                           # API Connectors & Data Models
 │   │   │   ├── live_detection_api.dart     # Dynamic API Base URL calculation & WebSocket client
 │   │   │   ├── road_distress_api.dart      # Distress Record Data Models & API endpoints
@@ -35,58 +35,64 @@ Distress_management_project/
 └── Road-Distress-Management-System/
     └── backend/                            # FastAPI AI Backend & Database
         ├── app/
-        │   ├── main.py                     # FastAPI Application Entry & CORS Setup
+        │   ├── main.py                     # FastAPI Application Entry, CORS & Auto-Seeding
         │   ├── api/v1/routes/              # API Route Handlers (videos, detection, reports)
         │   ├── models/                     # SQLAlchemy Models (distress.py, video.py, report.py)
         │   └── services/                   # PDF & Excel Generators, AI Pipeline Utils
         └── uploads/                        # Raw Videos, Processed Videos & AI Crop Images
-            ├── videos/                     # Raw surveillance MP4 files (+faststart optimized)
-            ├── processed/                  # AI annotated MP4 files
+            ├── videos/                     # Raw surveillance MP4 files (+faststart H.264)
+            ├── processed/                  # AI annotated MP4 files (H.264)
             └── crops/                      # Zoomed-in AI distress crop image snippets
 ```
 
 ---
 
-## ⚙️ How to Start the System (Required Servers)
+## ⚙️ How to Start the System (Exact Terminal Commands)
 
-To make both the frontend and backend fully operational, **start these 2 processes**:
+To make both the mobile/web frontend and backend fully operational, execute these **3 terminal commands**:
 
-### 1. Start FastAPI Backend Server (Port 8000)
-From `Road-Distress-Management-System/backend`:
-```bash
-cd Road-Distress-Management-System/backend
+### 1️⃣ Terminal 1: Start FastAPI Backend Server (Port 8000)
+Open PowerShell / CMD:
+```powershell
+cd c:\Users\0095\GitHub\Distress_management_project\Road-Distress-Management-System\backend
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 - **Backend API**: `http://127.0.0.1:8000`
 - **Swagger Docs**: `http://127.0.0.1:8000/docs`
-
-### 2. Start Web & API Proxy Server (Port 8080)
-From repository root:
-```bash
-python scratch/serve_no_cache.py
-```
-- **Web App**: `http://127.0.0.1:8080` or `http://<your-local-ip>:8080`
-- **Reverse Proxy**: Automatically proxies `/api/` database calls and `/uploads/` media requests to port 8000, preventing CORS and Mixed Content issues on mobile viewports.
+- **Auto-Seeding**: Automatically verifies and seeds Video 20, 8 road distress detection records, and audit reports on startup.
 
 ---
 
-## 📱 How to Access & Demonstrate on Mobile Devices
-
-### Method A: Local Wi-Fi Connection (Recommended — Fast & 0 Setup)
-1. Ensure your mobile phone (iPhone or Android) is connected to the **same Wi-Fi network** as the host laptop.
-2. Open your mobile browser (Safari or Chrome) and navigate to:
-   ```
-   http://172.16.211.117:8080
-   ```
-3. The app will load instantly with **zero password required**.
-
-### Method B: Public Internet Access (4G / 5G Mobile Data)
-If accessing remotely over mobile cellular data:
-```bash
-npx localtunnel --port 8080
+### 2️⃣ Terminal 2: Start Multithreaded Web & Proxy Server (Port 8080)
+Open a second PowerShell / CMD window:
+```powershell
+cd c:\Users\0095\GitHub\Distress_management_project\Road-Distress-Management-System\backend
+.\.venv\Scripts\python.exe C:\Users\0095\.gemini\antigravity\brain\ce728cc7-11e1-4296-81fe-cb95c880af10\scratch\serve_no_cache.py
 ```
-- Enter the generated `loca.lt` URL in your mobile browser.
-- When prompted for the Tunnel Password, enter the host's public IP address.
+- **Local Desktop Access**: `http://localhost:8080`
+- **Wi-Fi Mobile Access**: `http://<your-active-wifi-ip>:8080` (Automatically auto-detected and printed in the console banner)
+- **Reverse Proxy**: Automatically proxies `/api/` database requests and `/uploads/` video media to port 8000 with multithreaded socket isolation.
+
+---
+
+### 3️⃣ Terminal 3: Start Public Mobile Tunnel (For 4G / 5G Cellular Data)
+Open a third PowerShell / CMD window:
+```powershell
+cd c:\Users\0095\GitHub\Distress_management_project\Road-Distress-Management-System\backend
+.\.venv\Scripts\python.exe C:\Users\0095\.gemini\antigravity\brain\ce728cc7-11e1-4296-81fe-cb95c880af10\scratch\run_stable_tunnel.py
+```
+- **Public Mobile HTTPS URL**: Prints a zero-password `https://*.loca.lt` link.
+- **Cellular Access**: Open this link in any browser on 4G / 5G mobile data or outside the local Wi-Fi network.
+
+---
+
+## 📱 Quick Access Links Summary
+
+| Connection Type | Target Device | Access URL / Command |
+|-----------------|---------------|----------------------|
+| **Local Desktop** | Laptop / PC | `http://localhost:8080` |
+| **Local Wi-Fi** | iPhone / Android on Wi-Fi | `http://<your-wifi-ip>:8080` *(See Terminal 2 banner)* |
+| **Mobile Data (4G/5G)** | Any Smartphone | `https://*.loca.lt` *(See Terminal 3 banner)* |
 
 ---
 
@@ -99,8 +105,8 @@ npx localtunnel --port 8080
 2. **Independent Fullscreen Mode**:
    - Each player card has an isolated top header with its own **Fullscreen** toggle button so expanding the AI Annotated Feed does not disrupt the Original Feed.
 
-3. **Zoomed-in AI Distress Crop Snippets**:
-   - Detections cards feature visual crop image snippets zoomed in directly on road surface distresses (*Potholes*, *Alligator Cracks*, *Rutting*, *Edge Breaks*).
+3. **Zoomed-in AI Distress Crop Snippets (Exact Annotated Video Frames)**:
+   - Detection cards display crop snippets extracted directly from the AI annotated video stream (*Potholes*, *Alligator Cracks*, *Rutting*, *Edge Breaks*).
    - Includes **`Play Clip (00:04)`** buttons that seek the video directly to that distress timestamp.
 
 4. **PDF & Excel Report Downloads**:

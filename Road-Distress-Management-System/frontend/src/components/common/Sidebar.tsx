@@ -167,7 +167,7 @@ export default function Sidebar() {
           <div className="sidebar-rebuilt__profile-avatar">DA</div>
           {!isCollapsed && (
             <div className="sidebar-rebuilt__profile-info">
-              <span className="sidebar-rebuilt__profile-name">Daksh Agarwal</span>
+              <span className="sidebar-rebuilt__profile-name">Monitoring Engineer (ME)</span>
               <span className="sidebar-rebuilt__profile-role">Admin Control</span>
             </div>
           )}

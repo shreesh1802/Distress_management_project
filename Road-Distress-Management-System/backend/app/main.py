@@ -138,6 +138,88 @@ def startup_event() -> None:
             except Exception as e_model_source:
                 logger.warning(f"ALTER TABLE query for model_source failed: {e_model_source}")
 
+        # Ensure all tables exist
+        from app.db.base import Base
+        Base.metadata.create_all(bind=db.bind)
+
+        # Auto-seed Demo Data for Video 20 if missing
+        from app.models.video import UploadedVideo
+        from app.models.distress import RoadDistress
+        from app.models.user import User
+        from datetime import datetime
+
+        # Seed admin user
+        admin_user = db.query(User).filter(User.id == 1).first()
+        if not admin_user:
+            admin_user = User(
+                id=1,
+                email="admin@roaddistress.org",
+                full_name="Monitoring Engineer (ME)",
+                hashed_password="hashed_placeholder_admin",
+                role="admin"
+            )
+            db.add(admin_user)
+            db.commit()
+        else:
+            admin_user.full_name = "Monitoring Engineer (ME)"
+            db.commit()
+
+        video_20 = db.query(UploadedVideo).filter(UploadedVideo.id == 20).first()
+        if not video_20:
+            logger.info("Auto-seeding Video 20 demo record...")
+            video_rel_raw = "uploads/videos/99613c95ecb2483994062e8d72cef840_Client_Test_Video.mp4"
+            video_rel_proc = "uploads/processed/20/processed_video.mp4"
+            video_20 = UploadedVideo(
+                id=20,
+                filename="Highway_Distress_Inspection_Feed.mp4",
+                filepath=video_rel_raw,
+                processed_filepath=video_rel_proc,
+                processed_video_path=video_rel_proc,
+                processing_status="completed",
+                progress=100,
+                processing_stage="Completed",
+                processing_duration=48.5,
+                upload_timestamp=datetime.now(),
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                uploader_id=1
+            )
+            db.add(video_20)
+            db.commit()
+
+        distress_count = db.query(RoadDistress).filter(RoadDistress.video_id == 20).count()
+        if distress_count == 0:
+            logger.info("Auto-seeding 8 road distress records for Video 20...")
+            detections_config = [
+                {"timestamp": 4.5, "type": "Pothole", "severity": "high", "lat": 19.0760, "lng": 72.8777, "conf": 0.94},
+                {"timestamp": 9.2, "type": "Alligator Cracks", "severity": "critical", "lat": 19.0768, "lng": 72.8785, "conf": 0.96},
+                {"timestamp": 14.8, "type": "Rutting", "severity": "medium", "lat": 19.0775, "lng": 72.8792, "conf": 0.89},
+                {"timestamp": 20.1, "type": "Edge Break", "severity": "high", "lat": 19.0782, "lng": 72.8801, "conf": 0.91},
+                {"timestamp": 26.5, "type": "Pothole", "severity": "critical", "lat": 19.0790, "lng": 72.8810, "conf": 0.95},
+                {"timestamp": 33.0, "type": "Longitudinal Crack", "severity": "medium", "lat": 19.0798, "lng": 72.8820, "conf": 0.88},
+                {"timestamp": 39.4, "type": "Patching Defect", "severity": "low", "lat": 19.0805, "lng": 72.8829, "conf": 0.86},
+                {"timestamp": 46.2, "type": "Pothole", "severity": "high", "lat": 19.0812, "lng": 72.8838, "conf": 0.93},
+            ]
+            for idx, det in enumerate(detections_config, start=1):
+                crop_rel = f"uploads/crops/crop_v20_{idx}.jpg"
+                frame_no = int(det["timestamp"] * 30.0)
+                record = RoadDistress(
+                    video_id=20,
+                    distress_type=det["type"],
+                    severity=det["severity"],
+                    confidence_score=det["conf"],
+                    latitude=det["lat"],
+                    longitude=det["lng"],
+                    detected_at=datetime.now(),
+                    status="detected",
+                    image_url=crop_rel,
+                    frame_number=frame_no,
+                    video_timestamp=det["timestamp"],
+                    tracking_id=100 + idx
+                )
+                db.add(record)
+            db.commit()
+
         db.close()
     except Exception as e:
         logger.critical(f"Database connection validation failed: {e}")

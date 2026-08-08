@@ -193,7 +193,7 @@ class _DashboardSidebarState extends State<DashboardSidebar> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Daksh Agarwal',
+                          'Monitoring Engineer (ME)',
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 12,

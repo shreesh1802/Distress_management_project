@@ -13,7 +13,7 @@ export default function SurveyPage() {
   const loggerEndRef = useRef<HTMLDivElement>(null);
 
   // Form states
-  const [surveyorName, setSurveyorName] = useState("Daksh Agarwal");
+  const [surveyorName, setSurveyorName] = useState("Monitoring Engineer (ME)");
   const [selectedRoute, setSelectedRoute] = useState("NH-48 Mumbai-Pune Expressway");
   const [vehicleId, setVehicleId] = useState("MH-12-RS-9948");
 

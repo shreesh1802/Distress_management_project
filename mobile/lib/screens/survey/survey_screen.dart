@@ -37,7 +37,7 @@ class _SurveyScreenState extends ConsumerState<SurveyScreen> {
   final _longitudeCtrl = TextEditingController(text: '77.0266');
   final _stateCtrl = TextEditingController(text: 'Haryana');
   final _districtCtrl = TextEditingController(text: 'Gurugram');
-  final _inspectorNameCtrl = TextEditingController(text: 'Daksh Agarwal');
+  final _inspectorNameCtrl = TextEditingController(text: 'Monitoring Engineer (ME)');
   final _departmentCtrl = TextEditingController(text: 'NHAI Operations');
   final _organizationCtrl = TextEditingController(
     text: 'AKCM Infrastructure',

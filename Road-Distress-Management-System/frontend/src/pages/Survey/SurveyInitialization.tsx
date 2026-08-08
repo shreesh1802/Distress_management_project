@@ -62,7 +62,7 @@ export default function SurveyInitialization() {
   const [roadDirection, setRoadDirection] = useState("Northbound");
 
   // Team
-  const [inspectorName, setInspectorName] = useState("Daksh Agarwal");
+  const [inspectorName, setInspectorName] = useState("Monitoring Engineer (ME)");
   const [department, setDepartment] = useState("NHAI Operations");
   const [organization, setOrganization] = useState("AKCM Infrastructure");
   const [vehicleNumber, setVehicleNumber] = useState("HR-26-CP-4812");
@@ -201,7 +201,7 @@ export default function SurveyInitialization() {
     const logsSequence = [
       { text: "Initializing AI Inspection Environment...", delay: 100 },
       { text: `Target Highway: ${highwayName} | Range: ${startingChainage} to ${endingChainage}`, delay: 250 },
-      { text: "Verifying active session credentials for inspector Daksh Agarwal...", delay: 400 },
+      { text: "Verifying active session credentials for inspector Monitoring Engineer (ME)...", delay: 400 },
       { text: "Loading YOLOv11 Road Distress Model weights (CUDA active)...", delay: 550 },
       { text: `Allocating GPU buffers for stream feed capture (${camera})...`, delay: 700 },
       { text: "Calibrating GPS positioning coordinates and GIS link layer...", delay: 850 },

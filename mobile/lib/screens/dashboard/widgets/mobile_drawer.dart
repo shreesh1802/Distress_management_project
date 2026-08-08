@@ -144,7 +144,7 @@ class MobileDrawer extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Daksh Agarwal',
+                          'Monitoring Engineer (ME)',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
