@@ -124,6 +124,17 @@ class ProxyNoCacheHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         """
         try:
             backend_sock = socket.create_connection((BACKEND_HOST, BACKEND_PORT), timeout=10)
+            # The 10s timeout above is for establishing the connection only.
+            # socket.create_connection leaves it set on the socket afterward,
+            # which would then apply to every subsequent recv() too -- fatal
+            # for a mostly one-directional WebSocket (e.g. phone-stream: the
+            # client sends frames but the backend never replies on that same
+            # socket), where the idle direction's recv() would time out and
+            # get treated as a closed connection, silently killing the whole
+            # session a few seconds in even though the other direction is
+            # still actively flowing. Clear it once connected so recv() blocks
+            # normally for the life of the proxied connection.
+            backend_sock.settimeout(None)
         except OSError as e:
             try:
                 self.send_response(502)
