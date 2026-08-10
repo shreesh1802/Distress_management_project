@@ -130,6 +130,9 @@ class LiveEvent {
     required this.frame,
     required this.latitude,
     required this.longitude,
+    this.box,
+    this.frameWidth,
+    this.frameHeight,
   });
 
   final int seq;
@@ -142,7 +145,17 @@ class LiveEvent {
   final double latitude;
   final double longitude;
 
+  /// [x1, y1, x2, y2] in pixel coords of the frame that produced this
+  /// detection -- relative to [frameWidth]/[frameHeight], NOT the on-screen
+  /// widget size. A consumer drawing this on a preview must scale by
+  /// (widgetSize / frameSize). Null for older backends that predate box
+  /// reporting, or if the backend ever fails to include it.
+  final List<double>? box;
+  final int? frameWidth;
+  final int? frameHeight;
+
   factory LiveEvent.fromJson(Map<String, dynamic> json) {
+    final boxJson = json['box'] as List<dynamic>?;
     return LiveEvent(
       seq: (json['seq'] as num).toInt(),
       time: json['time'] as String,
@@ -153,6 +166,9 @@ class LiveEvent {
       frame: (json['frame'] as num).toInt(),
       latitude: (json['latitude'] as num).toDouble(),
       longitude: (json['longitude'] as num).toDouble(),
+      box: boxJson?.map((v) => (v as num).toDouble()).toList(),
+      frameWidth: (json['frame_width'] as num?)?.toInt(),
+      frameHeight: (json['frame_height'] as num?)?.toInt(),
     );
   }
 }
@@ -222,6 +238,17 @@ class LiveDetectionApi {
   WebSocketChannel connectWs() {
     final wsBase = kApiBaseUrl.replaceFirst(RegExp(r'^http'), 'ws');
     return WebSocketChannel.connect(Uri.parse('$wsBase/api/v1/live/ws'));
+  }
+
+  /// Connects to the remote-stream session: send one binary message per
+  /// frame (raw JPEG bytes) on the returned channel's sink to feed the
+  /// backend's detection loop from this device's own camera instead of a
+  /// USB camera attached to the server. Detection results still arrive the
+  /// normal way, via [connectWs] -- this channel is send-only from the
+  /// client's side. Closing it stops the session server-side.
+  WebSocketChannel connectPhoneStreamWs() {
+    final wsBase = kApiBaseUrl.replaceFirst(RegExp(r'^http'), 'ws');
+    return WebSocketChannel.connect(Uri.parse('$wsBase/api/v1/live/phone-stream'));
   }
 
   void dispose() => _client.close();

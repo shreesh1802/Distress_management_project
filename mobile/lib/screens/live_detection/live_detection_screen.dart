@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -11,13 +12,16 @@ import 'widgets/mjpeg_view.dart';
 import 'widgets/real_time_detection_feed.dart';
 
 /// Direct port of Road-Distress-Management-System/frontend/src/pages/
-/// LiveMonitoring/LiveMonitoringDashboard.tsx and its CSS — the one screen
-/// in this port wired to a real (not mocked) backend: FastAPI's
-/// `/api/v1/live/*` REST + WebSocket routes, which run a real YOLOX
-/// inference pipeline against a physical USB camera on whatever machine
-/// hosts the backend (see backend/app/services/live/live_camera_service.py).
-/// There is no client-uploads-frames path — this only works with the
-/// backend actually running locally with a camera attached.
+/// LiveMonitoring/LiveMonitoringDashboard.tsx and its CSS, extended with a
+/// second camera source: alongside the original USB-camera-on-the-server
+/// path (FastAPI's `/api/v1/live/start` + a physical camera attached to
+/// whatever machine hosts the backend), this device's own camera can also
+/// be used, streaming frames to `/api/v1/live/phone-stream` -- necessary
+/// once the backend runs on a remote server rather than the field device.
+/// Both paths feed the exact same detection loop server-side; only where
+/// the frames come from differs.
+enum LiveSource { usbCamera, thisDeviceCamera }
+
 class LiveDetectionScreen extends StatefulWidget {
   const LiveDetectionScreen({super.key});
 
@@ -37,8 +41,17 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   int _streamKey = 0;
   bool _isFullscreen = false;
 
+  LiveSource _source = LiveSource.usbCamera;
+
   WebSocketChannel? _wsChannel;
   StreamSubscription<dynamic>? _wsSubscription;
+
+  CameraController? _cameraController;
+  List<CameraDescription> _availableCameras = [];
+  WebSocketChannel? _phoneStreamChannel;
+  Timer? _captureTimer;
+  LiveEvent? _overlayEvent;
+  Timer? _overlayClearTimer;
 
   int get _cameraIndex => int.tryParse(_cameraIndexController.text) ?? 1;
 
@@ -85,7 +98,108 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     }
   }
 
+  Future<void> _startThisDeviceCamera() async {
+    setState(() {
+      _starting = true;
+      _error = null;
+    });
+    try {
+      if (_availableCameras.isEmpty) {
+        _availableCameras = await availableCameras();
+      }
+      if (_availableCameras.isEmpty) {
+        throw Exception('No camera found on this device');
+      }
+      final chosen = _availableCameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.back,
+        orElse: () => _availableCameras.first,
+      );
+      final controller = CameraController(
+        chosen,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+      await controller.initialize();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      _cameraController = controller;
+
+      final channel = _api.connectPhoneStreamWs();
+      _phoneStreamChannel = channel;
+      // Surface a connection failure the same way the USB path does — this
+      // channel is send-only otherwise, so errors are the only thing worth
+      // listening for.
+      channel.stream.listen(
+        (_) {},
+        onError: (Object e) {
+          if (mounted) setState(() => _error = 'Camera stream connection lost: $e');
+        },
+      );
+
+      setState(() {
+        _running = true;
+        _streamKey++;
+      });
+      _connectWs();
+      _captureTimer = Timer.periodic(
+        const Duration(milliseconds: 400),
+        (_) => _captureAndSendFrame(),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Failed to start this device\'s camera: $e');
+      await _cameraController?.dispose();
+      _cameraController = null;
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  Future<void> _captureAndSendFrame() async {
+    final controller = _cameraController;
+    final channel = _phoneStreamChannel;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (controller.value.isTakingPicture || channel == null) return;
+    try {
+      final file = await controller.takePicture();
+      final bytes = await file.readAsBytes();
+      channel.sink.add(bytes);
+    } catch (_) {
+      // Transient capture failure (e.g. controller mid-disposal on stop) —
+      // skip this tick, the next timer fire tries again.
+    }
+  }
+
+  Future<void> _stopThisDeviceCamera() async {
+    _captureTimer?.cancel();
+    _captureTimer = null;
+    _overlayClearTimer?.cancel();
+    _overlayClearTimer = null;
+    await _phoneStreamChannel?.sink.close();
+    _phoneStreamChannel = null;
+    await _cameraController?.dispose();
+    _cameraController = null;
+    _wsSubscription?.cancel();
+    _wsChannel?.sink.close();
+    _wsChannel = null;
+    // The backend already stops itself when the phone-stream socket closes
+    // (see the WS handler's `finally`), but this is idempotent and cheap —
+    // cheaper to call it than to trust two independent shutdown paths agree.
+    await _api.stop();
+    if (!mounted) return;
+    setState(() {
+      _running = false;
+      _overlayEvent = null;
+    });
+  }
+
   Future<void> _stop() async {
+    if (_source == LiveSource.thisDeviceCamera) {
+      await _stopThisDeviceCamera();
+      return;
+    }
     await _api.stop();
     _wsSubscription?.cancel();
     _wsChannel?.sink.close();
@@ -114,9 +228,21 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
           if (eventsJson != null && eventsJson.isNotEmpty) {
             final newEvents = eventsJson
                 .map((e) => LiveEvent.fromJson(e as Map<String, dynamic>))
-                .toList()
-                .reversed;
-            _events.insertAll(0, newEvents);
+                .toList();
+            if (_source == LiveSource.thisDeviceCamera) {
+              final withBox = newEvents.lastWhere(
+                (e) => e.box != null,
+                orElse: () => newEvents.last,
+              );
+              if (withBox.box != null) {
+                _overlayEvent = withBox;
+                _overlayClearTimer?.cancel();
+                _overlayClearTimer = Timer(const Duration(milliseconds: 1500), () {
+                  if (mounted) setState(() => _overlayEvent = null);
+                });
+              }
+            }
+            _events.insertAll(0, newEvents.reversed);
             if (_events.length > 30) _events.removeRange(30, _events.length);
           }
         });
@@ -135,6 +261,10 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   void dispose() {
     _wsSubscription?.cancel();
     _wsChannel?.sink.close();
+    _captureTimer?.cancel();
+    _overlayClearTimer?.cancel();
+    _phoneStreamChannel?.sink.close();
+    _cameraController?.dispose();
     _api.dispose();
     _cameraIndexController.dispose();
     super.dispose();
@@ -174,6 +304,13 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       onStop: _stop,
       isFullscreen: _isFullscreen,
       onToggleFullscreen: () => setState(() => _isFullscreen = !_isFullscreen),
+      source: _source,
+      onSourceChange: _running
+          ? null
+          : (s) => setState(() => _source = s),
+      cameraController: _cameraController,
+      overlayEvent: _overlayEvent,
+      onStartThisDeviceCamera: _startThisDeviceCamera,
     );
 
     // This screen is embedded as DashboardShell's `child` (which already
@@ -411,6 +548,11 @@ class _CameraFeedCard extends StatelessWidget {
     required this.onStop,
     required this.isFullscreen,
     required this.onToggleFullscreen,
+    required this.source,
+    required this.onSourceChange,
+    required this.cameraController,
+    required this.overlayEvent,
+    required this.onStartThisDeviceCamera,
   });
 
   final bool running;
@@ -423,6 +565,11 @@ class _CameraFeedCard extends StatelessWidget {
   final VoidCallback onStop;
   final bool isFullscreen;
   final VoidCallback onToggleFullscreen;
+  final LiveSource source;
+  final ValueChanged<LiveSource>? onSourceChange;
+  final CameraController? cameraController;
+  final LiveEvent? overlayEvent;
+  final VoidCallback onStartThisDeviceCamera;
 
   @override
   Widget build(BuildContext context) {
@@ -475,17 +622,14 @@ class _CameraFeedCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+          _SourceToggle(source: source, onChange: onSourceChange),
+          const SizedBox(height: 16),
           AspectRatio(
             aspectRatio: isFullscreen ? 16 / 7 : 16 / 9,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: running
-                  ? MjpegView(
-                      url: streamUrl,
-                      onError: (_) {},
-                    )
-                  : const _StreamOfflineState(),
+              child: _buildPreview(),
             ),
           ),
           const SizedBox(height: 20),
@@ -496,42 +640,49 @@ class _CameraFeedCard extends StatelessWidget {
             spacing: 16,
             runSpacing: 12,
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Camera Index:',
-                    style: TextStyle(fontSize: 13, color: AppColors.secondaryText),
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 60,
-                    child: TextField(
-                      controller: cameraIndexController,
-                      enabled: !running,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(fontSize: 13, color: AppColors.primaryText),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                        filled: true,
-                        fillColor: AppColors.primaryBg,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(6),
-                          borderSide: BorderSide(color: AppColors.cardBorder),
+              if (source == LiveSource.usbCamera)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Camera Index:',
+                      style: TextStyle(fontSize: 13, color: AppColors.secondaryText),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 60,
+                      child: TextField(
+                        controller: cameraIndexController,
+                        enabled: !running,
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(fontSize: 13, color: AppColors.primaryText),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                          filled: true,
+                          fillColor: AppColors.primaryBg,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(6),
+                            borderSide: BorderSide(color: AppColors.cardBorder),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
               if (!running)
                 _SolidButton(
-                  label: starting ? 'Initializing Models...' : 'Start Live Detection',
+                  label: starting
+                      ? 'Initializing...'
+                      : source == LiveSource.usbCamera
+                          ? 'Start Live Detection'
+                          : 'Start Using This Camera',
                   icon: starting ? null : LucideIcons.play,
                   loading: starting,
                   color: AppColors.success,
-                  onTap: starting ? null : onStart,
+                  onTap: starting
+                      ? null
+                      : (source == LiveSource.usbCamera ? onStart : onStartThisDeviceCamera),
                 )
               else
                 _SolidButton(
@@ -555,10 +706,168 @@ class _CameraFeedCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildPreview() {
+    if (source == LiveSource.usbCamera) {
+      return running
+          ? MjpegView(url: streamUrl, onError: (_) {})
+          : const _StreamOfflineState(sourceLabel: 'USB camera');
+    }
+    final controller = cameraController;
+    if (!running || controller == null || !controller.value.isInitialized) {
+      return const _StreamOfflineState(sourceLabel: 'this device\'s camera');
+    }
+    return AspectRatio(
+      aspectRatio: controller.value.aspectRatio,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CameraPreview(controller),
+          CustomPaint(painter: _BoxOverlayPainter(event: overlayEvent)),
+        ],
+      ),
+    );
+  }
+}
+
+class _SourceToggle extends StatelessWidget {
+  const _SourceToggle({required this.source, required this.onChange});
+  final LiveSource source;
+  final ValueChanged<LiveSource>? onChange;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _SourceChip(
+          label: 'USB Camera (server)',
+          icon: LucideIcons.usb,
+          selected: source == LiveSource.usbCamera,
+          onTap: onChange == null ? null : () => onChange!(LiveSource.usbCamera),
+        ),
+        _SourceChip(
+          label: 'This Device\'s Camera',
+          icon: LucideIcons.smartphone,
+          selected: source == LiveSource.thisDeviceCamera,
+          onTap: onChange == null ? null : () => onChange!(LiveSource.thisDeviceCamera),
+        ),
+      ],
+    );
+  }
+}
+
+class _SourceChip extends StatelessWidget {
+  const _SourceChip({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AppColors.accentBlueLight : AppColors.primaryBg,
+      borderRadius: BorderRadius.circular(9999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(9999),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(9999),
+            border: Border.all(
+              color: selected ? AppColors.accentBlue : AppColors.cardBorder,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: selected ? AppColors.accentBlue : AppColors.secondaryText),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? AppColors.accentBlue : AppColors.secondaryText,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Draws the most recent detection's box on top of the local camera preview.
+/// Box coordinates arrive relative to the frame that was actually sent to
+/// the backend (event.frameWidth/frameHeight), not this widget's on-screen
+/// size, so they're scaled proportionally here.
+class _BoxOverlayPainter extends CustomPainter {
+  _BoxOverlayPainter({required this.event});
+  final LiveEvent? event;
+
+  static const _severityColors = {
+    'critical': Color(0xFFEF4444),
+    'high': Color(0xFFF59E0B),
+    'medium': Color(0xFF3B82F6),
+    'low': Color(0xFF10B981),
+  };
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final ev = event;
+    final box = ev?.box;
+    final fw = ev?.frameWidth;
+    final fh = ev?.frameHeight;
+    if (ev == null || box == null || box.length < 4 || fw == null || fh == null || fw == 0 || fh == 0) {
+      return;
+    }
+    final color = _severityColors[ev.severity.toLowerCase()] ?? AppColors.accentBlue;
+    final scaleX = size.width / fw;
+    final scaleY = size.height / fh;
+    final rect = Rect.fromLTRB(
+      box[0] * scaleX,
+      box[1] * scaleY,
+      box[2] * scaleX,
+      box[3] * scaleY,
+    );
+
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..color = color,
+    );
+
+    final label = '${ev.className} ${(ev.confidence * 100).round()}%';
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700, backgroundColor: color),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final labelTop = (rect.top - textPainter.height).clamp(0.0, size.height);
+    textPainter.paint(canvas, Offset(rect.left, labelTop));
+  }
+
+  @override
+  bool shouldRepaint(covariant _BoxOverlayPainter oldDelegate) => oldDelegate.event != event;
 }
 
 class _StreamOfflineState extends StatelessWidget {
-  const _StreamOfflineState();
+  const _StreamOfflineState({this.sourceLabel = 'the camera'});
+  final String sourceLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -581,11 +890,10 @@ class _StreamOfflineState extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
-                'Select camera index below and start live monitoring to activate '
-                'YOLO inference scanning.',
+              Text(
+                'Start live monitoring below to activate YOLO inference scanning using $sourceLabel.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12.5, color: AppColors.secondaryText),
+                style: const TextStyle(fontSize: 12.5, color: AppColors.secondaryText),
               ),
             ],
           ),

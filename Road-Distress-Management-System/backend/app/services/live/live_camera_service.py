@@ -438,6 +438,14 @@ class LiveCameraManager:
                             "frame": current_frame_idx,
                             "latitude": lat,
                             "longitude": lon,
+                            # Box in original-frame pixel coords (x1,y1,x2,y2),
+                            # plus the frame size those coords are relative to
+                            # -- a client (e.g. the phone app) needs both to
+                            # scale the box onto its own preview widget, since
+                            # capture resolution is client-controlled.
+                            "box": [round(v, 1) for v in det["box"]],
+                            "frame_width": frame_to_process.shape[1],
+                            "frame_height": frame_to_process.shape[0],
                         })
                     
                     annotated_for_persist = _draw(frame_to_process.copy(), last_road + last_sign)
