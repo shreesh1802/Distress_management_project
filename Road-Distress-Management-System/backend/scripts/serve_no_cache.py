@@ -2,6 +2,7 @@ import http.server
 import socketserver
 import os
 import socket
+import threading
 import urllib.request
 import urllib.error
 import sys
@@ -11,6 +12,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 DIRECTORY = os.path.join(REPO_ROOT, "mobile", "build", "web")
 BACKEND_BASE = "http://127.0.0.1:8000"
+BACKEND_HOST = "127.0.0.1"
+BACKEND_PORT = 8000
 
 def get_wifi_ip():
     """Dynamically find host Wi-Fi IPv4 address."""
@@ -105,8 +108,75 @@ class ProxyNoCacheHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
                 pass
 
+    def _is_websocket_upgrade(self):
+        return self.headers.get('Upgrade', '').lower() == 'websocket'
+
+    def _proxy_websocket(self):
+        """
+        Raw socket pass-through for WebSocket connections (/live/ws,
+        /live/phone-stream). urllib (used by _proxy() for regular
+        GET/POST/etc.) has no concept of a WS handshake -- it would silently
+        turn this into a plain HTTP GET, which the backend correctly 404s.
+        Instead: open a raw TCP connection to the backend, replay this
+        request's exact request line + headers so the backend completes the
+        WS handshake itself, then splice the two sockets byte-for-byte in
+        both directions for the lifetime of the connection.
+        """
+        try:
+            backend_sock = socket.create_connection((BACKEND_HOST, BACKEND_PORT), timeout=10)
+        except OSError as e:
+            try:
+                self.send_response(502)
+                self.end_headers()
+                self.wfile.write(f"Proxy could not reach backend: {e}".encode())
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+                pass
+            return
+
+        try:
+            request_line = f"{self.command} {self.path} {self.request_version}\r\n"
+            backend_sock.sendall(request_line.encode())
+            for header, value in self.headers.items():
+                backend_sock.sendall(f"{header}: {value}\r\n".encode())
+            backend_sock.sendall(b"\r\n")
+
+            client_sock = self.connection
+
+            def pipe(src, dst):
+                try:
+                    while True:
+                        data = src.recv(65536)
+                        if not data:
+                            break
+                        dst.sendall(data)
+                except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
+                    pass
+                finally:
+                    try:
+                        dst.shutdown(socket.SHUT_WR)
+                    except OSError:
+                        pass
+
+            t_up = threading.Thread(target=pipe, args=(client_sock, backend_sock), daemon=True)
+            t_down = threading.Thread(target=pipe, args=(backend_sock, client_sock), daemon=True)
+            t_up.start()
+            t_down.start()
+            t_up.join()
+            t_down.join()
+        finally:
+            try:
+                backend_sock.close()
+            except OSError:
+                pass
+            # The connection was fully handed off to the raw splice above;
+            # don't let BaseHTTPRequestHandler try to read another request
+            # line off a socket that's already closed/consumed.
+            self.close_connection = True
+
     def do_GET(self):
         try:
+            if self._is_websocket_upgrade() and self.path.startswith('/api/'):
+                return self._proxy_websocket()
             if (self.path.startswith('/api/')
                     or self.path.startswith('/uploads/')
                     or self.path.startswith('/download-apk')
