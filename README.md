@@ -313,6 +313,17 @@ the running app is simpler than rebuilding whenever the URL changes.
    - **USB Camera** mode: a camera physically attached to whatever machine runs the backend (`app/services/live/live_camera_service.py`).
    - **This Device's Camera** mode: any phone running the app streams its own camera to the backend over WebSocket (`/api/v1/live/phone-stream`) — the right choice once the backend runs on a remote/dedicated server rather than being co-located with the camera. Detection boxes are drawn live on the phone's own camera preview as results arrive.
    - Both modes need Terminal 2 (the proxy) running, since it also proxies the WebSocket connections this feature depends on — see "Verifying Everything Is Running" above if live detection connects but shows no results.
+   - **All AI processing runs on the backend machine (the laptop/server), never on the phone.** In phone-camera mode, the phone only captures frames, JPEG-encodes them, sends them over the network, and draws the returned bounding boxes on its own live preview — it never runs a model. The phone's hardware only needs to handle its camera and network I/O; all inference compute (and therefore the GPU/CPU sizing discussion elsewhere in this README) is about the backend machine, regardless of how many phones/cameras are feeding it.
+   - **Live pipeline resolution differs from the video-upload pipeline**: to stay fast enough for real-time use, live detection runs both models at **256×256** (`LIVE_TEST_SIZE` in `app/services/live/live_config.py`), versus **640×640** for the offline video-upload pipeline (`app/services/ai/model_loader.py`). This is a deliberate accuracy/speed tradeoff specific to the real-time path, not a bug or inconsistency.
+   - **Measured inference time at the live pipeline's actual 256×256 resolution** (same trained checkpoints, same hardware as the video-pipeline benchmarks above):
+
+     | Model | CPU | GPU (RTX 3050, 6GB) |
+     |---|---|---|
+     | Road distress | 72ms | 15ms |
+     | Signage | 36ms | 13ms |
+     | Combined | ~108ms/frame | ~27ms/frame |
+
+     The signage model only runs on every 3rd inference cycle (`RUN_SIGNAGE_EVERY_N_INFERENCES`), so the typical cycle cost is closer to the road-only number. These are pure model-forward times; actual detection-to-display latency also includes network transfer and JPEG encode/decode on top.
 
 7. **GPU / Server Sizing Benchmarks** (`Road-Distress-Management-System/backend/scripts/`):
    - `benchmark_inference.py` — pure model inference timing (CPU vs GPU), using the real trained checkpoints.
