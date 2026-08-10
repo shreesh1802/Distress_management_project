@@ -102,16 +102,8 @@ class LiveCameraManager:
     # ------------------------------------------------------------------ #
     # Lifecycle
     # ------------------------------------------------------------------ #
-    def start(
-        self,
-        camera_index: int = cfg.DEFAULT_CAMERA_INDEX,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-    ) -> Dict[str, Any]:
-        if self._running.is_set():
-            return {"status": "already_running", **self.status()}
-
-        # Load models lazily on first start (heavy: yolox-m + yolox-s)
+    def _ensure_models_loaded(self) -> None:
+        """Lazy-loads both YOLOX models on first start (local or remote)."""
         from app.services.live.yolox_engine import YOLOXDetector
         if self._pavement is None:
             self._pavement = YOLOXDetector(
@@ -148,6 +140,84 @@ class LiveCameraManager:
             "configured_ckpt_file": self._signage.configured_ckpt_file,
             "class_names": self._signage.class_names,
         }
+
+    def _reset_session_state(self, source: str, latitude: Optional[float], longitude: Optional[float]) -> None:
+        if latitude is not None:
+            self.base_lat = latitude
+        if longitude is not None:
+            self.base_lon = longitude
+        self._error = None
+        self.stats = self._blank_stats()
+        self.stats["source"] = source
+        self._last_persist.clear()
+        self._latest_raw_frame = None
+        self._raw_frame_count = 0
+        self._latest_road_detections = []
+        self._latest_sign_detections = []
+
+    def start_remote(
+        self,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Starts the inference loop with no local capture thread -- frames are
+        expected to arrive one at a time via push_frame(), called by a
+        streaming client (e.g. the phone app's camera feed over WebSocket)
+        instead of a local cv2.VideoCapture. Reuses the exact same detection/
+        tracking/persistence loop the USB-camera path uses; only the frame
+        source differs.
+        """
+        if self._running.is_set():
+            return {"status": "already_running", **self.status()}
+
+        self._ensure_models_loaded()
+        self._reset_session_state("remote_stream", latitude, longitude)
+        self.stats["camera_index"] = None
+
+        self._running.set()
+        self._inference_thread = threading.Thread(
+            target=self._inference_loop, daemon=True, name="live-inference")
+        self._inference_thread.start()
+        logger.info("Live remote-stream inference thread started (awaiting pushed frames)")
+        return {"status": "started", **self.status()}
+
+    def push_frame(self, frame) -> None:
+        """
+        Feeds one already-decoded BGR frame (numpy array) into the running
+        remote-stream session -- called per frame received over the phone
+        streaming WebSocket. No-op if no session is running (e.g. the client
+        pushed a frame after start_remote() failed or before it was called).
+        """
+        if not self._running.is_set():
+            return
+        with self._lock:
+            self._latest_raw_frame = frame
+            self._raw_frame_count += 1
+            frame_count = self._raw_frame_count
+            current_road = list(self._latest_road_detections)
+            current_sign = list(self._latest_sign_detections)
+
+        # Keep /live/stream (MJPEG) valid too even though the phone itself
+        # draws its own overlay locally from /live/ws events -- useful for
+        # viewing the same session from a second device (e.g. a desk monitor).
+        annotated = _draw(frame.copy(), current_road + current_sign)
+        ok, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        with self._lock:
+            if ok:
+                self._latest_jpeg = buf.tobytes()
+            self.stats["frames"] = frame_count
+
+    def start(
+        self,
+        camera_index: int = cfg.DEFAULT_CAMERA_INDEX,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if self._running.is_set():
+            return {"status": "already_running", **self.status()}
+
+        self._ensure_models_loaded()
 
         if latitude is not None:
             self.base_lat = latitude

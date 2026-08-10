@@ -1,18 +1,24 @@
 """
-Live USB camera detection routes.
+Live camera detection routes -- USB webcam on the server, or a remote client
+(e.g. the phone app's own camera) streaming frames in over WebSocket.
 
 Endpoints:
-  POST /live/start   - start camera + dual YOLOX inference
-  POST /live/stop    - stop the loop and release the camera
-  GET  /live/status  - counters/state for polling clients
-  GET  /live/stream  - MJPEG stream of annotated frames (use in an <img> tag)
-  WS   /live/ws      - pushes status + detection events (~2Hz)
+  POST /live/start          - start LOCAL USB camera + dual YOLOX inference
+  WS   /live/phone-stream   - start a REMOTE session fed by pushed JPEG frames
+                               (e.g. from the phone's own camera) instead of a
+                               local camera device
+  POST /live/stop           - stop the loop and release the camera
+  GET  /live/status         - counters/state for polling clients
+  GET  /live/stream         - MJPEG stream of annotated frames (use in an <img> tag)
+  WS   /live/ws             - pushes status + detection events (~2Hz)
 """
 
 import asyncio
 import logging
 from typing import Any, Dict, Optional
 
+import cv2
+import numpy as np
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -49,6 +55,49 @@ def start_live(req: LiveStartRequest) -> Dict[str, Any]:
 def stop_live() -> Dict[str, Any]:
     """Stop the live camera detection loop and release the camera."""
     return LiveCameraManager.instance().stop()
+
+
+@router.websocket("/phone-stream")
+async def phone_stream(websocket: WebSocket) -> None:
+    """
+    Real-time detection fed by a remote client's own camera (the phone app)
+    instead of a USB camera attached to this server.
+
+    Protocol: after the WS handshake, send one binary message per frame --
+    each message is a single JPEG-encoded image (whatever size/quality the
+    client captures at; typical use is ~5-10fps to match the detection
+    cadence, no need to match full camera framerate). The connection itself
+    starts and stops the session -- closing it stops detection and releases
+    the models' session state, same as POST /live/stop would.
+
+    Detection results are read the normal way, via GET /live/status,
+    GET /live/stream (MJPEG, still valid -- annotated from the last pushed
+    frame), or WS /live/ws (event feed) -- this socket only accepts frames,
+    it doesn't push results back, so a client typically has this connection
+    open alongside a /live/ws connection for results.
+    """
+    await websocket.accept()
+    manager = LiveCameraManager.instance()
+    try:
+        result = manager.start_remote()
+        if result.get("status") == "already_running":
+            # Another session (local camera or a different phone) is already
+            # active -- refuse rather than silently interleaving two sources
+            # into one inference loop.
+            await websocket.close(code=1013, reason="A live session is already running")
+            return
+
+        while True:
+            data = await websocket.receive_bytes()
+            frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if frame is not None:
+                manager.push_frame(frame)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning(f"Phone stream closed: {e}")
+    finally:
+        manager.stop()
 
 
 @router.get("/status")
