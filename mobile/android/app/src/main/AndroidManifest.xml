@@ -48,7 +48,7 @@
         <!-- Required so url_launcher's canLaunchUrl() can actually detect a
              browser on Android 11+ (API 30+ restricts package visibility by
              default). Without this, canLaunchUrl silently returns false even
-             though a browser is installed and launchUrl would work fine --
+             though a browser is installed and launchUrl would work fine,
              which is exactly what was breaking PDF/Excel report downloads:
              triggerReportDownload (download_helper_stub.dart) checks
              canLaunchUrl first and does nothing at all if it's false, with
