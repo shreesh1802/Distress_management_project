@@ -18,9 +18,20 @@ def get_video(db: Session, video_id: int) -> Optional[UploadedVideo]:
 
 def get_videos(db: Session, skip: int = 0, limit: int = 100) -> List[UploadedVideo]:
     """
-    Retrieve a list of uploaded video records with pagination.
+    Retrieve a list of uploaded video records with pagination, most recent
+    first. Without an explicit order, SQL gives no ordering guarantee at all
+    -- the frontend's "default to the first video in the list" behavior (the
+    Video Review screen, when no specific video ID is requested) would show
+    whatever arbitrary row the database happened to return first, not the
+    most recently uploaded/processed one.
     """
-    return db.query(UploadedVideo).offset(skip).limit(limit).all()
+    return (
+        db.query(UploadedVideo)
+        .order_by(UploadedVideo.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
 def create_video(db: Session, video_in: UploadedVideoCreate) -> UploadedVideo:
