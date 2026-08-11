@@ -78,6 +78,7 @@ async def phone_stream(websocket: WebSocket) -> None:
     """
     await websocket.accept()
     manager = LiveCameraManager.instance()
+    keepalive_task: Optional[asyncio.Task] = None
     try:
         result = manager.start_remote()
         if result.get("status") == "already_running":
@@ -86,6 +87,21 @@ async def phone_stream(websocket: WebSocket) -> None:
             # into one inference loop.
             await websocket.close(code=1013, reason="A live session is already running")
             return
+
+        async def _keepalive():
+            # This socket is intentionally one-way (client sends frames, this
+            # handler never replies), so the reply direction sits idle for
+            # the entire session even though frames are flowing steadily the
+            # other way. Over a public tunnel + mobile carrier NAT, an idle
+            # direction on an otherwise-active connection can still get
+            # silently dropped (observed: sessions cut off ~15-20s in on
+            # cellular, never on direct LAN) -- a tiny periodic message on
+            # the otherwise-silent direction is the standard fix.
+            while True:
+                await asyncio.sleep(8)
+                await websocket.send_bytes(b"\x00")
+
+        keepalive_task = asyncio.create_task(_keepalive())
 
         while True:
             data = await websocket.receive_bytes()
@@ -97,6 +113,8 @@ async def phone_stream(websocket: WebSocket) -> None:
     except Exception as e:
         logger.warning(f"Phone stream closed: {e}")
     finally:
+        if keepalive_task is not None:
+            keepalive_task.cancel()
         manager.stop()
 
 
