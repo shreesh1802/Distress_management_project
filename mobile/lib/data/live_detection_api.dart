@@ -235,10 +235,23 @@ class LiveDetectionApi {
 
   String streamUrlFor(int streamKey) => '$kApiV1/live/stream?k=$streamKey';
 
-  WebSocketChannel connectWs() {
-    final wsBase = kApiBaseUrl.replaceFirst(RegExp(r'^http'), 'ws');
-    return WebSocketChannel.connect(Uri.parse('$wsBase/api/v1/live/ws'));
+  /// Builds a ws:// or wss:// URI for [path], preserving the base URL's port
+  /// -- explicit if it has one, or the correct implicit default (443/80) if
+  /// it doesn't (e.g. a tunnel URL like https://foo.loca.lt with no :port).
+  /// A plain text scheme swap (http -> ws) loses that implicit default: Dart's
+  /// Uri only knows built-in default ports for http/https, not ws/wss, so a
+  /// port-less https:// base would silently resolve to port 0 on the wss://
+  /// side -- which is exactly what broke phone-camera streaming over the
+  /// public tunnel (LAN URLs always have an explicit :8000, so this only
+  /// surfaced over cellular/tunnel access, never on Wi-Fi).
+  Uri _wsUri(String path) {
+    final base = Uri.parse(kApiBaseUrl);
+    final secure = base.scheme == 'https';
+    final port = base.hasPort ? base.port : (secure ? 443 : 80);
+    return Uri(scheme: secure ? 'wss' : 'ws', host: base.host, port: port, path: path);
   }
+
+  WebSocketChannel connectWs() => WebSocketChannel.connect(_wsUri('/api/v1/live/ws'));
 
   /// Connects to the remote-stream session: send one binary message per
   /// frame (raw JPEG bytes) on the returned channel's sink to feed the
@@ -246,10 +259,8 @@ class LiveDetectionApi {
   /// USB camera attached to the server. Detection results still arrive the
   /// normal way, via [connectWs] -- this channel is send-only from the
   /// client's side. Closing it stops the session server-side.
-  WebSocketChannel connectPhoneStreamWs() {
-    final wsBase = kApiBaseUrl.replaceFirst(RegExp(r'^http'), 'ws');
-    return WebSocketChannel.connect(Uri.parse('$wsBase/api/v1/live/phone-stream'));
-  }
+  WebSocketChannel connectPhoneStreamWs() =>
+      WebSocketChannel.connect(_wsUri('/api/v1/live/phone-stream'));
 
   void dispose() => _client.close();
 }
