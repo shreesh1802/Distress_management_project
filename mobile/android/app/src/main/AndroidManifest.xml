@@ -45,5 +45,23 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Required so url_launcher's canLaunchUrl() can actually detect a
+             browser on Android 11+ (API 30+ restricts package visibility by
+             default). Without this, canLaunchUrl silently returns false even
+             though a browser is installed and launchUrl would work fine --
+             which is exactly what was breaking PDF/Excel report downloads:
+             triggerReportDownload (download_helper_stub.dart) checks
+             canLaunchUrl first and does nothing at all if it's false, with
+             no error surfaced anywhere. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <category android:name="android.intent.category.BROWSABLE"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <category android:name="android.intent.category.BROWSABLE"/>
+            <data android:scheme="http"/>
+        </intent>
     </queries>
 </manifest>
