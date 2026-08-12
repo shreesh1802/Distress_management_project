@@ -4,10 +4,10 @@ A real-time AI-powered pavement monitoring system that uses dashcam video to det
 
 ## Project Objective
 
-The goal is to build a simple, scalable Final Year Project that demonstrates an end-to-end road monitoring workflow:
+
 
 1. Capture dashcam video and GPS information.
-2. Detect road distress using AI models such as YOLOv11.
+2. Detect road distress using AI models such as YOLOX.
 3. Store detected issues with location, severity, image/video evidence, and timestamp.
 4. Display detections on a GIS dashboard using map-based visualization.
 5. Generate maintenance reports for planning and decision-making.
@@ -19,7 +19,7 @@ Dashcam Video + GPS
         |
         v
 AI Detection Module
-YOLOv11 + OpenCV
+YOLOX + OpenCV
         |
         v
 Backend API
@@ -46,16 +46,7 @@ shared/       API contracts, sample data, common assets, and cross-module resour
 .github/      GitHub Actions workflows for automation
 ```
 
-## Suggested Team Distribution
 
-| Member | Branch | Main Folder | Responsibility |
-| --- | --- | --- | --- |
-| Member 1 | `frontend-dev` | `frontend/` | React dashboard, GIS map, pages, UI components |
-| Member 2 | `backend-dev` | `backend/` | FastAPI routes, services, API logic, backend integration |
-| Member 3 | `ai-dev` | `ai/` | YOLOv11 model training, OpenCV inference, datasets |
-| Member 4 | `database-dev` | `database/` | PostgreSQL schema, migrations, GPS-tagged detection storage |
-| Member 5 | `docs-dev` | `docs/` | Proposal, reports, diagrams, presentation, viva material |
-| Member 6 | `main` and feature branches | `shared/`, integration support | API contracts, sample data, testing, integration coordination |
 
 ## Suggested Git Branches
 
@@ -70,7 +61,7 @@ shared/       API contracts, sample data, common assets, and cross-module resour
 
 - Frontend: React, TypeScript, Google Maps or another GIS map provider
 - Backend: FastAPI, Python
-- AI: YOLOv11, OpenCV
+- AI: YOLO, OpenCV
 - Database: PostgreSQL with GPS-enabled detection records
 - DevOps: Docker Compose, GitHub Actions
 
