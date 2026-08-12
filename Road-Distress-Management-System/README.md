@@ -37,7 +37,7 @@ React GIS dashboard and reports
 ## Repository Structure
 
 ```text
-frontend/     React dashboard for map visualization, reports, and user interface
+frontend/     React dashboard (legacy) -- superseded by the Flutter app in ../mobile, kept as a design/behavior reference only
 backend/      FastAPI APIs for detections, reports, users, and integrations
 ai/           YOLO, OpenCV, datasets, training scripts, and inference experiments
 database/     PostgreSQL schema, migrations, and database documentation
