@@ -7,7 +7,7 @@ A real-time AI-powered pavement monitoring system that uses dashcam video to det
 
 
 1. Capture dashcam video and GPS information.
-2. Detect road distress using AI models such as YOLOv11.
+2. Detect road distress using AI models such as YOLOX.
 3. Store detected issues with location, severity, image/video evidence, and timestamp.
 4. Display detections on a GIS dashboard using map-based visualization.
 5. Generate maintenance reports for planning and decision-making.
