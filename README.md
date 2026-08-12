@@ -1,10 +1,7 @@
 # Road Distress Management System & Mobile Web Platform
 
-A production-ready, cross-platform Road Distress Detection & Inspection Management Platform. The system consists of a **FastAPI AI Backend** and a **Flutter Web/Mobile Frontend App** supporting real-time live monitoring, dual-video inspection reviews, AI distress visual crops, GIS mapping, and dynamic PDF & Excel safety audit report generation.
 
----
-
-## 🏗️ Repository Code Architecture (For Developers & LLMs)
+##  Repository Code Architecture 
 
 The repository is structured into two primary components:
 
@@ -50,18 +47,17 @@ Distress_management_project/
 
 ---
 
-## 🧰 First-Time Setup (once per machine)
+##  First-Time Setup (once per machine)
 
 Do this once per machine, in order, from PowerShell.
 
-**1. Pull the AI model weights** (they're stored in Git LFS, not the regular repo):
 
 ```powershell
 cd <path-to-repo>
 git lfs pull
 ```
 
-**2. Create the backend virtual environment and install dependencies:**
+** Create the backend virtual environment and install dependencies:**
 
 ```powershell
 cd <path-to-repo>\Road-Distress-Management-System\backend
@@ -70,17 +66,14 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-**3. Install YOLOX** — deliberately left out of `requirements.txt` (see the comment block
-above `pycocotools` in that file for why: its own PyPI metadata pulls in an unresolvable
-pinned dependency). Without this step the AI pipeline silently falls back to fake/mock
-detections instead of real ones:
+** Install YOLOX** 
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install cmake ninja
 .\.venv\Scripts\python.exe -m pip install yolox==0.3.0 --no-deps --no-build-isolation
 ```
 
-**4. Point the database at SQLite** (the backend defaults to PostgreSQL on
+** Point the database at SQLite** (the backend defaults to PostgreSQL on
 `localhost:5432`; for local/laptop hosting without installing Postgres, SQLite is a
 drop-in — the ORM has no Postgres-specific types). Create `Road-Distress-Management-System\backend\.env`:
 
@@ -89,13 +82,13 @@ DATABASE_URL=sqlite:///./road_distress.db
 BACKEND_CORS_ORIGINS=*
 ```
 
-**5. Create the tables and seed the default admin account:**
+** Create the tables and seed the default admin account:**
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.db.init_db
 ```
 
-**6. Build the Flutter web app and Android APK** (from `mobile/`):
+** Build the Flutter web app and Android APK** (from `mobile/`):
 
 ```powershell
 cd ..\..\mobile
@@ -105,11 +98,9 @@ flutter build apk --release
 copy build\app\outputs\flutter-apk\app-release.apk ..\Road-Distress-Management-System\backend\uploads\RoadDistress.apk
 ```
 
-(`backend/uploads/RoadDistress.apk` is gitignored and not part of the repo — it must be
-placed there locally for `/download-apk` to serve it. Re-run this `copy` step, and
-rebuild first, any time you change app code and want the installed APK to reflect it.)
 
-**7. First app launch — set the connection URL once.** The native Android app has no
+
+** First app launch — set the connection URL once.** The native Android app has no
 way to auto-detect the backend's address (that trick only works for the web build, via
 the browser's origin). Open the app's connection dialog once and enter your laptop's
 Wi-Fi IP (see "Getting Your Current Wi-Fi (LAN) Link" below for how to find it),
@@ -120,12 +111,12 @@ dialog and update it.
 
 ---
 
-## ⚙️ How to Start the System (Exact PowerShell Commands)
+##  How to Start the System (Exact PowerShell Commands)
 
 Every time you want to run the app, start these in **3 separate PowerShell windows**,
 from `<path-to-repo>\Road-Distress-Management-System\backend` in each:
 
-> **Tip**: find `<path-to-repo>` from anywhere inside the cloned folder with
+> ** find `<path-to-repo>` from anywhere inside the cloned folder with
 > `git rev-parse --show-toplevel`.
 
 ### 1️⃣ Terminal 1 — Backend (port 8000)
@@ -173,7 +164,7 @@ cd <path-to-repo>\Road-Distress-Management-System\backend
 
 ## 🌐 Getting Your Current Wi-Fi (LAN) Link
 
-Needed any time you connect a phone on the **same Wi-Fi** as this laptop. Your laptop's
+Needed any time you connect a phone on the **same Wi-Fi** .laptop's
 IP can change (DHCP renewals, reconnecting to the network) — always get the *current*
 one rather than reusing an old one.
 
@@ -243,7 +234,7 @@ that terminal window likely closed or crashed — just re-run its start command.
 
 ---
 
-## 📱 Quick Access Links Summary
+##  Quick Access Links Summary
 
 | Connection Type | Target Device | Access URL |
 |-----------------|---------------|----------------------|
@@ -255,7 +246,7 @@ that terminal window likely closed or crashed — just re-run its start command.
 
 ---
 
-## 📲 Android APK Installation Guide
+##  Android APK Installation Guide
 
 The system provides a downloadable APK for native Android access with real-time push notifications and offline-capable caching.
 
@@ -288,7 +279,7 @@ the running app is simpler than rebuilding whenever the URL changes.
 
 ---
 
-## 🔥 Key Features Implemented
+##  Key Features Implemented
 
 1. **Dual Video Side-by-Side Review**:
    - View raw surveillance footage alongside AI-annotated object detection feeds.
