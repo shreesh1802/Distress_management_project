@@ -15,6 +15,7 @@ Endpoints:
 
 import asyncio
 import logging
+import time
 from typing import Any, Dict, Optional
 
 import cv2
@@ -79,6 +80,10 @@ async def phone_stream(websocket: WebSocket) -> None:
     await websocket.accept()
     manager = LiveCameraManager.instance()
     keepalive_task: Optional[asyncio.Task] = None
+    start_time = time.monotonic()
+    frames_received = 0
+    keepalives_sent = 0
+    client = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "unknown"
     try:
         result = manager.start_remote()
         if result.get("status") == "already_running":
@@ -89,29 +94,41 @@ async def phone_stream(websocket: WebSocket) -> None:
             return
 
         async def _keepalive():
+            nonlocal keepalives_sent
             # This socket is intentionally one-way (client sends frames, this
             # handler never replies), so the reply direction sits idle for
             # the entire session even though frames are flowing steadily the
             # other way. Over a public tunnel + mobile carrier NAT, an idle
             # direction on an otherwise-active connection can still get
-            # silently dropped (observed: sessions cut off ~15-20s in on
-            # cellular, never on direct LAN) -- a tiny periodic message on
-            # the otherwise-silent direction is the standard fix.
+            # silently dropped -- a tiny periodic message on the otherwise-
+            # silent direction is the standard fix.
             while True:
                 await asyncio.sleep(8)
                 await websocket.send_bytes(b"\x00")
+                keepalives_sent += 1
 
         keepalive_task = asyncio.create_task(_keepalive())
 
         while True:
             data = await websocket.receive_bytes()
+            frames_received += 1
             frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
             if frame is not None:
                 manager.push_frame(frame)
-    except WebSocketDisconnect:
-        pass
+    except WebSocketDisconnect as e:
+        elapsed = time.monotonic() - start_time
+        logger.warning(
+            f"Phone stream [{client}] disconnected after {elapsed:.1f}s -- "
+            f"code={e.code} reason={e.reason!r} frames_received={frames_received} "
+            f"keepalives_sent={keepalives_sent}"
+        )
     except Exception as e:
-        logger.warning(f"Phone stream closed: {e}")
+        elapsed = time.monotonic() - start_time
+        logger.warning(
+            f"Phone stream [{client}] closed with exception after {elapsed:.1f}s -- "
+            f"{type(e).__name__}: {e} -- frames_received={frames_received} "
+            f"keepalives_sent={keepalives_sent}"
+        )
     finally:
         if keepalive_task is not None:
             keepalive_task.cancel()

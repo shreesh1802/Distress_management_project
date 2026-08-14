@@ -3,6 +3,7 @@ import socketserver
 import os
 import socket
 import threading
+import time
 import urllib.request
 import urllib.error
 import sys
@@ -152,24 +153,32 @@ class ProxyNoCacheHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             backend_sock.sendall(b"\r\n")
 
             client_sock = self.connection
+            conn_start = time.monotonic()
 
-            def pipe(src, dst):
+            def pipe(src, dst, label):
+                bytes_moved = 0
                 try:
                     while True:
                         data = src.recv(65536)
                         if not data:
+                            elapsed = time.monotonic() - conn_start
+                            print(f"[ws-proxy {self.path}] {label}: source sent EOF after "
+                                  f"{elapsed:.1f}s, {bytes_moved} bytes moved", flush=True)
                             break
+                        bytes_moved += len(data)
                         dst.sendall(data)
-                except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
-                    pass
+                except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError) as e:
+                    elapsed = time.monotonic() - conn_start
+                    print(f"[ws-proxy {self.path}] {label}: {type(e).__name__} after "
+                          f"{elapsed:.1f}s, {bytes_moved} bytes moved", flush=True)
                 finally:
                     try:
                         dst.shutdown(socket.SHUT_WR)
                     except OSError:
                         pass
 
-            t_up = threading.Thread(target=pipe, args=(client_sock, backend_sock), daemon=True)
-            t_down = threading.Thread(target=pipe, args=(backend_sock, client_sock), daemon=True)
+            t_up = threading.Thread(target=pipe, args=(client_sock, backend_sock, "phone->backend"), daemon=True)
+            t_down = threading.Thread(target=pipe, args=(backend_sock, client_sock, "backend->phone"), daemon=True)
             t_up.start()
             t_down.start()
             t_up.join()
