@@ -44,9 +44,14 @@ class AppRoutes {
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
-    initialLocation: AppRoutes.videoReview,
+    initialLocation: AppRoutes.login,
     refreshListenable: _AuthListenable(ref),
     redirect: (context, state) {
+      final isAuthenticated = ref.read(authProvider).isAuthenticated;
+      final onLoginPage = state.matchedLocation == AppRoutes.login;
+
+      if (!isAuthenticated && !onLoginPage) return AppRoutes.login;
+      if (isAuthenticated && onLoginPage) return AppRoutes.survey;
       return null;
     },
     routes: [

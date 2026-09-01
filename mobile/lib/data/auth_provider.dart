@@ -24,7 +24,7 @@ class AuthNotifier extends Notifier<AuthState> {
   @override
   AuthState build() {
     _restore();
-    return const AuthState(isAuthenticated: true);
+    return const AuthState(isAuthenticated: false);
   }
 
   Future<void> _restore() async {
