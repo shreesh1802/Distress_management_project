@@ -6,7 +6,7 @@ app/crud/project.py's user_can_access_project).
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -163,7 +163,7 @@ async def upload_audio_route(
     audit_id: int,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    chainage_km: Optional[float] = Form(None),
+    chainage_km: Optional[float] = Form(None, ge=0, le=100000),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> AuditAudioClipResponse:
@@ -190,7 +190,7 @@ def delete_audio_route(
 @router.get("/{audit_id}/report/chainage", response_model=ChainageReportResponse)
 def chainage_report_route(
     audit_id: int,
-    interval_km: float = DEFAULT_INTERVAL_KM,
+    interval_km: float = Query(DEFAULT_INTERVAL_KM, gt=0, le=100, allow_inf_nan=False),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ChainageReportResponse:

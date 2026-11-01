@@ -756,7 +756,7 @@ class _CardHeader extends StatelessWidget {
         Text(
           step == _LoginStep.email
               ? 'Sign in with your email to receive a one-time code.'
-              : 'Check your inbox for the login code.',
+              : 'If this email is registered, a login code has been sent. Check your inbox.',
           style: AppTextStyles.loginCardSubtitle,
         ),
       ],

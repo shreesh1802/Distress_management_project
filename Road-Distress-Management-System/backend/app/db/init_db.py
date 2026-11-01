@@ -10,8 +10,6 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
-from app.models.user import User
-from app.core.security import get_password_hash
 from app.core.config import settings
 
 # Set up logging configuration
@@ -66,24 +64,11 @@ def init_db(db: Session) -> None:
     logger.info("All required tables are present in the database.")
 
     logger.info("Checking for administrative seeding conditions...")
-    # Seed a default admin if none exist
-    admin_email = "admin@roaddistress.org"
-    admin_user = db.query(User).filter(User.email == admin_email).first()
-    
-    if not admin_user:
-        logger.info(f"Seeding default system administrator: {admin_email}...")
-        new_admin = User(
-            email=admin_email,
-            full_name="Default Administrator",
-            hashed_password=get_password_hash("AdminSecurePassword123!"),
-            role="admin"
-        )
-        db.add(new_admin)
-        db.commit()
-        db.refresh(new_admin)
-        logger.info("Seeding completed successfully.")
-    else:
-        logger.info("Administrator account already exists. Seeding skipped.")
+    # First administrator (OTP login, no password): development -> admin@roaddistress.org as user 1;
+    # production -> only if BOOTSTRAP_ADMIN_EMAIL is set. No default password is ever created.
+    from app.db.bootstrap import bootstrap_admin
+    bootstrap_admin(db)
+    logger.info("Administrator bootstrap check completed.")
 
 
 def main() -> None:

@@ -24,7 +24,26 @@ import logging
 import random
 from typing import Any, List, Optional
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
+
+
+class ModelUnavailableError(RuntimeError):
+    """The real detection model could not be loaded and the mock fallback is not allowed."""
+
+
+def _mock_or_raise(model_path: str, reason: str) -> "MockYOLO":
+    """
+    Returns the random-box MockYOLO ONLY when ALLOW_MOCK_MODEL permits it (default: allowed
+    in development, forbidden in production). Otherwise fails closed so fabricated detections
+    can never be stored as real inspection results.
+    """
+    if not settings.allow_mock_model:
+        logger.error("Detection model unavailable (%s) and ALLOW_MOCK_MODEL is off; refusing to fabricate detections.", reason)
+        raise ModelUnavailableError("The detection model is not available on this server.")
+    logger.warning("Using MockYOLO (RANDOM detections) because: %s. Set ALLOW_MOCK_MODEL=false to forbid this.", reason)
+    return MockYOLO(model_path)
 
 # Try to import YOLOX, the framework the actual road/signage checkpoints were trained with.
 try:
@@ -247,11 +266,10 @@ class ModelLoader:
                 )
                 self._road_model = YoloxModel(detector)
             except Exception as e:
-                logger.warning(f"Error loading road YOLOX model. Falling back to MockYOLO: {e}")
-                self._road_model = MockYOLO(full_model_path)
+                logger.warning(f"Error loading road YOLOX model: {e}")
+                self._road_model = _mock_or_raise(full_model_path, "road model failed to load")
         else:
-            logger.warning(f"Road model file not found at {full_model_path}. Creating MockYOLO model.")
-            self._road_model = MockYOLO(full_model_path)
+            self._road_model = _mock_or_raise(full_model_path, "road model file or YOLOX runtime is missing")
 
         return self._road_model
 
@@ -291,11 +309,10 @@ class ModelLoader:
                 )
                 self._signage_model = YoloxModel(detector)
             except Exception as e:
-                logger.warning(f"Error loading signage YOLOX model. Falling back to MockYOLO: {e}")
-                self._signage_model = MockYOLO(full_model_path)
+                logger.warning(f"Error loading signage YOLOX model: {e}")
+                self._signage_model = _mock_or_raise(full_model_path, "signage model failed to load")
         else:
-            logger.warning(f"Signage model file not found at {full_model_path}. Creating MockYOLO model.")
-            self._signage_model = MockYOLO(full_model_path)
+            self._signage_model = _mock_or_raise(full_model_path, "signage model file or YOLOX runtime is missing")
 
         return self._signage_model
 
@@ -305,3 +322,4 @@ class ModelLoader:
         """
         from app.services.ai.detector_manager import DetectorManager
         return DetectorManager()
+

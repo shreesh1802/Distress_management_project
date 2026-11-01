@@ -34,7 +34,9 @@ class UploadedVideoCreate(UploadedVideoBase):
 
 class UploadedVideoUpdate(BaseModel):
     """
-    Properties for updating processing status or details of a video.
+    INTERNAL update schema used by the AI pipeline (detection_service.py,
+    pipeline_manager.py), which legitimately writes ``processed_filepath`` etc.
+    Never expose this model on an HTTP route -- use UploadedVideoClientUpdate.
     """
     processing_status: Optional[str] = Field(None, max_length=50)
     filepath: Optional[str] = Field(None, max_length=512)
@@ -47,6 +49,18 @@ class UploadedVideoUpdate(BaseModel):
     processed_video_path: Optional[str] = Field(None, max_length=512)
     progress: Optional[int] = Field(None)
     processing_stage: Optional[str] = Field(None, max_length=100)
+
+
+class UploadedVideoClientUpdate(BaseModel):
+    """
+    Client-facing update schema (legacy PUT /upload/video/{id}). Only the
+    processing status may be changed by an API caller; file-system path fields
+    (filepath, processed_filepath, processed_video_path) are rejected with 422
+    because they are later used to read and delete files on the server.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    processing_status: Optional[str] = Field(None, max_length=50, pattern=r"^[a-z_]{1,50}$")
 
 
 class UploadedVideoResponse(UploadedVideoBase):

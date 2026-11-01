@@ -29,6 +29,12 @@ services:
       POSTGRES_DB: road_distress_db
       POSTGRES_PORT: "5432"
       BACKEND_CORS_ORIGINS: "*"
+      # nginx (the "nginx" service below) is exactly ONE reverse proxy in front of the backend. Without this the
+      # backend sees nginx's address for every request, all users share one per-IP rate-limit bucket and a few
+      # failed logins can lock everyone out. Keep it at the number of proxies between the internet and the app.
+      TRUSTED_PROXY_COUNT: "1"
+      # For a real deployment also set: APP_ENV=production, SMTP_HOST, SMTP_FROM, DOWNLOAD_SIGNING_SECRET
+      # (see SECURITY.md) and change the database password above.
     volumes:
       - ./backend/uploads:/app/backend/uploads
       - ./backend/models:/app/backend/models

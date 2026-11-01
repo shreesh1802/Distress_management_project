@@ -204,11 +204,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   Future<void> _triggerDownload(ReportItem report) async {
-    final url = report.reportType == 'EXCEL'
-        ? _reportsApi.excelReportDownloadUrl(report.reportId)
-        : _reportsApi.reportDownloadUrl(report.reportId);
-    final ext = report.reportType == 'EXCEL' ? 'xlsx' : 'pdf';
-    await triggerReportDownload(url, '${report.id}.$ext');
+    final isExcel = report.reportType == 'EXCEL';
+    final ext = isExcel ? 'xlsx' : 'pdf';
+    try {
+      // Short-lived signed link: the download cannot carry an Authorization header.
+      final url = await _reportsApi.signedUrl(report.reportId, isExcel ? 'excel' : 'pdf');
+      await triggerReportDownload(url, '${report.id}.$ext');
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not download the report.')),
+      );
+    }
   }
 
   void _handleBulkDownload() {

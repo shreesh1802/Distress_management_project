@@ -7,7 +7,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgl1 \
     libglib2.0-0 \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
+
+# Unprivileged user the server runs as (see docker-entrypoint.sh, which drops root after
+# fixing the ownership of the upload/report volumes).
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid app --create-home --home-dir /home/app --shell /usr/sbin/nologin app
 
 # WORKDIR is one level deeper than usual (/app/backend, not /app) on
 # purpose: every path helper in this codebase computes its output directory
@@ -35,7 +41,13 @@ COPY . .
 # uploads/ (raw + processed videos, detection crops) persists inside
 # backend/; reports/ (generated PDF/Excel) persists one level up -- both
 # mounted as volumes in docker-compose.yml, not baked into the image.
-RUN mkdir -p uploads ../reports
+# .cache/ holds the ffmpeg copy used by audio transcription.
+RUN mkdir -p uploads ../reports .cache \
+    && sed -i 's/\r$//' docker-entrypoint.sh \
+    && chmod 0755 docker-entrypoint.sh \
+    && chown -R app:app /app /home/app
 
 EXPOSE 8000
+# Starts as root only long enough to chown the data volumes, then runs uvicorn as "app".
+ENTRYPOINT ["/app/backend/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

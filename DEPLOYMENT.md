@@ -91,18 +91,27 @@ docker compose logs -f backend
 docker compose exec backend python -m app.db.init_db
 ```
 
-This creates all tables and seeds a default admin account:
-- **Email:** `admin@roaddistress.org`
-- **Password:** `AdminSecurePassword123!`
+This creates all tables and the first administrator. **No password is ever
+created** — administrators sign in with Email + OTP:
 
-**Log in and change this password immediately** — it's a well-known default
-sitting in the repo's source code, not a secret.
+- **Development** (`APP_ENV` unset): the admin is `admin@roaddistress.org` and the
+  login code is shown in the app (`dev_otp`).
+- **Production** (`APP_ENV=production`): set `BOOTSTRAP_ADMIN_EMAIL` to a mailbox you
+  control (and configure SMTP — see `SECURITY.md`); that account is created as admin and
+  the login code is e-mailed to it.
+
+Before exposing the server, read `SECURITY.md` (production environment variables,
+TLS, and the Play Store checklist). The server refuses to start in production mode
+when SMTP / CORS / the download-signing secret are not configured.
 
 ## 6. Verify
 
 Open `http://<your-server-ip>` in a browser. You should see the login screen.
-Check the backend directly at `http://<your-server-ip>/api/v1/docs` (or
-whatever path FastAPI's OpenAPI docs are mounted at) to confirm it's reachable.
+Check the backend directly with `http://<your-server-ip>/health`: it returns only
+`{"status":"healthy"}` (HTTP 200) when the database is reachable, and a generic 500/503 otherwise.
+Details (tables, AI-model status) are at the authenticated `GET /api/v1/health/details` (send your
+login token). The interactive API docs (`/docs`) exist only in development; with `APP_ENV=production`
+(or on a hosting platform with `APP_ENV` unset) they are disabled.
 
 Try a full round trip: log in, upload a short video, confirm it processes and
 Video Review shows real detections — the same thing we verified locally, now

@@ -219,7 +219,7 @@ def process_video(video_id: int) -> None:
                 processing_completed_at=datetime.utcnow(),
                 processing_duration=duration,
                 progress=0,
-                processing_stage=f"Failed: {str(e)[:80]}"
+                processing_stage=f"Failed: {type(e).__name__}"  # exception text stays in the server log (may contain paths)
             )
             update_video(db, video_id=video_id, video_in=video_update)
             db.commit()
@@ -267,12 +267,11 @@ def generate_processed_video(db: Session, video_id: int) -> str:
     detections_dir = os.path.join(base_dir, "uploads", "detections", str(video_id))
     
     # Resolve original video filepath
-    original_video_path = os.path.join(base_dir, db_video.filepath)
-    if not os.path.exists(original_video_path):
-        original_video_path = db_video.filepath
+    from app.core.safe_paths import resolve_upload_path
+    original_video_path = resolve_upload_path(db_video.filepath)
         
-    if not os.path.exists(original_video_path):
-        logger.warning(f"Original video file not found at: {original_video_path}. Skipping video generation.")
+    if original_video_path is None or not os.path.exists(original_video_path):
+        logger.warning(f"Original video file not found for video {video_id}. Skipping video generation.")
         return None
         
     cap = cv2.VideoCapture(original_video_path)

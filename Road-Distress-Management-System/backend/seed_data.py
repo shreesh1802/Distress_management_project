@@ -1,6 +1,8 @@
 """
 Database Seeding Script for Road Distress Management System.
-Populates PostgreSQL with:
+Populates the (local, SQLite) database with demo data -- refuses to run in production
+or against a non-SQLite database unless ALLOW_DESTRUCTIVE_SCRIPTS is set (app/core/env_guard.py).
+Demo accounts get no password (sign in with Email + OTP). Populates:
 - 3 users (Admin, Inspector, Maintenance lead)
 - 20 realistic geo-tagged road distress logs
 - 10 uploaded video logs
@@ -18,13 +20,15 @@ from app.models.distress import RoadDistress
 from app.models.video import UploadedVideo
 from app.models.maintenance import MaintenanceTask
 from app.models.report import Report
-from app.core.security import get_password_hash
+from app.core.security import UNUSABLE_PASSWORD
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
 def main():
+    from app.core.env_guard import require_safe_environment
+    require_safe_environment("seed_data.py")
     logger.info("Initializing database seeding...")
     db = SessionLocal()
     try:
@@ -43,19 +47,19 @@ def main():
             User(
                 email="admin@roaddistress.org",
                 full_name="System Administrator",
-                hashed_password=get_password_hash("AdminSecurePassword123!"),
+                hashed_password=UNUSABLE_PASSWORD,
                 role="admin"
             ),
             User(
                 email="inspector.patel@roaddistress.org",
                 full_name="Rajesh Patel",
-                hashed_password=get_password_hash("InspectorPass123!"),
+                hashed_password=UNUSABLE_PASSWORD,
                 role="inspector"
             ),
             User(
                 email="maintenance.crew@roaddistress.org",
                 full_name="Aman Singh",
-                hashed_password=get_password_hash("MaintenancePass123!"),
+                hashed_password=UNUSABLE_PASSWORD,
                 role="maintenance"
             )
         ]

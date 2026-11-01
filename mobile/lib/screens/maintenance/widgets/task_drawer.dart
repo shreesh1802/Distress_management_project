@@ -39,7 +39,7 @@ class TaskDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final engineerNames = engineers.map((e) => e.fullName ?? e.email).toList();
+    final engineerNames = engineers.map((e) => e.displayName).toList();
     final engineerOptions = engineerNames.isNotEmpty ? engineerNames : _kFallbackEngineers;
 
     return Align(

@@ -6,6 +6,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
+from app.core.pagination import skip_param, limit_param
 from app.crud.maintenance import (
     get_maintenance_task,
     get_maintenance_tasks,
@@ -24,8 +25,8 @@ router = APIRouter()
 
 @router.get("/schedule", response_model=List[MaintenanceTaskResponse])
 def get_maintenance_schedule(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = skip_param(),
+    limit: int = limit_param(),
     db: Session = Depends(get_db)
 ) -> List[MaintenanceTaskResponse]:
     """

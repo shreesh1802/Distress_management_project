@@ -112,6 +112,8 @@ def extract_frame(video_path: str, timestamp: float, fps: float):
 
 
 def main() -> None:
+    from app.core.env_guard import require_safe_environment
+    require_safe_environment("add_demo_detections.py")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--video-id", type=int, required=True, help="ID of the video to attach detections to.")
     parser.add_argument(

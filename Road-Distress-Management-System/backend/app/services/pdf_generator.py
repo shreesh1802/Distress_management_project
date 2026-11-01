@@ -7,17 +7,27 @@ video analysis logs, distress analytics, GIS coordinates, maintenance actions, a
 import os
 import logging
 from datetime import datetime
+from xml.sax.saxutils import escape as _xml_escape
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from sqlalchemy.orm import Session
 
+from app.core.safe_paths import resolve_upload_path
 from app.models.video import UploadedVideo
 from app.models.distress import RoadDistress
 from app.models.maintenance import MaintenanceTask
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of annotated frames embedded in one report (keeps PDFs and memory bounded).
+MAX_EMBEDDED_FRAMES = 40
+
+
+def esc(value) -> str:
+    """Escapes user-controlled text for ReportLab Paragraph markup (&, <, >)."""
+    return _xml_escape("" if value is None else str(value))
 
 
 def format_class_name(name: str) -> str:
@@ -160,7 +170,7 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
             Paragraph(f"<b>Generated Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", body_style)
         ],
         [
-            Paragraph(f"<b>Video File:</b> {video.filename}", body_style),
+            Paragraph(f"<b>Video File:</b> {esc(video.filename)}", body_style),
             Paragraph(f"<b>Video ID:</b> {video_id}", body_style)
         ],
         [
@@ -215,7 +225,7 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
     avg_sev_index = total_sev_index / len(distresses) if distresses else 0.0
 
     summary_text = (
-        f"A safety audit of road corridor <i>{video.filename}</i> was conducted using the dynamic engineering-based "
+        f"A safety audit of road corridor <i>{esc(video.filename)}</i> was conducted using the dynamic engineering-based "
         f"severity pipeline. A total of <b>{len(distresses)} distress anomalies</b> were identified, resulting in a "
         f"computed <b>Road Health Score of {road_health_score}/100</b>.<br/><br/>"
         f"The analysis indicates an average severity index of <b>{avg_sev_index:.2f}/4.0</b> with an average damaged "
@@ -264,7 +274,7 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
     # 7. Distribution Breakdown Grid
     story.append(Paragraph("Severity & Distress Distributions", h1_style))
     sev_text = f"<b>Critical:</b> {severities['critical']} | <b>High:</b> {severities['high']} | <b>Medium:</b> {severities['medium']} | <b>Low:</b> {severities['low']}"
-    cat_text = " | ".join([f"<b>{k}:</b> {v}" for k, v in categories.items()])
+    cat_text = " | ".join([f"<b>{esc(k)}:</b> {v}" for k, v in categories.items()])
     story.append(Paragraph(f"<b>Severity Tally:</b> {sev_text}", body_style))
     story.append(Paragraph(f"<b>Categories Identified:</b> {cat_text}", body_style))
     story.append(Spacer(1, 10))
@@ -316,8 +326,8 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
 
         row = [
             Paragraph(
-                f"<b>{format_class_name(d.distress_type)}</b><br/>"
-                f"<font size=7 color='#64748b'>{d.severity.upper()}</font><br/>"
+                f"<b>{esc(format_class_name(d.distress_type))}</b><br/>"
+                f"<font size=7 color='#64748b'>{esc(d.severity.upper())}</font><br/>"
                 f"<font size=7.5 color='#475569'><b>Timestamp:</b><br/>{formatted_ts}<br/><b>Frame:</b><br/>{frame_val}</font><br/>"
                 f"<font size=7 color='#0369a1'>{size_caption}</font>"
                 f"{f'<br/><font size=7 color=\"#475569\">{tracking_info}</font>' if tracking_info else ''}",
@@ -325,8 +335,8 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
             ),
             Paragraph(f"Lat: {d.latitude:.5f}<br/>Lon: {d.longitude:.5f}", table_cell_style),
             Paragraph(f"{d.confidence_score * 100:.1f}%", table_cell_style),
-            Paragraph(f"{rec_action}", table_cell_style),
-            Paragraph(f"<font color='{priority_color}'><b>{rec_priority}</b></font>", table_cell_style)
+            Paragraph(esc(rec_action), table_cell_style),
+            Paragraph(f"<font color='{priority_color}'><b>{esc(rec_priority)}</b></font>", table_cell_style)
         ]
         logs_data.append(row)
         
@@ -352,33 +362,37 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
     # 9. Detection Images Showcase
     # Embed images in page breaks if there are images available
     annotated_frames = [d.detection_image_path for d in distresses if d.detection_image_path]
-    unique_frames = list(set(annotated_frames))  # Avoid embedding the exact same frame multiple times
-    
-    if unique_frames:
+    unique_frames = list(dict.fromkeys(annotated_frames))  # Avoid embedding the exact same frame multiple times
+
+    # Only images that resolve INSIDE uploads/ are ever opened (the stored path is untrusted data).
+    embeddable = []
+    for rel_img_path in unique_frames:
+        full_img_path = resolve_upload_path(rel_img_path)
+        if full_img_path is not None and os.path.isfile(full_img_path):
+            embeddable.append((rel_img_path, full_img_path))
+    embeddable = embeddable[:MAX_EMBEDDED_FRAMES]
+
+    if embeddable:
         story.append(PageBreak())
         story.append(Paragraph("Annotated AI Detection Showcase", h1_style))
         story.append(Paragraph("The following inline frames show visual bounding boxes drawn by the YOLO detection pipeline during analysis:", body_style))
         story.append(Spacer(1, 10))
-        
-        for idx, rel_img_path in enumerate(unique_frames):
-            full_img_path = os.path.join(base_dir, rel_img_path)
-            
-            if os.path.exists(full_img_path):
-                # Title caption
-                story.append(Paragraph(f"<b>Figure {idx + 1}: Detection frame from analysis sector</b>", bold_body_style))
-                story.append(Paragraph(f"Source file path: <font size=7 color='#64748b'>{rel_img_path}</font>", body_style))
-                story.append(Spacer(1, 4))
-                
-                try:
-                    # Renders inline image scaled nicely to fit document printable width
-                    img_flow = Image(full_img_path, width=420, height=236)
-                    story.append(img_flow)
-                    story.append(Spacer(1, 15))
-                except Exception as img_err:
-                    story.append(Paragraph(f"<font color='red'>Failed to embed image block: {img_err}</font>", body_style))
-            else:
-                story.append(Paragraph(f"<font color='red'>Annotated image file not found on server disk: {rel_img_path}</font>", body_style))
-                
+
+        for idx, (rel_img_path, full_img_path) in enumerate(embeddable):
+            # Title caption
+            story.append(Paragraph(f"<b>Figure {idx + 1}: Detection frame from analysis sector</b>", bold_body_style))
+            story.append(Paragraph(f"Source file: <font size=7 color='#64748b'>{esc(os.path.basename(rel_img_path.split('?', 1)[0]))}</font>", body_style))
+            story.append(Spacer(1, 4))
+
+            try:
+                # Renders inline image scaled nicely to fit document printable width
+                img_flow = Image(full_img_path, width=420, height=236)
+                story.append(img_flow)
+                story.append(Spacer(1, 15))
+            except Exception:
+                logger.warning("Could not embed detection frame in report", exc_info=True)
+                story.append(Paragraph("<font color='red'>Failed to embed image block.</font>", body_style))
+
     # Build PDF
     doc.build(story)
     logger.info(f"Generated professional PDF report saved at: {full_pdf_path}")

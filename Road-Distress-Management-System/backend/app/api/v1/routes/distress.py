@@ -6,6 +6,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
+from app.core.pagination import skip_param, limit_param
 from app.crud.distress import (
     get_distress,
     get_distresses,
@@ -15,6 +16,7 @@ from app.crud.distress import (
 )
 from app.schemas.distress import (
     RoadDistressCreate,
+    RoadDistressClientCreate,
     RoadDistressUpdate,
     RoadDistressResponse
 )
@@ -24,8 +26,8 @@ router = APIRouter()
 
 @router.get("/", response_model=List[RoadDistressResponse])
 def read_distresses(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = skip_param(),
+    limit: int = limit_param(),
     db: Session = Depends(get_db)
 ) -> List[RoadDistressResponse]:
     """
@@ -50,13 +52,14 @@ def read_distress_by_id(id: int, db: Session = Depends(get_db)) -> RoadDistressR
 
 @router.post("/", response_model=RoadDistressResponse, status_code=status.HTTP_201_CREATED)
 def create_new_distress(
-    distress_in: RoadDistressCreate,
+    distress_in: RoadDistressClientCreate,
     db: Session = Depends(get_db)
 ) -> RoadDistressResponse:
     """
-    Create a new road distress log in the database.
+    Create a new road distress log in the database. Server-side file references
+    (detection_image_path) cannot be supplied by clients.
     """
-    return create_distress(db, distress_in=distress_in)
+    return create_distress(db, distress_in=RoadDistressCreate(**distress_in.model_dump()))
 
 
 @router.put("/{id}", response_model=RoadDistressResponse)

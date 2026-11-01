@@ -122,23 +122,19 @@ class LiveCameraManager:
                 fallback_num_classes=cfg.FALLBACK_SIGNAGE_NUM_CLASSES,
                 fallback_class_names=cfg.FALLBACK_SIGNAGE_CLASS_NAMES)
 
-        # Record exactly which files/architecture actually loaded, for /live/status
-        # and /live/ws -- so it's visible without reading the server console log.
-        self._pavement_info = {
-            "source": self._pavement.source,                        # "configured" | "fallback"
-            "ckpt_path": self._pavement.ckpt_path,                   # the file actually loaded
-            "exp_source": self._pavement.exp_source,                # exp file path, or "built-in:yolox-m"
-            "configured_exp_file": self._pavement.configured_exp_file,   # live_test/ path, whether or not it existed
-            "configured_ckpt_file": self._pavement.configured_ckpt_file,
-            "class_names": self._pavement.class_names,
-        }
-        self._signage_info = {
-            "source": self._signage.source,
-            "ckpt_path": self._signage.ckpt_path,
-            "exp_source": self._signage.exp_source,
-            "configured_exp_file": self._signage.configured_exp_file,
-            "configured_ckpt_file": self._signage.configured_ckpt_file,
-            "class_names": self._signage.class_names,
+        # Record which model source/architecture loaded, for /live/status and /live/ws.
+        # Filesystem paths (checkpoint / exp file locations) are deliberately NOT included:
+        # these payloads are visible to every signed-in user.
+        self._pavement_info = self._public_model_info(self._pavement)
+        self._signage_info = self._public_model_info(self._signage)
+
+    @staticmethod
+    def _public_model_info(detector: Any) -> Dict[str, Any]:
+        exp_source = str(detector.exp_source)
+        return {
+            "source": detector.source,                                  # "configured" | "fallback"
+            "exp_source": exp_source if exp_source.startswith("built-in:") else "exp-file",
+            "class_names": detector.class_names,
         }
 
     def _reset_session_state(self, source: str, latitude: Optional[float], longitude: Optional[float]) -> None:

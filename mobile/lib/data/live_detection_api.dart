@@ -251,7 +251,19 @@ class LiveDetectionApi {
     return Uri(scheme: secure ? 'wss' : 'ws', host: base.host, port: port, path: path);
   }
 
-  WebSocketChannel connectWs() => WebSocketChannel.connect(_wsUri('/api/v1/live/ws'));
+  /// The backend authenticates WebSockets with a FIRST MESSAGE (browsers cannot
+  /// set headers on a WS handshake and a token in the URL would leak into logs):
+  /// `{"type":"auth","token":"<session token>"}` must be the first frame sent.
+  WebSocketChannel _authenticated(WebSocketChannel channel) {
+    final token = SessionToken.value;
+    if (token != null) {
+      channel.sink.add(jsonEncode({'type': 'auth', 'token': token}));
+    }
+    return channel;
+  }
+
+  WebSocketChannel connectWs() =>
+      _authenticated(WebSocketChannel.connect(_wsUri('/api/v1/live/ws')));
 
   /// Connects to the remote-stream session: send one binary message per
   /// frame (raw JPEG bytes) on the returned channel's sink to feed the
@@ -260,7 +272,7 @@ class LiveDetectionApi {
   /// normal way, via [connectWs] -- this channel is send-only from the
   /// client's side. Closing it stops the session server-side.
   WebSocketChannel connectPhoneStreamWs() =>
-      WebSocketChannel.connect(_wsUri('/api/v1/live/phone-stream'));
+      _authenticated(WebSocketChannel.connect(_wsUri('/api/v1/live/phone-stream')));
 
   void dispose() => _client.close();
 }

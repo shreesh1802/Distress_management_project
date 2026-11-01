@@ -32,7 +32,7 @@ import os
 import shutil
 import sys
 
-from sqlalchemy import text
+from sqlalchemy import func, select, table as sa_table, text
 
 from app.db.session import SessionLocal
 
@@ -50,7 +50,7 @@ DIRS_TO_CLEAR = [
 def print_current_counts(db) -> None:
     print("Current row counts:")
     for table in TABLES_TO_WIPE:
-        count = db.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+        count = db.execute(select(func.count()).select_from(sa_table(table))).scalar()
         print(f"  {table}: {count}")
 
 
@@ -59,7 +59,10 @@ def wipe_tables(db) -> None:
     # (and any others) regardless of order; RESTART IDENTITY resets the
     # auto-increment sequences so new uploads start from id=1 again.
     table_list = ", ".join(TABLES_TO_WIPE)
-    db.execute(text(f"TRUNCATE TABLE {table_list} RESTART IDENTITY CASCADE"))
+    # Identifiers come from the fixed TABLES_TO_WIPE list above (never from input); quote them anyway.
+    quote = db.get_bind().dialect.identifier_preparer.quote
+    # security-check: ignore sql-fstring -- table names come from the fixed TABLES_TO_WIPE list and are quoted
+    db.execute(text("TRUNCATE TABLE " + ", ".join(quote(t) for t in TABLES_TO_WIPE) + " RESTART IDENTITY CASCADE"))
     db.commit()
     print(f"Truncated: {table_list}")
 
@@ -77,6 +80,8 @@ def wipe_directory_contents(path: str) -> None:
 
 
 def main() -> None:
+    from app.core.env_guard import require_safe_environment
+    require_safe_environment("reset_test_data.py")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the interactive confirmation prompt.")
     args = parser.parse_args()

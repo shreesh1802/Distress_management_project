@@ -11,6 +11,8 @@ from typing import Optional
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.safe_paths import resolve_upload_path
+from app.core.upload_checks import magic_matches, file_head
 from app.models.audit import AuditAudioClip
 from app.crud.audit import create_audio_clip, get_audio_clip, delete_audio_clip
 
@@ -77,7 +79,17 @@ async def handle_audio_upload(
         logger.error(f"Failed to write audio file to disk: {e}")
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
-            f"Could not save audio file to server disk: {str(e)}",
+            "Could not save audio file to the server.",
+        )
+
+    # Reject files whose content obviously does not match their extension (high-confidence formats only).
+    head = file_head(target_filepath)
+    if head is None or not magic_matches(original_filename, head):
+        if os.path.exists(target_filepath):
+            os.remove(target_filepath)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "File content does not match its extension.",
         )
 
     relative_filepath = os.path.relpath(target_filepath, BASE_DIR).replace("\\", "/")
@@ -109,8 +121,10 @@ def remove_audio_clip(db: Session, clip_id: int) -> None:
     delete_audio_clip(db, clip_id)
 
     if clip.filepath:
-        full_path = os.path.join(BASE_DIR, clip.filepath)
-        if os.path.exists(full_path):
+        full_path = resolve_upload_path(clip.filepath)
+        if full_path is None:
+            logger.warning("Refusing to delete an audio path outside uploads/.")
+        elif os.path.exists(full_path):
             try:
                 os.remove(full_path)
             except Exception as e:

@@ -20,6 +20,18 @@ from app.models.maintenance import MaintenanceTask
 logger = logging.getLogger(__name__)
 
 
+def _text_cell(value):
+    """
+    Neutralises spreadsheet formula injection: openpyxl treats any string starting with "="
+    as a formula, and Excel also evaluates cells starting with + - @. User-controlled text
+    (e.g. an uploaded file name) is prefixed with a zero-width word-joiner so it is
+    always stored and displayed as plain text.
+    """
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "\u2060" + value
+    return value
+
+
 def generate_video_excel_report(db: Session, video_id: int) -> str:
     """
     Generates a comprehensive Excel report (.xlsx) for a processed video session.
@@ -440,7 +452,7 @@ def generate_video_excel_report(db: Session, video_id: int) -> str:
         c11.number_format = "0.00000"
         c11.alignment = Alignment(horizontal="right", vertical="center")
         
-        c12 = ws2.cell(row=r, column=12, value=video.filename)
+        c12 = ws2.cell(row=r, column=12, value=_text_cell(video.filename))
         c12.alignment = Alignment(horizontal="left", vertical="center")
         
         c13 = ws2.cell(row=r, column=13, value=impact)
@@ -1571,7 +1583,7 @@ def generate_video_excel_report(db: Session, video_id: int) -> str:
     ws9.cell(row=4, column=1, value="Total Distress Instances Detected:").font = bold_font
     ws9.cell(row=4, column=2, value=len(distresses)).font = bold_font
     ws9.cell(row=5, column=1, value="Video:").font = bold_font
-    ws9.cell(row=5, column=2, value=video.filename).font = regular_font
+    ws9.cell(row=5, column=2, value=_text_cell(video.filename)).font = regular_font
 
     header_row(ws9, 7, ["Distress Type", "Permissible Limit (IRC:82-2023)", "Total Detected", "Requiring Rectification (High/Critical)", "% Requiring Rectification"])
 

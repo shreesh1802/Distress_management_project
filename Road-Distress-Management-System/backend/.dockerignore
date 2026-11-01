@@ -1,6 +1,7 @@
 .venv
 venv
 __pycache__
+**/__pycache__
 *.pyc
 uploads/
 reports/
@@ -8,3 +9,23 @@ models/
 .pytest_cache
 .git
 *.log
+
+# --- never bake secrets, local databases, binaries or caches into an image ---
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+*.exe
+scripts/*.exe
+.cache/
+*.apk
+*.mp4
+*.jks
+*.keystore
+key.properties
+google-services.json
+
+# --- tests and test data are not needed at runtime ---
+tests/
+test_*.py

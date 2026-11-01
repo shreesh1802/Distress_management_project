@@ -47,15 +47,19 @@ class AuthApi {
 
   final http.Client _client = CustomHttpClient();
 
-  /// Returns the dev-mode OTP code (only populated when the backend's
-  /// OTP_DEV_MODE is on, which is the default for local dev) so the UI can
-  /// surface it directly instead of requiring a real mailbox.
+  /// Returns the dev-mode OTP code (only populated when the backend runs in
+  /// development mode -- never in production, where `dev_otp` is null and the
+  /// code arrives by e-mail) so the UI can surface it instead of requiring a
+  /// real mailbox.
   Future<String?> requestOtp(String email) async {
     final response = await _client.post(
       Uri.parse('$kApiV1/auth/request-otp'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email}),
     );
+    if (response.statusCode == 429) {
+      throw const AuthApiException('Too many requests. Please wait a few minutes and try again.');
+    }
     if (response.statusCode != 200) {
       throw const AuthApiException('Failed to request a login code. Please try again.');
     }
@@ -72,6 +76,9 @@ class AuthApi {
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email, 'code': code}),
     );
+    if (response.statusCode == 429) {
+      throw const AuthApiException('Too many failed attempts. Please wait a few minutes and try again.');
+    }
     if (response.statusCode != 200) {
       throw const AuthApiException('Invalid or expired code. Please request a new one.');
     }
@@ -79,6 +86,22 @@ class AuthApi {
     final token = body['token'] as String;
     final user = SessionUser.fromJson(body['user'] as Map<String, dynamic>);
     return (token, user);
+  }
+
+  /// Best-effort server-side logout: revokes [token] so it stops working even
+  /// if someone copied it. Failures are ignored -- the local session is
+  /// cleared regardless.
+  Future<void> logout(String token) async {
+    try {
+      await _client
+          .post(
+            Uri.parse('$kApiV1/auth/logout'),
+            headers: {'Authorization': 'Bearer $token'},
+          )
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Offline / server unreachable: nothing more to do.
+    }
   }
 
   Future<SessionUser?> restoreSession(String token) async {

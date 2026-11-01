@@ -1,103 +1,215 @@
 """
-OTP generation/verification and "sending" for Email + OTP login.
+OTP generation/verification and session tokens for Email + OTP login.
 
-Dev mode (default): the OTP is logged to the backend console and returned
-in the /auth/request-otp response body under `dev_otp` -- there's no SMTP
-configured yet, and this lets the whole login flow be built and tested
-locally right now without needing real email credentials.
+Delivery
+--------
+* Development (``APP_ENV`` unset/"development", the default): the code is
+  returned in the /auth/request-otp response as ``dev_otp`` so the whole flow
+  works locally without a mailbox. The code is NEVER written to the log.
+* Production (``APP_ENV=production``): the code is e-mailed through stdlib
+  SMTP (``app.services.email_sender``) and is never returned or logged.
 
-To switch to real email delivery later: implement send_via_smtp() below
-(host/port/credentials from app.core.config.settings, matching the same
-env-var pattern the rest of the app uses) and set OTP_DEV_MODE=false in
-.env -- nothing else about the flow changes.
+Hardening (see SECURITY.md)
+---------------------------
+* codes come from ``secrets.randbelow`` (CSPRNG);
+* requesting a new code invalidates every older unused code for the e-mail;
+* e-mails are normalised (strip + lower) everywhere;
+* verification uses ``hmac.compare_digest`` and an atomic
+  ``UPDATE ... WHERE used = false`` so a code is single-use even under races;
+* wrong guesses are counted per e-mail and per IP; N failures lock the key
+  (in-process counters -- per instance, cleared on restart);
+* session tokens are stored only as a SHA-256 hash (the raw token exists only
+  in the login response and the client), expire after 7 days and expired rows
+  are purged opportunistically; ``revoke_token`` implements server-side logout.
 """
 
+import hashlib
+import hmac
 import logging
-import os
-import random
 import secrets
-import string
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
+from sqlalchemy import update, delete
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.rate_limit import FailureLockout, SlidingWindowLimiter
+from app.core.security import normalize_email
 from app.models.auth import OtpCode, AuthToken
+from app.services import email_sender
 
 logger = logging.getLogger(__name__)
 
 OTP_LENGTH = 6
 OTP_TTL_MINUTES = 10
-TOKEN_TTL_DAYS = 30
+TOKEN_TTL_DAYS = 7
 
-OTP_DEV_MODE = os.getenv("OTP_DEV_MODE", "true").lower() != "false"
+# --- abuse limits (in-process, per instance) -------------------------------------
+OTP_MAX_FAILED_ATTEMPTS = 5          # wrong codes per e-mail before lockout
+OTP_IP_MAX_FAILED_ATTEMPTS = 100     # wrong codes per client IP before lockout (backstop; the per-e-mail limit is the main control)
+OTP_LOCKOUT_SECONDS = 15 * 60
+OTP_FAILURE_WINDOW_SECONDS = 15 * 60
+OTP_REQUESTS_PER_EMAIL = 5           # new codes per e-mail per 10 minutes
+OTP_REQUESTS_PER_IP = 60             # request-otp calls per client IP per 10 minutes
+
+email_lockout = FailureLockout(OTP_MAX_FAILED_ATTEMPTS, OTP_FAILURE_WINDOW_SECONDS, OTP_LOCKOUT_SECONDS)
+ip_lockout = FailureLockout(OTP_IP_MAX_FAILED_ATTEMPTS, OTP_FAILURE_WINDOW_SECONDS, OTP_LOCKOUT_SECONDS)
+email_request_limiter = SlidingWindowLimiter(OTP_REQUESTS_PER_EMAIL, 600)
+ip_request_limiter = SlidingWindowLimiter(OTP_REQUESTS_PER_IP, 600)
+
+
+class OtpLocked(Exception):
+    """Raised when verification is refused because the e-mail is temporarily locked."""
+
+
+def reset_abuse_counters() -> None:
+    """Clears all in-process counters (used by tests)."""
+    email_lockout.reset()
+    ip_lockout.reset()
+    email_request_limiter.reset()
+    ip_request_limiter.reset()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _generate_code() -> str:
-    return "".join(random.choices(string.digits, k=OTP_LENGTH))
+    return f"{secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
 
 
-def request_otp(db: Session, email: str) -> str | None:
+def create_otp(db: Session, email: str) -> Optional[str]:
     """
-    Creates a new OTP row for this email and "sends" it. Returns the code
-    only in dev mode (so the API response / logs can surface it for local
-    testing) -- in real-email mode this returns None, since the code should
-    only ever reach the user's inbox.
+    Issues a fresh code for ``email`` and invalidates all older unused codes.
+    Returns the code, or None if the e-mail is currently throttled/locked
+    (callers must respond identically either way).
     """
+    email = normalize_email(email)
+    if email_lockout.is_locked(email):
+        return None
+    if not email_request_limiter.hit(email):
+        return None
+
+    now = _utcnow()
+    # Opportunistic cleanup of old rows (>1 day) so the table cannot grow forever.
+    db.execute(delete(OtpCode).where(OtpCode.expires_at < now - timedelta(days=1)))
+    # One active code per e-mail: burn every previous unused code.
+    db.execute(update(OtpCode).where(OtpCode.email == email, OtpCode.used == False).values(used=True))  # noqa: E712
+
     code = _generate_code()
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)
-    db.add(OtpCode(email=email.lower().strip(), code=code, expires_at=expires_at))
+    db.add(OtpCode(email=email, code=code, expires_at=now + timedelta(minutes=OTP_TTL_MINUTES)))
     db.commit()
+    return code
 
-    if OTP_DEV_MODE:
-        logger.info(f"[DEV MODE] OTP for {email}: {code} (expires in {OTP_TTL_MINUTES} min)")
+
+def deliver_otp_email(email: str, code: str) -> None:
+    """Background-task entry point: e-mails the code (never logs it)."""
+    if not email_sender.send_otp_email(email, code, OTP_TTL_MINUTES):
+        logger.error("OTP e-mail could not be delivered for a login request.")
+
+
+def request_otp(db: Session, email: str) -> Optional[str]:
+    """
+    Convenience helper: issues a code and, outside dev mode, delivers it
+    synchronously by e-mail. Returns the code ONLY in development mode.
+    (The HTTP route uses create_otp + a background task instead.)
+    """
+    code = create_otp(db, email)
+    if code is None:
+        return None
+    if settings.otp_dev_mode:
+        logger.info("[DEV MODE] OTP issued (expires in %d min); code is returned in the API response only.", OTP_TTL_MINUTES)
         return code
-
-    send_via_smtp(email, code)
+    deliver_otp_email(normalize_email(email), code)
     return None
 
 
-def send_via_smtp(email: str, code: str) -> None:
-    """Not implemented yet -- see module docstring. Placeholder for real delivery."""
-    raise NotImplementedError(
-        "Real SMTP sending isn't configured yet. Set OTP_DEV_MODE=true in .env "
-        "(the default) to keep using console/dev-response OTP delivery for now."
-    )
+def verify_otp(db: Session, email: str, code: str, account_exists: bool = True) -> bool:
+    """
+    True if ``code`` is the current, unused, unexpired code for ``email``; the code is
+    consumed atomically. Raises OtpLocked while the e-mail is locked out.
 
+    ``account_exists=False`` (the e-mail belongs to no account) never creates per-e-mail state: otherwise an
+    attacker submitting endless distinct addresses could grow the lockout table without bound. Such guesses
+    are still throttled per client IP by the caller. The caller must answer the locked and the plain-failure
+    case identically so account existence stays hidden.
+    """
+    email = normalize_email(email)
+    if not account_exists:
+        # same constant-time comparison work, no per-e-mail bookkeeping
+        hmac.compare_digest(("0" * OTP_LENGTH).encode("utf-8"), (code or "").strip().encode("utf-8"))
+        return False
+    if email_lockout.is_locked(email):
+        raise OtpLocked()
 
-def verify_otp(db: Session, email: str, code: str) -> bool:
-    """Marks the most recent matching, unused, unexpired OTP as used. True if valid."""
-    email = email.lower().strip()
-    now = datetime.now(timezone.utc)
+    code = (code or "").strip()
+    now = _utcnow()
     otp = (
         db.query(OtpCode)
-        .filter(OtpCode.email == email, OtpCode.code == code, OtpCode.used == False)  # noqa: E712
+        .filter(OtpCode.email == email, OtpCode.used == False)  # noqa: E712
         .order_by(OtpCode.id.desc())
         .first()
     )
-    if otp is None:
-        return False
-    otp_expires_at = otp.expires_at if otp.expires_at.tzinfo else otp.expires_at.replace(tzinfo=timezone.utc)
-    if otp_expires_at < now:
-        return False
-    otp.used = True
-    db.commit()
-    return True
+
+    expected = otp.code if otp is not None else "0" * OTP_LENGTH
+    code_matches = hmac.compare_digest(expected.encode("utf-8"), code.encode("utf-8"))
+    valid = otp is not None and code_matches and _aware(otp.expires_at) >= now
+
+    if valid:
+        # Atomic single-use: only one concurrent request can flip used false -> true.
+        result = db.execute(
+            update(OtpCode).where(OtpCode.id == otp.id, OtpCode.used == False).values(used=True)  # noqa: E712
+        )
+        db.commit()
+        if result.rowcount == 1:
+            email_lockout.register_success(email)
+            return True
+
+    locked = email_lockout.register_failure(email)
+    if locked and otp is not None:
+        # Burn the active code so even the right code no longer works after a lockout.
+        db.execute(update(OtpCode).where(OtpCode.email == email, OtpCode.used == False).values(used=True))  # noqa: E712
+        db.commit()
+    return False
+
+
+# ---------------------------------------------------------------- sessions
+def hash_token(token: str) -> str:
+    """SHA-256 hex digest -- the only form of a session token that is ever stored."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def issue_token(db: Session, user_id: int) -> str:
+    """Creates a session and returns the RAW token (shown to the client once; only its hash is stored)."""
+    now = _utcnow()
+    db.execute(delete(AuthToken).where(AuthToken.expires_at < now))  # purge expired sessions
     token = secrets.token_hex(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=TOKEN_TTL_DAYS)
-    db.add(AuthToken(token=token, user_id=user_id, expires_at=expires_at))
+    db.add(AuthToken(token=hash_token(token), user_id=user_id, expires_at=now + timedelta(days=TOKEN_TTL_DAYS)))
     db.commit()
     return token
 
 
-def resolve_token(db: Session, token: str) -> int | None:
+def resolve_token(db: Session, token: str) -> Optional[int]:
     """Returns the user_id for a valid, unexpired token, else None."""
-    row = db.query(AuthToken).filter(AuthToken.token == token).first()
+    if not token:
+        return None
+    row = db.query(AuthToken).filter(AuthToken.token == hash_token(token)).first()
     if row is None:
         return None
-    expires_at = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
-    if expires_at < datetime.now(timezone.utc):
+    if _aware(row.expires_at) < _utcnow():
         return None
     return row.user_id
+
+
+def revoke_token(db: Session, token: str) -> bool:
+    """Server-side logout: deletes the presented session. True if a row was removed."""
+    if not token:
+        return False
+    result = db.execute(delete(AuthToken).where(AuthToken.token == hash_token(token)))
+    db.commit()
+    return result.rowcount > 0

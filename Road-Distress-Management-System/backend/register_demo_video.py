@@ -67,6 +67,8 @@ def reencode_to_h264(src_path: str, dst_path: str) -> None:
 
 
 def main() -> None:
+    from app.core.env_guard import require_safe_environment
+    require_safe_environment("register_demo_video.py")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--raw", required=True, help="Path to your raw/original video file.")
     parser.add_argument("--annotated", required=True, help="Path to your pre-made annotated video file.")

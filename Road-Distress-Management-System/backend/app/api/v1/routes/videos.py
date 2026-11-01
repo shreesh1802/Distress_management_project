@@ -3,11 +3,15 @@ Video upload and management routes for the Road Distress Management System.
 """
 
 import os
-from typing import List, Optional
-from fastapi import APIRouter, Depends, File, UploadFile, Form, status, BackgroundTasks
+from typing import List
+from fastapi import APIRouter, Depends, File, UploadFile, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.deps import get_current_user
+from app.core.pagination import skip_param, limit_param
+from app.core.safe_paths import resolve_upload_path
+from app.models.user import User
 from app.schemas.video import UploadedVideoResponse
 from app.services.video import (
     handle_video_upload,
@@ -24,22 +28,22 @@ router = APIRouter()
 async def upload_video(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    uploader_id: Optional[int] = Form(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> UploadedVideoResponse:
     """
     Accepts video files (.mp4, .avi, .mov), saves them to the server storage,
-    and registers upload metadata in PostgreSQL.
+    and registers upload metadata in PostgreSQL. The uploader is the authenticated caller.
     """
-    video = await handle_video_upload(db=db, file=file, uploader_id=uploader_id)
+    video = await handle_video_upload(db=db, file=file, uploader_id=user.id)
     background_tasks.add_task(process_video, video_id=video.id)
     return video
 
 
 @router.get("/", response_model=List[UploadedVideoResponse])
 def get_videos(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = skip_param(),
+    limit: int = limit_param(),
     db: Session = Depends(get_db)
 ) -> List[UploadedVideoResponse]:
     """
@@ -110,14 +114,13 @@ def stream_raw_video(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Raw video file for video ID {id} not found."
         )
-        
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-    full_path = os.path.join(base_dir, video.filepath)
-    
-    if not os.path.exists(full_path):
+
+    # Confine the DB-stored path to uploads/ (rejects ../, absolute paths, symlink escapes).
+    full_path = resolve_upload_path(video.filepath)
+    if full_path is None or not os.path.isfile(full_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Raw video file was not found on server disk at: {video.filepath}"
+            detail="Raw video file was not found on the server."
         )
         
     return FileResponse(
@@ -148,13 +151,11 @@ def download_processed_video(
             detail=f"Processed video file for video ID {id} has not been generated yet."
         )
         
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
-    full_path = os.path.join(base_dir, video.processed_filepath)
-    
-    if not os.path.exists(full_path):
+    full_path = resolve_upload_path(video.processed_filepath)
+    if full_path is None or not os.path.isfile(full_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Processed video file was not found on server disk at: {video.processed_filepath}"
+            detail="Processed video file was not found on the server."
         )
         
     return FileResponse(

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live Detection - Hosting Memory Requirements</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2937; margin: 0; padding: 22px 28px; max-width: 800px; margin: auto; font-size: 13px; line-height: 1.45; }
+  h1 { font-size: 21px; margin: 0 0 2px; color: #0f204a; }
+  .sub { color: #6b7280; margin-bottom: 14px; }
+  h2 { font-size: 14px; margin: 16px 0 6px; color: #0b4f9c; border-bottom: 1px solid #dbe3ef; padding-bottom: 3px; }
+  .ask { background: #eef5ff; border-left: 4px solid #1565c0; padding: 9px 12px; border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 6px 0; }
+  th, td { border: 1px solid #d5dbe5; padding: 5px 8px; text-align: left; }
+  th { background: #f3f6fb; }
+  .ok { color: #047857; font-weight: 600; } .bad { color: #b91c1c; font-weight: 600; }
+  .chart { position: relative; height: 92px; margin: 8px 0 4px; }
+  .track { position: absolute; left: 0; right: 0; height: 20px; background: #f1f5f9; border-radius: 3px; }
+  .bar { position: absolute; left: 0; height: 20px; border-radius: 3px; color: #fff; font-size: 11px; line-height: 20px; padding-left: 6px; white-space: nowrap; }
+  .tick { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed #94a3b8; }
+  .tick span { position: absolute; bottom: -16px; left: -18px; font-size: 10px; color: #475569; width: 40px; text-align: center; }
+  ul { margin: 4px 0 4px 18px; padding: 0; } li { margin: 2px 0; }
+  .small { font-size: 11px; color: #6b7280; }
+  code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Road Distress Detection from a Phone Camera: Server Memory Requirements</h1>
+<div class="sub">Measured on the project's own backend while running live detection. Prepared for the hosting-plan decision.</div>
+
+<div class="ask"><b>Request:</b> host the backend on a plan with at least <b>2 GB of RAM</b>. The free tier (256 MB) cannot run live detection at all, and 1 GB leaves too little safety margin for real use.</div>
+
+<h2>Why the server needs this much memory</h2>
+<p>The phone only captures the camera image. The AI detection (pavement cracks, potholes, road signs) runs on the server and needs <b>two neural-network models</b> loaded in memory at the same time, plus the PyTorch and OpenCV libraries that run them. The phone streams a frame about every 0.4 seconds, and the server analyses it and returns the detections.</p>
+
+<h2>What we measured</h2>
+<table>
+  <tr><th>Stage (server process only)</th><th>RAM in use</th></tr>
+  <tr><td>Server started, no live session yet</td><td><b>368 MB</b></td></tr>
+  <tr><td>Live detection running (steady state, 60 s of phone-style frames)</td><td><b>711 MB</b></td></tr>
+  <tr><td>Peak over the whole run</td><td><b>711 MB</b> (650 MB private to the process)</td></tr>
+</table>
+<p class="small">Memory stayed flat at about 711 MB after the models loaded (no growth over 60 s). 145 frames were sent and the server completed 29 inference passes with no errors, so this is real detection work, not an idle server.</p>
+
+<div class="chart">
+  <div class="track" style="top:6px;"></div>
+  <div class="bar" style="top:6px; width:17.97%; background:#64748b;">idle 368 MB</div>
+  <div class="track" style="top:34px;"></div>
+  <div class="bar" style="top:34px; width:34.74%; background:#c2410c;">live detection 711 MB</div>
+  <div class="tick" style="left:12.5%;"><span>256</span></div>
+  <div class="tick" style="left:25%;"><span>512</span></div>
+  <div class="tick" style="left:50%;"><span>1024</span></div>
+  <div class="tick" style="left:100%;"><span>2048 MB</span></div>
+</div>
+<p class="small" style="margin-top:18px;">Dashed lines mark common plan limits. A process that goes past its plan's limit is killed by the host (the "Out of memory" error already seen on the deployed server).</p>
+
+<h2>Verdict by plan</h2>
+<table>
+  <tr><th>Plan RAM</th><th>Result</th><th>Notes</th></tr>
+  <tr><td>256 MB (free tier)</td><td class="bad">Does not fit</td><td>The server alone (368 MB) is already over the limit, before any live session starts.</td></tr>
+  <tr><td>512 MB</td><td class="bad">Does not fit</td><td>Killed as soon as the models load (711 MB).</td></tr>
+  <tr><td>1 GB</td><td class="bad">Too tight</td><td>Fits in this clean test with about 310 MB spare, but the deployed server on a 1 GB plan has already been killed for running out of memory. Real camera images, saved detections, the database and several users add load this test did not include.</td></tr>
+  <tr><td>2 GB</td><td class="ok">Recommended</td><td>About 1.3 GB spare for real traffic, report generation and a second user.</td></tr>
+</table>
+
+<h2>How this was tested (repeatable)</h2>
+<ul>
+  <li>Script: <code>backend/scripts/memory_profile_live.py</code>. It starts the server, signs in, opens the same authenticated live-camera connection the app uses, sends one frame every 0.4 s for 60 s, and samples the server's memory every 0.5 s.</li>
+  <li>Run it with: <code>..\.venv\Scripts\python.exe memory_profile_live.py --duration 60</code> (from the <code>backend\scripts</code> folder). Anyone can re-run it and see the same table.</li>
+</ul>
+
+<h2>Limits of this test (stated honestly)</h2>
+<ul>
+  <li>Measured on a Windows laptop. A Linux container reports memory differently and may come out somewhat lower or higher, so the plan's own memory graph should be checked after deployment.</li>
+  <li>Frames were a synthetic road image, not live footage. Model memory does not depend on image content, but saved detection snapshots and database writes will add a little in real use.</li>
+  <li>One phone connection was tested. Each additional simultaneous live session adds processing load.</li>
+</ul>
+
+<h2>Cheaper options if a larger plan is refused</h2>
+<ul>
+  <li>Run live detection on a college machine or laptop and host only login, projects, audits and documents on the free tier.</li>
+  <li>Reduce memory by switching to the smaller CPU-only PyTorch build and loading one model instead of two. This lowers the requirement but is unlikely to reach 256 MB.</li>
+</ul>
+
+</body>
+</html>

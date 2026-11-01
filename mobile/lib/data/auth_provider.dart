@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_api.dart';
+import 'custom_http_client.dart' show SessionToken;
 
 /// Real Email + OTP session state, backed by the DB-backed opaque bearer
 /// token issued by POST /auth/verify-otp (see app/services/otp_service.py).
@@ -50,6 +51,9 @@ class AuthNotifier extends Notifier<AuthState> {
 
   @override
   AuthState build() {
+    // A 401 on any authenticated request means the session is gone (expired /
+    // revoked): sign out locally so the router returns to the login screen.
+    SessionToken.onUnauthorized = _handleUnauthorized;
     _restore();
     return const AuthState(isAuthenticated: false, isRestoring: true);
   }
@@ -70,6 +74,7 @@ class AuthNotifier extends Notifier<AuthState> {
 
     final user = await _api.restoreSession(token);
     if (user == null) {
+      SessionToken.value = null;
       await prefs.remove(_tokenKey);
       state = AuthState(
         isAuthenticated: false,
@@ -79,11 +84,28 @@ class AuthNotifier extends Notifier<AuthState> {
       return;
     }
 
+    SessionToken.value = token;
     state = AuthState(
       isAuthenticated: true,
       rememberedEmail: rememberedEmail,
       token: token,
       user: user,
+      isRestoring: false,
+    );
+  }
+
+  void _handleUnauthorized() {
+    if (!state.isAuthenticated) return;
+    _clearLocalSession();
+  }
+
+  Future<void> _clearLocalSession() async {
+    SessionToken.value = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_tokenKey);
+    state = AuthState(
+      isAuthenticated: false,
+      rememberedEmail: state.rememberedEmail,
       isRestoring: false,
     );
   }
@@ -101,6 +123,7 @@ class AuthNotifier extends Notifier<AuthState> {
   }) async {
     final (token, user) = await _api.verifyOtp(email: email, code: code);
 
+    SessionToken.value = token;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_tokenKey, token);
     if (rememberMe) {
@@ -120,13 +143,12 @@ class AuthNotifier extends Notifier<AuthState> {
   }
 
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
-    state = AuthState(
-      isAuthenticated: false,
-      rememberedEmail: state.rememberedEmail,
-      isRestoring: false,
-    );
+    // Revoke the session on the server first (best effort), then clear local state.
+    final token = state.token;
+    if (token != null) {
+      await _api.logout(token);
+    }
+    await _clearLocalSession();
   }
 }
 

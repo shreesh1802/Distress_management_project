@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ProjectBase(BaseModel):
@@ -16,7 +16,18 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
-    member_emails: List[str] = Field(default_factory=list, description="Employees to assign to this project")
+    member_emails: List[str] = Field(
+        default_factory=list,
+        max_length=100,
+        description="Employees to assign to this project (max 100 addresses)",
+    )
+
+    @field_validator("member_emails")
+    @classmethod
+    def _limit_email_length(cls, v: List[str]) -> List[str]:
+        if any(len(e) > 255 for e in v):
+            raise ValueError("each member e-mail must be at most 255 characters")
+        return v
 
 
 class ProjectResponse(ProjectBase):
