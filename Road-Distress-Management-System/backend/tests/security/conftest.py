@@ -23,7 +23,7 @@ for _var in (
     "OTP_DEV_MODE", "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
     "SMTP_STARTTLS", "SEED_DEMO_DATA", "BOOTSTRAP_ADMIN_EMAIL", "ALLOW_MOCK_MODEL",
     "DOWNLOAD_SIGNING_SECRET", "BACKEND_CORS_ORIGINS", "TRUSTED_PROXY_COUNT", "ALLOW_SELF_REGISTRATION",
-    "ALLOW_DEV_OTP_ON_PLATFORM",
+    "ALLOW_DEV_OTP_ON_PLATFORM", "REVIEWER_EMAIL", "REVIEWER_CODE",
     "RAILWAY_ENVIRONMENT", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID", "DYNO", "K_SERVICE", "KUBERNETES_SERVICE_HOST",
 ):
     os.environ.pop(_var, None)
@@ -79,6 +79,8 @@ def _reset_state(monkeypatch):
     monkeypatch.setattr(settings, "OTP_DEV_MODE", None)
     monkeypatch.setattr(settings, "SMTP_HOST", None)
     monkeypatch.setattr(settings, "SMTP_FROM", None)
+    monkeypatch.setattr(settings, "REVIEWER_EMAIL", None)
+    monkeypatch.setattr(settings, "REVIEWER_CODE", None)
     yield
 
 

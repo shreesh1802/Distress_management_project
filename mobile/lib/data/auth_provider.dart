@@ -142,6 +142,19 @@ class AuthNotifier extends Notifier<AuthState> {
     return true;
   }
 
+  /// Deletes the signed-in user's account on the server and, on success, clears the local session.
+  /// Returns null on success or an error message to show the user.
+  Future<String?> deleteAccount(String confirmEmail) async {
+    final token = state.token;
+    if (token == null) return 'You are not signed in.';
+    final error = await _api.deleteAccount(token: token, confirmEmail: confirmEmail);
+    if (error != null) return error;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_rememberedEmailKey);
+    await _clearLocalSession();
+    return null;
+  }
+
   Future<void> logout() async {
     // Revoke the session on the server first (best effort), then clear local state.
     final token = state.token;

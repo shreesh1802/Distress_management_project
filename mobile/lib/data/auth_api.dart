@@ -104,6 +104,33 @@ class AuthApi {
     }
   }
 
+  /// Permanently deletes the signed-in account (POST /auth/delete-account). [confirmEmail] must be the
+  /// account's own address. Returns null on success, otherwise a message that is safe to show the user.
+  Future<String?> deleteAccount({required String token, required String confirmEmail}) async {
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$kApiV1/auth/delete-account'),
+            headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+            body: jsonEncode({'confirm_email': confirmEmail}),
+          )
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode == 204) return null;
+      if (response.statusCode == 400) return 'That e-mail address does not match your account.';
+      if (response.statusCode == 409) {
+        try {
+          final detail = (jsonDecode(response.body) as Map<String, dynamic>)['detail'];
+          if (detail is String && detail.isNotEmpty) return detail;
+        } catch (_) {}
+        return 'This account cannot be deleted right now.';
+      }
+      if (response.statusCode == 401) return 'Your session has expired. Please sign in again.';
+      return 'Could not delete the account. Please try again.';
+    } catch (_) {
+      return 'Could not reach the server. Check your connection and try again.';
+    }
+  }
+
   Future<SessionUser?> restoreSession(String token) async {
     final response = await _client.get(
       Uri.parse('$kApiV1/auth/me'),

@@ -8,6 +8,7 @@ import '../../data/project_api.dart';
 import '../../data/project_provider.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_colors.dart';
+import '../account/delete_account_dialog.dart';
 
 /// The "Project-wise Survey" homepage from the workflow sketches: every
 /// module (M1 Crack Detection, M2 Road Safety Audit, M3 Asset Management,
@@ -279,6 +280,11 @@ class _Header extends ConsumerWidget {
           ),
           const SizedBox(width: 12),
         ],
+        IconButton(
+          icon: const Icon(LucideIcons.userX, color: Colors.white70, size: 20),
+          tooltip: 'Delete account',
+          onPressed: () => confirmAndDeleteAccount(context, ref),
+        ),
         IconButton(
           icon: const Icon(LucideIcons.logOut, color: Colors.white70, size: 20),
           tooltip: 'Sign out',

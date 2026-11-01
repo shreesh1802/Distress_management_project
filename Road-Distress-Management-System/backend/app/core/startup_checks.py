@@ -31,6 +31,36 @@ def weak_signing_secret_reason(secret: str) -> str:
     return ""
 
 
+def weak_reviewer_code_reason(code: str) -> str:
+    """Returns why a reviewer code is unacceptable, or '' if it looks fine."""
+    if not (len(code) == 6 and code.isdigit()):
+        return "it must be exactly 6 digits (the app's code box takes 6 digits)"
+    if len(set(code)) < 4:
+        return "it uses fewer than 4 distinct digits"
+    if code in ("123456", "654321", "012345", "123123", "121212"):
+        return "it is a well-known weak code"
+    return ""
+
+
+def reviewer_config_errors(cfg: Settings) -> List[str]:
+    """REVIEWER_EMAIL / REVIEWER_CODE must be set together, be sane, and never name an administrator address."""
+    email, code = cfg.reviewer_email, (cfg.REVIEWER_CODE or "").strip()
+    if not email and not code:
+        return []
+    if not email or not code:
+        return ["REVIEWER_EMAIL and REVIEWER_CODE must be set together (or both left unset to switch reviewer access off)."]
+    errors: List[str] = []
+    if "@" not in email:
+        errors.append("REVIEWER_EMAIL is not an e-mail address.")
+    reason = weak_reviewer_code_reason(code)
+    if reason:
+        errors.append(f"REVIEWER_CODE is unacceptable: {reason}.")
+    admin = (cfg.BOOTSTRAP_ADMIN_EMAIL or "").strip().lower()
+    if email == admin or email == "admin@roaddistress.org":
+        errors.append("REVIEWER_EMAIL must not be an administrator address (reviewer accounts are always non-admin).")
+    return errors
+
+
 def collect_config_errors(cfg: Settings) -> List[str]:
     """Returns human-readable problems that make the configuration unsafe for production."""
     errors: List[str] = []
@@ -62,6 +92,8 @@ def collect_config_errors(cfg: Settings) -> List[str]:
             )
         if "null" in origins:
             errors.append("BACKEND_CORS_ORIGINS contains 'null' (sandboxed iframes / file:// pages), which is not allowed.")
+
+    errors.extend(reviewer_config_errors(cfg))
 
     secret = cfg.DOWNLOAD_SIGNING_SECRET or ""
     reason = weak_signing_secret_reason(secret) if secret else "it is not set"

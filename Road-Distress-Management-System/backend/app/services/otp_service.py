@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.rate_limit import FailureLockout, SlidingWindowLimiter
+from app.core.roles import Role
 from app.core.security import normalize_email
 from app.models.auth import OtpCode, AuthToken
 from app.services import email_sender
@@ -127,6 +128,30 @@ def request_otp(db: Session, email: str) -> Optional[str]:
         return code
     deliver_otp_email(normalize_email(email), code)
     return None
+
+
+def is_reviewer_email(email: str) -> bool:
+    """True when ``email`` is the app-store reviewer account and reviewer access is configured."""
+    return settings.reviewer_access_enabled and normalize_email(email) == settings.reviewer_email
+
+
+def reviewer_code_matches(user, code: str) -> bool:
+    """
+    App-store reviewer sign-in: the designated REVIEWER_EMAIL account may use the fixed REVIEWER_CODE.
+    Never applies to an administrator (a reviewer address that is, or later becomes, an admin is refused),
+    honours the per-e-mail lockout, and wrong guesses are counted by the normal verify_otp path that
+    the caller falls through to.
+    """
+    if user is None or not is_reviewer_email(user.email) or user.role == Role.ADMIN:
+        return False
+    email = normalize_email(user.email)
+    if email_lockout.is_locked(email):
+        return False
+    expected = (settings.REVIEWER_CODE or "").strip().encode("utf-8")
+    if not hmac.compare_digest(expected, (code or "").strip().encode("utf-8")):
+        return False
+    email_lockout.register_success(email)
+    return True
 
 
 def verify_otp(db: Session, email: str, code: str, account_exists: bool = True) -> bool:

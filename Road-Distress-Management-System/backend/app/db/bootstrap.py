@@ -68,3 +68,57 @@ def bootstrap_admin(db) -> None:
             role=Role.ADMIN,
         ))
         db.commit()
+
+
+REVIEWER_DEMO_PROJECT_NAME = "Demo Project (app review)"
+
+
+def bootstrap_reviewer(db) -> None:
+    """
+    App-store reviewer account (see Settings.REVIEWER_EMAIL / REVIEWER_CODE). When both are set, makes sure a
+    NON-ADMIN account with that e-mail exists and is a member of a small demo project, so a reviewer who signs in
+    with the fixed code lands on something to look at. Never creates or promotes an administrator: if the address
+    already belongs to an admin it is left alone and reviewer sign-in stays refused for it.
+    """
+    if not settings.reviewer_access_enabled:
+        return
+
+    from app.models.user import User
+    from app.models.project import Project, ProjectMember
+    from app.core.security import UNUSABLE_PASSWORD
+    from app.core.roles import Role
+    from app.crud.user import get_user_by_email
+
+    email = settings.reviewer_email
+    user = get_user_by_email(db, email)
+    if user is None:
+        user = User(email=email, full_name="App Reviewer", hashed_password=UNUSABLE_PASSWORD, role=Role.EMPLOYEE)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        logger.info("Reviewer account created from REVIEWER_EMAIL.")
+    elif user.role == Role.ADMIN:
+        logger.error("REVIEWER_EMAIL belongs to an administrator: reviewer sign-in is refused for it. Use another address.")
+        return
+
+    project = db.query(Project).filter(Project.name == REVIEWER_DEMO_PROJECT_NAME).first()
+    if project is None:
+        owner = db.query(User).filter(User.role == Role.ADMIN).order_by(User.id).first() or user
+        project = Project(
+            name=REVIEWER_DEMO_PROJECT_NAME,
+            description="Sample project for app-store review. Contains no real survey data.",
+            highway_name="Demo Highway",
+            highway_number="NH-00",
+            starting_chainage="0.000",
+            ending_chainage="5.000",
+            state="Demo",
+            owner_id=owner.id,
+        )
+        db.add(project)
+        db.flush()
+    is_member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project.id, ProjectMember.user_id == user.id
+    ).first()
+    if is_member is None:
+        db.add(ProjectMember(project_id=project.id, user_id=user.id))
+    db.commit()

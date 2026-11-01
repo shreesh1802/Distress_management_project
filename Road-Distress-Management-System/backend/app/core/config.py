@@ -98,6 +98,13 @@ class Settings(BaseSettings):
     # Production: e-mail of the first admin account created at startup if it does not exist.
     BOOTSTRAP_ADMIN_EMAIL: Optional[str] = None
 
+    # --- App-store reviewer access -----------------------------------------------
+    # Google Play reviewers cannot read a mailbox, so ONE designated non-admin account can sign in with a
+    # fixed 6-digit code instead of an e-mailed one. Active only when BOTH are set; the account gets the
+    # employee role and a demo project (see app.db.bootstrap). Remove both variables to switch it off.
+    REVIEWER_EMAIL: Optional[str] = None
+    REVIEWER_CODE: Optional[str] = None
+
     # --- AI model --------------------------------------------------------------
     # Unset = mock detector allowed in development, forbidden in production.
     ALLOW_MOCK_MODEL: Optional[str] = None
@@ -184,6 +191,15 @@ class Settings(BaseSettings):
     @property
     def allow_mock_model(self) -> bool:
         return parse_flag(self.ALLOW_MOCK_MODEL, not self.is_production)
+
+    @property
+    def reviewer_email(self) -> str:
+        """Normalised reviewer e-mail, or '' when reviewer access is not configured."""
+        return (self.REVIEWER_EMAIL or "").strip().lower()
+
+    @property
+    def reviewer_access_enabled(self) -> bool:
+        return bool(self.reviewer_email and (self.REVIEWER_CODE or "").strip())
 
     @property
     def smtp_starttls(self) -> bool:

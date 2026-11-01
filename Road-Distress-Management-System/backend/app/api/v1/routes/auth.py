@@ -23,10 +23,11 @@ from app.db.session import get_db
 from app.crud.user import get_user_by_email, create_user
 from app.schemas.user import UserResponse, RegisterRequest
 from app.core.security import verify_password, normalize_email, is_usable_hash, dummy_password_hash
-from app.core.roles import SELF_REGISTER_ROLE
+from app.core.roles import Role, SELF_REGISTER_ROLE
 from app.core.deps import get_current_user, extract_bearer_token, registration_gate
 from app.models.user import User
 from app.services import otp_service
+from app.services.account_deletion import AccountDeletionError, delete_account, is_placeholder_email
 from app.services.otp_service import create_otp, deliver_otp_email, verify_otp, issue_token, revoke_token, OtpLocked
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,12 @@ def request_otp_route(
     email = normalize_email(req.email)
     user = get_user_by_email(db, email=email)
     dev_otp: Optional[str] = None
-    if user is not None:
+    # No code is issued for the "Deleted user" placeholder, nor for the app-store reviewer account (which signs in
+    # with a fixed code and may have no real mailbox).
+    skip = user is not None and (
+        is_placeholder_email(user.email) or (otp_service.is_reviewer_email(email) and user.role != Role.ADMIN)
+    )
+    if user is not None and not skip:
         code = create_otp(db, email)
         if code is not None:
             if settings.otp_dev_mode:
@@ -157,12 +163,17 @@ def verify_otp_route(
         raise _too_many("Too many failed attempts. Please try again later.")
 
     user = get_user_by_email(db, email=req.email)
-    try:
-        code_ok = verify_otp(db, req.email, req.code, account_exists=user is not None)
-    except OtpLocked:
-        # Deliberately the SAME answer as an ordinary wrong code: a per-e-mail lock only exists for real
-        # accounts, so a distinct 429 here would reveal that the address has an account.
-        code_ok = False
+    if user is not None and is_placeholder_email(user.email):
+        user = None  # the "Deleted user" placeholder can never sign in
+    if otp_service.reviewer_code_matches(user, req.code):
+        code_ok = True
+    else:
+        try:
+            code_ok = verify_otp(db, req.email, req.code, account_exists=user is not None)
+        except OtpLocked:
+            # Deliberately the SAME answer as an ordinary wrong code: a per-e-mail lock only exists for real
+            # accounts, so a distinct 429 here would reveal that the address has an account.
+            code_ok = False
 
     if user is None or not code_ok:
         otp_service.ip_lockout.register_failure(ip)
@@ -187,4 +198,28 @@ def logout(
 ) -> Response:
     """Server-side logout: invalidates the presented session token."""
     revoke_token(db, extract_bearer_token(authorization) or "")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+class DeleteAccountRequest(BaseModel):
+    confirm_email: str = Field(..., max_length=255)
+
+
+@router.post("/delete-account", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_account(
+    req: DeleteAccountRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Response:
+    """
+    Permanently deletes the signed-in user's own account (Google Play account-deletion requirement).
+    The caller must type their own e-mail address as confirmation. See app.services.account_deletion
+    for exactly what is removed and what is kept (anonymised) for other project members.
+    """
+    if normalize_email(req.confirm_email) != normalize_email(user.email):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The e-mail address does not match your account.")
+    try:
+        delete_account(db, user)
+    except AccountDeletionError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../data/auth_provider.dart';
 import '../../../router/app_router.dart';
 import '../../../theme/app_colors.dart';
+import '../../account/delete_account_dialog.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Direct port of Road-Distress-Management-System/frontend/src/components/
@@ -300,6 +301,8 @@ class _ProfileMenu extends StatelessWidget {
           case 'profile':
           case 'settings':
             context.go('/settings');
+          case 'delete_account':
+            confirmAndDeleteAccount(context, ref);
           case 'logout':
             ref.read(authProvider.notifier).logout();
             context.go(AppRoutes.login);
@@ -351,6 +354,20 @@ class _ProfileMenu extends StatelessWidget {
           ),
         ),
         const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'delete_account',
+          height: 36,
+          child: Row(
+            children: [
+              Icon(LucideIcons.userX, size: 14, color: AppColors.danger),
+              SizedBox(width: 8),
+              Text(
+                'Delete Account',
+                style: TextStyle(fontSize: 12, color: AppColors.danger),
+              ),
+            ],
+          ),
+        ),
         const PopupMenuItem<String>(
           value: 'logout',
           height: 36,

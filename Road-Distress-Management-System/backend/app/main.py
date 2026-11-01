@@ -89,7 +89,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(nam
 
 logger = logging.getLogger(__name__)
 
-from app.db.bootstrap import bootstrap_admin as _bootstrap_admin  # noqa: E402
+from app.db.bootstrap import bootstrap_admin as _bootstrap_admin, bootstrap_reviewer as _bootstrap_reviewer  # noqa: E402
 
 def _seed_demo_data(db) -> None:
     """Demo video 20 + 8 demo detections and the demo display name for user 1 (SEED_DEMO_DATA)."""
@@ -258,6 +258,7 @@ def startup_event() -> None:
 
         # First-admin bootstrap (development: user id 1; production: only from BOOTSTRAP_ADMIN_EMAIL)
         _bootstrap_admin(db)
+        _bootstrap_reviewer(db)
 
         # Demo data (video 20, 8 demo detections, demo display name) only when SEED_DEMO_DATA is on
         if settings.seed_demo_data:
