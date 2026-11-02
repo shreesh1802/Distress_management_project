@@ -73,12 +73,13 @@ def collect_config_errors(cfg: Settings) -> List[str]:
             "API response) is not allowed outside development; unset OTP_DEV_MODE or set it to false."
         )
 
-    if not cfg.smtp_configured:
+    if not cfg.email_configured:
         errors.append(
-            "SMTP is not configured. Set SMTP_HOST and SMTP_FROM (and SMTP_USER/SMTP_PASSWORD, "
+            "E-mail delivery is not configured. Set SMTP_FROM plus either BREVO_API_KEY (HTTPS API, works where "
+            "outbound SMTP is blocked, e.g. Railway Free/Hobby) or SMTP_HOST (and SMTP_USER/SMTP_PASSWORD, "
             "SMTP_PORT, SMTP_STARTTLS as your provider requires) so login codes can be e-mailed."
         )
-    elif bool(cfg.SMTP_USER) != bool(cfg.SMTP_PASSWORD):
+    elif not cfg.email_api_configured and bool(cfg.SMTP_USER) != bool(cfg.SMTP_PASSWORD):
         errors.append("SMTP_USER and SMTP_PASSWORD must be set together (or both left empty).")
 
     raw_cors = cfg.BACKEND_CORS_ORIGINS
@@ -142,8 +143,8 @@ def collect_config_warnings(cfg: Settings) -> List[str]:
             warnings.append(
                 "Hosting-platform markers are present (" + ", ".join(markers) + ") while APP_ENV is a development value: "
                 "the dev OTP shortcut is DISABLED. " + (
-                    "Login codes will be e-mailed." if cfg.smtp_configured else
-                    "SMTP is not configured, so nobody can log in. Configure SMTP_HOST/SMTP_FROM and set APP_ENV=production."
+                    "Login codes will be e-mailed." if cfg.email_configured else
+                    "E-mail delivery is not configured, so nobody can log in. Configure BREVO_API_KEY or SMTP_HOST (with SMTP_FROM) and set APP_ENV=production."
                 ) + " (Override for a throw-away demo only: ALLOW_DEV_OTP_ON_PLATFORM=true.)"
             )
         elif cfg.otp_dev_mode:

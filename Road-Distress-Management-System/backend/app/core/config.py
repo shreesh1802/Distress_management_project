@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM: Optional[str] = None
     SMTP_STARTTLS: Optional[str] = None  # default true; port 465 uses implicit TLS
+    # HTTPS e-mail API (Brevo). Use this where outbound SMTP is blocked (Railway Free/Hobby plans). Needs
+    # SMTP_FROM as the verified sender address; when set it is used instead of SMTP.
+    BREVO_API_KEY: Optional[str] = None
 
     # Unset = on in development, off otherwise. Open self-registration lets ANY mailbox owner obtain a
     # working login, so production keeps it admin-only unless the owner deliberately turns it on.
@@ -191,6 +194,15 @@ class Settings(BaseSettings):
     @property
     def allow_mock_model(self) -> bool:
         return parse_flag(self.ALLOW_MOCK_MODEL, not self.is_production)
+
+    @property
+    def email_api_configured(self) -> bool:
+        return bool((self.BREVO_API_KEY or "").strip() and (self.SMTP_FROM or "").strip())
+
+    @property
+    def email_configured(self) -> bool:
+        """Some way to deliver login codes by e-mail exists (HTTPS API or SMTP)."""
+        return self.email_api_configured or self.smtp_configured
 
     @property
     def reviewer_email(self) -> str:

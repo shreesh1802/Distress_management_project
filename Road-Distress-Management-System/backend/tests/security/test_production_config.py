@@ -47,7 +47,7 @@ def test_development_is_the_default_and_has_no_config_errors():
 def test_production_without_configuration_is_rejected_with_clear_errors():
     errors = collect_config_errors(cfg(APP_ENV="production"))
     text = "\n".join(errors)
-    assert "SMTP is not configured" in text
+    assert "E-mail delivery is not configured" in text
     assert "DOWNLOAD_SIGNING_SECRET" in text
     with pytest.raises(RuntimeError, match="Refusing to start"):
         validate_runtime_config(cfg(APP_ENV="production"))

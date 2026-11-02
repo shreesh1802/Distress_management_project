@@ -133,11 +133,11 @@ def request_otp_route(
             if settings.otp_dev_mode:
                 logger.info("[DEV MODE] OTP issued for a login request; the code is returned in the API response only.")
                 dev_otp = code
-            elif settings.smtp_configured:
+            elif settings.email_configured:
                 # Sent after the response so latency does not differ from the unknown-email path.
                 background_tasks.add_task(deliver_otp_email, email, code)
             else:
-                logger.error("Cannot deliver login code: SMTP is not configured and dev OTP mode is off.")
+                logger.error("Cannot deliver login code: no e-mail delivery is configured (BREVO_API_KEY or SMTP_HOST) and dev OTP mode is off.")
     return RequestOtpResponse(sent=True, dev_otp=dev_otp)
 
 
