@@ -260,6 +260,10 @@ def startup_event() -> None:
         _bootstrap_admin(db)
         _bootstrap_reviewer(db)
 
+        # Detection weights: download in the background if the deployment did not ship them
+        from app.services.ai.model_provisioning import ensure_models_in_background
+        ensure_models_in_background()
+
         # Demo data (video 20, 8 demo detections, demo display name) only when SEED_DEMO_DATA is on
         if settings.seed_demo_data:
             _seed_demo_data(db)

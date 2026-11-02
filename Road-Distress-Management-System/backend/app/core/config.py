@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     REVIEWER_CODE: Optional[str] = None
 
     # --- AI model --------------------------------------------------------------
+    # Where to fetch road_best.pth / signage_best.pth when they are missing (or are Git-LFS pointer stubs) at
+    # start-up, e.g. https://huggingface.co/<user>/<repo>/resolve/main. HTTPS only. MODEL_DOWNLOAD_TOKEN is
+    # sent as a Bearer token to that host only (never to a redirect target) for private repositories.
+    MODEL_BASE_URL: Optional[str] = None
+    MODEL_DOWNLOAD_TOKEN: Optional[str] = None
     # Unset = mock detector allowed in development, forbidden in production.
     ALLOW_MOCK_MODEL: Optional[str] = None
 

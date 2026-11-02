@@ -16,6 +16,7 @@ from app.crud.distress import create_distress
 from app.schemas.distress import RoadDistressCreate
 from app.services.ai.frame_extractor import extract_frames
 from app.services.ai.inference_service import run_inference
+from app.services.ai.model_loader import ModelUnavailableError
 from app.services.ai.utils import generate_gps_coordinates
 
 # Reuse existing services
@@ -121,6 +122,12 @@ def process_video(video_id: int) -> None:
                     )
                     update_video(db, video_id=video_id, video_in=video_update)
                     db.commit()
+            except ModelUnavailableError:
+                # Every remaining frame would fail the same way: stop now (one log entry, video marked failed).
+                db.rollback()
+                logger.error("Video %s stopped at frame %s: the detection model is not available on this server.",
+                             video_id, frame_info.get("frame_number", "unknown"))
+                raise
             except Exception as fe:
                 # Failsafe rollback to restore session sanity
                 db.rollback()

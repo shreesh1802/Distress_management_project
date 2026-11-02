@@ -173,3 +173,16 @@ secure origins, relevant if the live-camera feature is used).
 - **A CI/CD pipeline.** Deploys above are manual (`git pull` + rebuild). Fine
   for a pilot; worth automating (GitHub Actions → SSH deploy) once this is a
   real production system with frequent updates.
+
+---
+
+## Model weights on a platform without bind mounts (Railway)
+
+`docker-compose.yml` mounts `backend/models/` into the container. A platform that builds straight from GitHub has no
+such mount, and Git-LFS files are not always checked out there (they arrive as ~130 byte pointer stubs), so the
+server would have no detection model and every video would end as **failed** ("Detection model unavailable ...").
+
+At start-up the server therefore checks `models/road_best.pth` and `models/signage_best.pth` and, for any that is missing
+or a stub, downloads it from `MODEL_BASE_URL` (HTTPS only; `MODEL_DOWNLOAD_TOKEN` for a private repository; see
+`backend/railway.env.example`). The download runs in the background (about 270 MB), so the first minutes after a
+deploy can still report "model not available" - upload the video again once the log says "Detection weights ... ready".

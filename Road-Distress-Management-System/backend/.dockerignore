@@ -5,7 +5,8 @@ __pycache__
 *.pyc
 uploads/
 reports/
-models/
+# models/ is NOT ignored: if the build checkout contains the real weights they ship in the image;
+# otherwise app.services.ai.model_provisioning downloads them at start-up (MODEL_BASE_URL).
 .pytest_cache
 .git
 *.log
