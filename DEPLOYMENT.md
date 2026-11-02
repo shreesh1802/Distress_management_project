@@ -179,10 +179,16 @@ secure origins, relevant if the live-camera feature is used).
 ## Model weights on a platform without bind mounts (Railway)
 
 `docker-compose.yml` mounts `backend/models/` into the container. A platform that builds straight from GitHub has no
-such mount, and Git-LFS files are not always checked out there (they arrive as ~130 byte pointer stubs), so the
-server would have no detection model and every video would end as **failed** ("Detection model unavailable ...").
+such mount, and the weights must not be baked into the image or added to git (`.dockerignore` excludes `models/`,
+`*.pth` and `*.pt`). Without them the server has no detection model and every video ends as **failed**
+("Detection model unavailable ...").
 
-At start-up the server therefore checks `models/road_best.pth` and `models/signage_best.pth` and, for any that is missing
-or a stub, downloads it from `MODEL_BASE_URL` (HTTPS only; `MODEL_DOWNLOAD_TOKEN` for a private repository; see
-`backend/railway.env.example`). The download runs in the background (about 270 MB), so the first minutes after a
-deploy can still report "model not available" - upload the video again once the log says "Detection weights ... ready".
+Host `road_best.pth` and `signage_best.pth` in a **private** repository (for example on Hugging Face) and set, in the
+platform's variables (see `backend/railway.env.example`):
+
+* `MODEL_BASE_URL` - the folder URL, e.g. `https://huggingface.co/<user>/<repo>/resolve/main` (HTTPS only)
+* `MODEL_DOWNLOAD_TOKEN` - a read-only access token for that repository
+
+At start-up the server checks `models/road_best.pth` and `models/signage_best.pth` and downloads any that is missing
+(about 270 MB, in the background). Until the log says "Detection weights ... ready", uploads report "model not
+available" - upload the video again afterwards. The token is only sent to the configured host, never logged.

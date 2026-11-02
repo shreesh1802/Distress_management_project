@@ -5,8 +5,11 @@ __pycache__
 *.pyc
 uploads/
 reports/
-# models/ is NOT ignored: if the build checkout contains the real weights they ship in the image;
-# otherwise app.services.ai.model_provisioning downloads them at start-up (MODEL_BASE_URL).
+# Model weights never go into the image: app.services.ai.model_provisioning downloads them at
+# start-up from MODEL_BASE_URL (private Hugging Face repo). docker-compose bind-mounts ./backend/models.
+models/
+*.pth
+*.pt
 .pytest_cache
 .git
 *.log
