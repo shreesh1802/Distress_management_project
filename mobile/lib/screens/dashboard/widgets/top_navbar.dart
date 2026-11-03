@@ -410,7 +410,7 @@ class _ProfileMenu extends StatelessWidget {
                 border: Border.all(color: const Color(0x334F8EF7)),
               ),
               child: const Text(
-                'DA',
+                'ME',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,

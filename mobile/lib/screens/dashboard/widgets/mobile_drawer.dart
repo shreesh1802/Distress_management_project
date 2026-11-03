@@ -130,7 +130,7 @@ class MobileDrawer extends StatelessWidget {
                     radius: 16,
                     backgroundColor: Colors.white.withValues(alpha: 0.1),
                     child: const Text(
-                      'DA',
+                      'ME',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.bold,
