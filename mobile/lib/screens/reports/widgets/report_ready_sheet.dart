@@ -6,6 +6,8 @@ import '../../../theme/app_colors.dart';
 import '../../../utils/download_helper.dart';
 import '../../../utils/report_share.dart';
 
+const _kNoShareMessage = "This browser can't share files, so the report was downloaded instead.";
+
 /// Shares an existing report through the system share sheet. Failures are shown as a snackbar.
 Future<void> shareReport(
   BuildContext context,
@@ -17,7 +19,10 @@ Future<void> shareReport(
   final messenger = ScaffoldMessenger.of(context);
   try {
     final url = await api.signedUrl(reportId, excel ? 'excel' : 'pdf');
-    await shareReportFromUrl(url: url, filename: reportFileName(name, excel: excel), excel: excel);
+    final shared = await shareReportFromUrl(url: url, filename: reportFileName(name, excel: excel), excel: excel);
+    if (!shared) {
+      messenger.showSnackBar(const SnackBar(content: Text(_kNoShareMessage)));
+    }
   } on ReportsApiException catch (e) {
     messenger.showSnackBar(SnackBar(content: Text(e.message)));
   } on ReportShareException catch (e) {
@@ -61,6 +66,7 @@ enum _Action { share, download }
 class _ReportReadySheetState extends State<_ReportReadySheet> {
   _Action? _busy;
   String? _error;
+  String? _note;
 
   String get _filename => reportFileName(widget.name, excel: widget.excel);
 
@@ -68,11 +74,13 @@ class _ReportReadySheetState extends State<_ReportReadySheet> {
     setState(() {
       _busy = action;
       _error = null;
+      _note = null;
     });
     try {
       final url = await widget.api.signedUrl(widget.reportId, widget.excel ? 'excel' : 'pdf');
       if (action == _Action.share) {
-        await shareReportFromUrl(url: url, filename: _filename, excel: widget.excel);
+        final shared = await shareReportFromUrl(url: url, filename: _filename, excel: widget.excel);
+        if (!shared) _note = _kNoShareMessage;
       } else {
         await triggerReportDownload(url, _filename);
       }
@@ -129,6 +137,10 @@ class _ReportReadySheetState extends State<_ReportReadySheet> {
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(_error!, style: const TextStyle(color: AppColors.danger, fontSize: 13)),
+            ],
+            if (_note != null) ...[
+              const SizedBox(height: 12),
+              Text(_note!, style: const TextStyle(color: AppColors.secondaryText, fontSize: 13)),
             ],
             TextButton(
               onPressed: busy ? null : () => Navigator.of(context).pop(),

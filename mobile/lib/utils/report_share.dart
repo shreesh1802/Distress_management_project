@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
+
+import 'download_helper.dart';
 
 const _pdfMime = 'application/pdf';
 const _xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -25,8 +28,11 @@ String reportFileName(String base, {required bool excel}) {
 /// so call this right after getting it) and opens the system share sheet with the file attached, so the user can
 /// send it through any installed app that accepts documents (WhatsApp, Telegram, Gmail, Drive, ...).
 ///
-/// On the web the browser's own share dialog is used where it exists, otherwise the file is downloaded.
-Future<void> shareReportFromUrl({
+/// On the web the browser's own share dialog is used where it exists. Browsers without file sharing (desktop
+/// Firefox, embedded browsers) make share_plus throw, so there the file is downloaded instead.
+///
+/// Returns true when the share sheet was opened, false when the file was downloaded instead.
+Future<bool> shareReportFromUrl({
   required String url,
   required String filename,
   required bool excel,
@@ -41,13 +47,20 @@ Future<void> shareReportFromUrl({
     throw const ReportShareException('Could not prepare the report for sharing. Please try again.');
   }
 
-  await SharePlus.instance.share(
-    ShareParams(
-      files: [XFile.fromData(response.bodyBytes, mimeType: excel ? _xlsxMime : _pdfMime, name: filename)],
-      fileNameOverrides: [filename],
-      subject: 'Road Inspection report',
-      text: 'Road Inspection report: $filename',
-      downloadFallbackEnabled: true,
-    ),
-  );
+  try {
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile.fromData(response.bodyBytes, mimeType: excel ? _xlsxMime : _pdfMime, name: filename)],
+        fileNameOverrides: [filename],
+        subject: 'Road Inspection report',
+        text: 'Road Inspection report: $filename',
+        downloadFallbackEnabled: true,
+      ),
+    );
+    return true;
+  } catch (_) {
+    if (!kIsWeb) throw const ReportShareException('Could not open the share sheet on this device.');
+    await triggerReportDownload(url, filename);
+    return false;
+  }
 }
