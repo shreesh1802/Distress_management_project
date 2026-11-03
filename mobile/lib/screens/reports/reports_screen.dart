@@ -11,6 +11,7 @@ import '../../data/video_api.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/download_helper.dart';
 import 'widgets/registry_overview_card.dart';
+import 'widgets/report_ready_sheet.dart';
 import 'widgets/report_preview_modal.dart';
 import 'widgets/reports_registry_card.dart';
 
@@ -203,6 +204,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
     });
   }
 
+  Future<void> _shareExisting(ReportItem report) => shareReport(
+        context,
+        _reportsApi,
+        reportId: report.reportId,
+        excel: report.reportType == 'EXCEL',
+        name: report.id,
+      );
+
   Future<void> _triggerDownload(ReportItem report) async {
     final isExcel = report.reportType == 'EXCEL';
     final ext = isExcel ? 'xlsx' : 'pdf';
@@ -265,6 +274,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _reports = [newItem, ..._reports];
         _selectedVideoId = null;
       });
+      await showReportReadySheet(context, api: _reportsApi, reportId: rec.id, excel: false, name: rec.reportName);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -287,6 +297,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _reports = [newItem, ..._reports];
         _selectedVideoId = null;
       });
+      await showReportReadySheet(context, api: _reportsApi, reportId: rec.id, excel: true, name: rec.reportName);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -395,6 +406,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   onToggleFavorite: _toggleFavorite,
                   onPreview: (r) => setState(() => _previewReport = r),
                   onDownload: _triggerDownload,
+                  onShare: _shareExisting,
                   onDelete: _handleDeleteReport,
                   onPrevPage: () => setState(() => _currentPage = (_currentPage - 1).clamp(1, totalPages)),
                   onNextPage: () => setState(() => _currentPage = (_currentPage + 1).clamp(1, totalPages)),
@@ -423,6 +435,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             report: _previewReport!,
             onClose: () => setState(() => _previewReport = null),
             onDownload: () => _triggerDownload(_previewReport!),
+            onShare: () => _shareExisting(_previewReport!),
           ),
       ],
     );

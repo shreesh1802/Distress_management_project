@@ -12,11 +12,18 @@ import '../../../theme/app_colors.dart';
 /// generator alike) only ever produces `reportType` 'PDF' or 'EXCEL' --
 /// `'JSON'` is unreachable dead code, so it isn't ported here.
 class ReportPreviewModal extends StatelessWidget {
-  const ReportPreviewModal({super.key, required this.report, required this.onClose, required this.onDownload});
+  const ReportPreviewModal({
+    super.key,
+    required this.report,
+    required this.onClose,
+    required this.onDownload,
+    required this.onShare,
+  });
 
   final ReportItem report;
   final VoidCallback onClose;
   final VoidCallback onDownload;
+  final VoidCallback onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -58,6 +65,12 @@ class ReportPreviewModal extends StatelessWidget {
                             ],
                           ),
                         ),
+                        OutlinedButton.icon(
+                          onPressed: onShare,
+                          icon: const Icon(LucideIcons.share2, size: 14),
+                          label: const Text('Share', style: TextStyle(fontSize: 12)),
+                        ),
+                        const SizedBox(width: 8),
                         ElevatedButton(
                           onPressed: onDownload,
                           style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentBlue, foregroundColor: Colors.white),

@@ -14,7 +14,7 @@ import '../../data/road_distress_api.dart';
 import '../../data/video_api.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_colors.dart';
-import '../../utils/download_helper.dart';
+import '../reports/widgets/report_ready_sheet.dart';
 import 'widgets/detections_sidebar.dart';
 import 'widgets/dual_player_panel.dart';
 
@@ -157,12 +157,13 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
       final record = excel
           ? await _reportsApi.generateExcelReport(video.id)
           : await _reportsApi.generatePdfReport(video.id);
-      final url = await _reportsApi.signedUrl(record.id, excel ? 'excel' : 'pdf');
-      await triggerReportDownload(
-        url,
-        excel
-            ? 'Road_Inspection_Audit_Video_${video.id}.xlsx'
-            : 'Road_Inspection_Report_Video_${video.id}.pdf',
+      if (!mounted) return;
+      await showReportReadySheet(
+        context,
+        api: _reportsApi,
+        reportId: record.id,
+        excel: excel,
+        name: excel ? 'Road_Inspection_Audit_Video_${video.id}' : 'Road_Inspection_Report_Video_${video.id}',
       );
     } catch (_) {
       if (!mounted) return;
