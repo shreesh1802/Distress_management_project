@@ -85,7 +85,12 @@ class LiveStatus {
     required this.avgConfidence,
     required this.fps,
     required this.inferenceFps,
+    this.sessionVideoId,
   });
+
+  /// The saved-session record the detections of this live session are filed under (null until the first
+  /// detection is saved); a report can be generated from it.
+  final int? sessionVideoId;
 
   final bool running;
   final String? error;
@@ -114,6 +119,7 @@ class LiveStatus {
       avgConfidence: (json['avg_confidence'] as num?)?.toDouble() ?? 0,
       fps: (json['fps'] as num?)?.toDouble() ?? 0,
       inferenceFps: (json['inference_fps'] as num?)?.toDouble(),
+      sessionVideoId: (json['session_video_id'] as num?)?.toInt(),
     );
   }
 }

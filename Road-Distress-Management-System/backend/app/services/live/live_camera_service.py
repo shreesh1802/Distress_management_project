@@ -77,6 +77,9 @@ class LiveCameraManager:
         self._events: deque = deque(maxlen=200)
         self._event_seq = 0
         self._last_persist: Dict[str, float] = {}
+        # One uploaded_videos row per live session (created with the first saved detection) so the
+        # session's detections can be turned into a PDF / Excel report like any processed video.
+        self._session_video_id: Optional[int] = None
         self._error: Optional[str] = None
         self._pavement = None
         self._signage = None
@@ -146,6 +149,7 @@ class LiveCameraManager:
         self.stats = self._blank_stats()
         self.stats["source"] = source
         self._last_persist.clear()
+        self._session_video_id = None
         self._latest_raw_frame = None
         self._raw_frame_count = 0
         self._latest_road_detections = []
@@ -292,7 +296,7 @@ class LiveCameraManager:
         return {
             "camera_index": None, "frames": 0, "inferences": 0,
             "detections_total": 0, "detections_road": 0, "detections_sign": 0,
-            "critical_alerts": 0, "persisted": 0,
+            "critical_alerts": 0, "persisted": 0, "session_video_id": None,
             "avg_confidence": 0.0, "fps": 0.0, "inference_fps": 0.0, "started_at": None,
         }
 
@@ -471,6 +475,7 @@ class LiveCameraManager:
         try:
             from app.db.session import SessionLocal
             from app.models.distress import RoadDistress
+            from app.models.video import UploadedVideo
 
             os.makedirs(cfg.SNAPSHOT_DIR, exist_ok=True)
             snap_name = f"live_{int(now)}_{det['class_name'].replace(' ', '_')}.jpg"
@@ -480,7 +485,24 @@ class LiveCameraManager:
 
             db = SessionLocal()
             try:
+                if self._session_video_id is None:
+                    session_video = UploadedVideo(
+                        filename=f"Live session {datetime.utcnow():%Y-%m-%d %H:%M} UTC",
+                        filepath=None,
+                        processing_status="completed",
+                        progress=100,
+                        processing_stage="Live session",
+                    )
+                    db.add(session_video)
+                    db.flush()
+                    self._session_video_id = session_video.id
+                    with self._lock:
+                        self.stats["session_video_id"] = session_video.id
+                db.query(UploadedVideo).filter(UploadedVideo.id == self._session_video_id).update(
+                    {"processing_duration": round(elapsed, 1)}
+                )
                 row = RoadDistress(
+                    video_id=self._session_video_id,
                     distress_type=det["class_name"],
                     severity=severity,
                     confidence_score=round(det["confidence"], 4),
