@@ -1,13 +1,18 @@
 """
 Authentication routes for the Road Distress Management System.
 
-Real Email + OTP login (request-otp / verify-otp) is what the frontend
-actually uses now, replacing the old hardcoded mock login. The original
-password-based /login and /register are kept as-is (register is still how
-an account gets created in the first place; OTP only handles the *login*
-step for an existing account, per the "Login [Email + OTP]" design -- it
-doesn't auto-create accounts for arbitrary emails).
+Login is Google sign-in via Firebase (POST /auth/google): the app signs the
+user in with Google, sends the Firebase ID token here, and gets back an
+opaque bearer session token. Only emails on the allow-list can sign in --
+the Firestore `allowedUsers` collection, managed in the Firebase console
+(see app/services/access_service.py).
+
+The original password-based /login and /register are kept: /login doesn't
+issue a session token (so it grants no API access), and /register is
+admin-only like POST /users/.
 """
+
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -16,11 +21,14 @@ from app.db.session import get_db
 from app.crud.user import get_user_by_email, create_user
 from app.schemas.user import UserResponse, UserCreate
 from app.core.security import verify_password
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_admin
 from app.models.user import User
-from app.services.otp_service import request_otp, verify_otp, issue_token, OTP_DEV_MODE
+from app.services.session_service import issue_token
+from app.services.access_service import sync_user
+from app.services.firebase_service import verify_google_id_token
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class LoginRequest(BaseModel):
@@ -46,9 +54,14 @@ def login(request: LoginRequest, db: Session = Depends(get_db)) -> UserResponse:
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(user_in: UserCreate, db: Session = Depends(get_db)) -> UserResponse:
+def register(
+    user_in: UserCreate,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> UserResponse:
     """
-    Register a new inspector or user in the database.
+    Register a new inspector or user in the database (admin only -- the
+    users table is the login allow-list, so self-registration is closed).
     """
     user = get_user_by_email(db, email=user_in.email)
     if user:
@@ -59,49 +72,44 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)) -> UserResponse
     return create_user(db, user_in=user_in)
 
 
-class RequestOtpRequest(BaseModel):
-    email: str
+class GoogleLoginRequest(BaseModel):
+    id_token: str
 
 
-class RequestOtpResponse(BaseModel):
-    sent: bool
-    dev_otp: str | None = None  # only populated in OTP_DEV_MODE -- see otp_service docstring
-
-
-@router.post("/request-otp", response_model=RequestOtpResponse)
-def request_otp_route(req: RequestOtpRequest, db: Session = Depends(get_db)) -> RequestOtpResponse:
-    """
-    Step 1 of Email + OTP login: send a 6-digit code to an *existing*
-    account's email. Doesn't reveal whether the email exists to avoid
-    leaking account existence -- always returns sent=true, but no OTP row
-    is actually created for an unknown email, so verify-otp will simply
-    never succeed for it.
-    """
-    user = get_user_by_email(db, email=req.email)
-    if user is None:
-        return RequestOtpResponse(sent=True, dev_otp=None)
-    dev_otp = request_otp(db, req.email)
-    return RequestOtpResponse(sent=True, dev_otp=dev_otp)
-
-
-class VerifyOtpRequest(BaseModel):
-    email: str
-    code: str
-
-
-class VerifyOtpResponse(BaseModel):
+class SessionResponse(BaseModel):
     token: str
     user: UserResponse
 
 
-@router.post("/verify-otp", response_model=VerifyOtpResponse)
-def verify_otp_route(req: VerifyOtpRequest, db: Session = Depends(get_db)) -> VerifyOtpResponse:
-    """Step 2: verify the code and issue a bearer session token."""
-    user = get_user_by_email(db, email=req.email)
-    if user is None or not verify_otp(db, req.email, req.code):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired code")
+@router.post("/google", response_model=SessionResponse)
+def google_login_route(req: GoogleLoginRequest, db: Session = Depends(get_db)) -> SessionResponse:
+    """
+    Google sign-in via Firebase: verify the Firebase ID token, check the
+    email against the Firestore allow-list, and issue a bearer session
+    token. An email that isn't on the list gets a 403.
+    """
+    try:
+        claims = verify_google_id_token(req.id_token)
+    except Exception:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Google token")
+
+    email = claims.get("email")
+    if not email or not claims.get("email_verified"):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Google email not verified")
+
+    try:
+        user = sync_user(db, email, fallback_name=claims.get("name"))
+    except Exception:
+        logger.exception("Couldn't read the Firestore allow-list")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Couldn't check the access list. Please try again shortly.",
+        )
+    if user is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No account for this email")
+
     token = issue_token(db, user.id)
-    return VerifyOtpResponse(token=token, user=UserResponse.model_validate(user))
+    return SessionResponse(token=token, user=UserResponse.model_validate(user))
 
 
 @router.get("/me", response_model=UserResponse)

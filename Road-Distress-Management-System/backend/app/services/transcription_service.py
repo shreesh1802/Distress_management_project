@@ -2,12 +2,11 @@
 Local speech-to-text for M2 audit audio clips (app/models/audit.py's
 AuditAudioClip.transcript). Uses openai-whisper against the torch install
 already required for YOLOX inference, running fully offline -- no external
-API key, matching the OTP work's "avoid new paid dependencies" spirit.
+API key, keeping with the project's "avoid new paid dependencies" spirit.
 
 Falls back gracefully (transcript_status="unavailable"/"failed") if whisper
 isn't installed or a specific clip fails to transcribe, rather than blocking
-the upload -- mirrors OTP_DEV_MODE's "best-effort, never block the request"
-posture in otp_service.py.
+the upload -- a "best-effort, never block the request" posture.
 """
 
 import logging
