@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "949675387155",
+    "project_id": "road-distress-a0e09",
+    "storage_bucket": "road-distress-a0e09.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:949675387155:android:ad22006e71dd6064bdd2e6",
+        "android_client_info": {
+          "package_name": "com.thapar.roaddistress"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "949675387155-22ll2ibldhj9jn4d38tc2pbstoem0qb4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.thapar.roaddistress",
+            "certificate_hash": "2b533b6aceba88c3d47b9502441ff77bbebda65f"
+          }
+        },
+        {
+          "client_id": "949675387155-veq1cn4h9lbq8l3ah9mvdtj66a1qb139.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMmK5_m_0DQP02qGyGXKt2UYNyubdWG3o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "949675387155-veq1cn4h9lbq8l3ah9mvdtj66a1qb139.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "949675387155-tint8piblmgukq37lijpjasmt579h3mf.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.thapar.roaddistress"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
