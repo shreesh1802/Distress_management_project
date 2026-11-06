@@ -49,6 +49,9 @@ thop==0.1.1.post2209072238
 tqdm==4.68.4
 psutil==7.2.2
 
+# --- Google sign-in: verifies Firebase ID tokens (app/services/firebase_service.py) ---
+firebase-admin==7.7.0
+
 # --- M2 Road Safety Audit: local speech-to-text for audio commentary
 # transcripts (app/services/transcription_service.py). Runs offline against
 # the already-installed torch + imageio-ffmpeg (bundled ffmpeg binary), no
