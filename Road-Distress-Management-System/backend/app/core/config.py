@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     
     DATABASE_URL: str | None = None
 
+    # Firebase Admin (Google sign-in, see app/services/firebase_service.py).
+    # Local dev: path to the service-account JSON. Hosted (Railway): paste
+    # the JSON itself into FIREBASE_CREDENTIALS_JSON instead.
+    FIREBASE_CREDENTIALS_PATH: str | None = None
+    FIREBASE_CREDENTIALS_JSON: str | None = None
+
     @property
     def sqlalchemy_database_uri(self) -> str:
         """

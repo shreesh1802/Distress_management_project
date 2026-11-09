@@ -249,36 +249,48 @@ class _Header extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // On phone widths the brand tag is dropped so the email and the sign-out
+    // button always fit on screen.
+    final showBrandTag = MediaQuery.sizeOf(context).width >= 600;
+
     return Row(
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-          ),
-          child: Text(
-            'NHAI · ROAD INSPECTION CONTROL CENTER',
-            style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1,
-              color: Colors.white.withValues(alpha: 0.85),
+        if (showBrandTag)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+            ),
+            child: Text(
+              'NHAI · ROAD INSPECTION CONTROL CENTER',
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+                color: Colors.white.withValues(alpha: 0.85),
+              ),
             ),
           ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: email == null
+              ? const SizedBox.shrink()
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      email!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
+                    Text(role.toUpperCase(), style: const TextStyle(color: AppColors.warning, fontSize: 10.5, fontWeight: FontWeight.w700)),
+                  ],
+                ),
         ),
-        const Spacer(),
-        if (email != null) ...[
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(email!, style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
-              Text(role.toUpperCase(), style: const TextStyle(color: AppColors.warning, fontSize: 10.5, fontWeight: FontWeight.w700)),
-            ],
-          ),
-          const SizedBox(width: 12),
-        ],
+        const SizedBox(width: 12),
         IconButton(
           icon: const Icon(LucideIcons.logOut, color: Colors.white70, size: 20),
           tooltip: 'Sign out',
