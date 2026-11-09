@@ -16,6 +16,8 @@ from openpyxl.chart import BarChart, PieChart, Reference
 from app.models.video import UploadedVideo
 from app.models.distress import RoadDistress
 from app.models.maintenance import MaintenanceTask
+from app.services.repair_report_sections import add_repair_strategy_sheet, row_recommendation
+from app.services.repair_strategies import BITUMINOUS
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +34,14 @@ def _text_cell(value):
     return value
 
 
-def generate_video_excel_report(db: Session, video_id: int) -> str:
+def generate_video_excel_report(db: Session, video_id: int, pavement: str = BITUMINOUS) -> str:
     """
     Generates a comprehensive Excel report (.xlsx) for a processed video session.
     
     Args:
         db (Session): Database session.
         video_id (int): ID of the processed video.
+        pavement (str): 'bituminous' (IRC:82-2015) or 'concrete' (IRC:SP:83-2018): which repair strategies to show.
         
     Returns:
         str: Relative path of the generated Excel file.
@@ -405,7 +408,8 @@ def generate_video_excel_report(db: Session, video_id: int) -> str:
             impact = -2
             sev_color = "3B82F6"
             
-        rec_text = task.recommendation if task and task.recommendation else "Monitor segment conditions."
+        rec_text = row_recommendation(
+            d, task.recommendation if task and task.recommendation else "Monitor segment conditions.", pavement)
         est_cost = task.estimated_cost if task and task.estimated_cost else 0.0
         
         # Bounding box label
@@ -574,7 +578,7 @@ def generate_video_excel_report(db: Session, video_id: int) -> str:
         c3 = ws3.cell(row=r, column=3, value=task.maintenance_category.capitalize() if task.maintenance_category else "Unclassified")
         c3.alignment = Alignment(horizontal="left", vertical="center")
         
-        c4 = ws3.cell(row=r, column=4, value=task.recommendation)
+        c4 = ws3.cell(row=r, column=4, value=row_recommendation(d, task.recommendation, pavement))
         c4.alignment = Alignment(horizontal="left", vertical="center")
         
         c5 = ws3.cell(row=r, column=5, value=task.estimated_cost or 0)
@@ -678,7 +682,10 @@ def generate_video_excel_report(db: Session, video_id: int) -> str:
             
         # Maintenance Recommendation (dominant recommendation)
         item_tasks = [task_map[d.id] for d in interval_items if d.id in task_map]
-        recommendations = [t.recommendation for t in item_tasks if t.recommendation]
+        recommendations = [
+            row_recommendation(d, task_map[d.id].recommendation, pavement)
+            for d in interval_items if d.id in task_map
+        ]
         if recommendations:
             # Mode recommendation
             rec = max(set(recommendations), key=recommendations.count)
@@ -1753,6 +1760,11 @@ def generate_video_excel_report(db: Session, video_id: int) -> str:
         ws11.cell(row=7, column=1, value="No pothole detections in this video.").font = italic_font
     autosize(ws11, {1, 4})
     ws11.freeze_panes = "A7"
+
+    # ----------------------------------------------------
+    # SHEET 12: Repair Strategies (IRC:82-2015 / IRC:SP:83-2018)
+    # ----------------------------------------------------
+    add_repair_strategy_sheet(wb, distresses, pavement)
 
     # ----------------------------------------------------
     # GLOBAL FORMATTING & METADATA UPGRADES

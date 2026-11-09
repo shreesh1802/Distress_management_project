@@ -9,6 +9,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../data/live_detection_api.dart';
 import '../../data/reports_api.dart';
 import '../../theme/app_colors.dart';
+import '../reports/widgets/pavement_type_selector.dart';
 import '../reports/widgets/report_ready_sheet.dart';
 import 'widgets/mjpeg_view.dart';
 import 'widgets/real_time_detection_feed.dart';
@@ -1531,6 +1532,7 @@ class _SessionReportCardState extends State<_SessionReportCard> {
               ),
             ],
           ),
+          const PavementTypeSelector(showHint: false),
           FilledButton.icon(
             onPressed: busy ? null : () => _generate(excel: false),
             icon: _busyPdf

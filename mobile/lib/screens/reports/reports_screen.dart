@@ -10,6 +10,7 @@ import '../../data/reports_api.dart';
 import '../../data/video_api.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/download_helper.dart';
+import 'widgets/pavement_type_selector.dart';
 import 'widgets/registry_overview_card.dart';
 import 'widgets/report_ready_sheet.dart';
 import 'widgets/report_preview_modal.dart';
@@ -564,6 +565,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       children: [
         const Text('Configure AI Reports Compilation', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
         const SizedBox(height: 14),
+        const PavementTypeSelector(),
+        const SizedBox(height: 16),
         if (_videos.isNotEmpty) ...[
           const Text('Select Completed Surveillance Run', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.accentBlue)),
           const SizedBox(height: 6),

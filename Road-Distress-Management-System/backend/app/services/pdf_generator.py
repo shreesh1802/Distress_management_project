@@ -18,6 +18,8 @@ from app.core.safe_paths import resolve_upload_path
 from app.models.video import UploadedVideo
 from app.models.distress import RoadDistress
 from app.models.maintenance import MaintenanceTask
+from app.services.repair_report_sections import repair_strategy_flowables, row_recommendation
+from app.services.repair_strategies import BITUMINOUS
 
 logger = logging.getLogger(__name__)
 
@@ -41,13 +43,14 @@ def format_class_name(name: str) -> str:
     return " ".join(word.capitalize() for word in words)
 
 
-def generate_video_pdf_report(db: Session, video_id: int) -> str:
+def generate_video_pdf_report(db: Session, video_id: int, pavement: str = BITUMINOUS) -> str:
     """
     Compiles a comprehensive PDF report for a processed video session.
     
     Args:
         db (Session): Database session.
         video_id (int): ID of the processed video.
+        pavement (str): 'bituminous' (IRC:82-2015) or 'concrete' (IRC:SP:83-2018): which repair strategies to show.
         
     Returns:
         str: Relative path of the generated PDF file.
@@ -279,6 +282,9 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
     story.append(Paragraph(f"<b>Categories Identified:</b> {cat_text}", body_style))
     story.append(Spacer(1, 10))
 
+    # 7b. Repair strategies per distress type and severity (IRC:82-2015 / IRC:SP:83-2018)
+    story.extend(repair_strategy_flowables(distresses, pavement))
+
     # 8. Detailed Detections Table
     story.append(Paragraph("Detailed Distress & Maintenance Log", h1_style))
     
@@ -296,7 +302,7 @@ def generate_video_pdf_report(db: Session, video_id: int) -> str:
     for d in distresses:
         # Fetch related task recommendations
         task = db.query(MaintenanceTask).filter(MaintenanceTask.distress_id == d.id).first()
-        rec_action = task.recommendation if task else "Inspect and formulate patching schedule."
+        rec_action = row_recommendation(d, task.recommendation if task else None, pavement)
         rec_priority = task.priority if task else "P4"
         
         # Color coding priority rankings

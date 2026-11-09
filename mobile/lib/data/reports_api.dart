@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiBaseUrl, kApiV1;
 import 'maintenance_api.dart' show AppUser;
+import 'report_settings.dart';
 import 'video_api.dart' show UploadedVideo;
 
 /// Direct Dart port of `ReportResponse` in apiService.ts.
@@ -223,7 +224,9 @@ class ReportsApi {
   }
 
   Future<ReportRecord> generatePdfReport(int videoId) async {
-    final response = await _client.post(Uri.parse('$kApiV1/reports/generate/$videoId'));
+    final response = await _client.post(
+      Uri.parse('$kApiV1/reports/generate/$videoId').replace(queryParameters: {'pavement': ReportSettings.pavement}),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw const ReportsApiException('Error compiling PDF report from CCTV processing.');
     }
@@ -231,7 +234,9 @@ class ReportsApi {
   }
 
   Future<ReportRecord> generateExcelReport(int videoId) async {
-    final response = await _client.post(Uri.parse('$kApiV1/reports/excel/$videoId'));
+    final response = await _client.post(
+      Uri.parse('$kApiV1/reports/excel/$videoId').replace(queryParameters: {'pavement': ReportSettings.pavement}),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw const ReportsApiException('Error compiling Excel report from CCTV processing.');
     }

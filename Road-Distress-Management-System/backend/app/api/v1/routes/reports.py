@@ -58,6 +58,7 @@ def read_reports(
 @router.post("/generate/{video_id}", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 def generate_pdf_report(
     video_id: int,
+    pavement: str = Query("bituminous", pattern="^(bituminous|concrete)$"),
     db: Session = Depends(get_db)
 ) -> ReportResponse:
     """
@@ -73,7 +74,7 @@ def generate_pdf_report(
 
     try:
         # Generate the PDF file
-        relative_pdf_path = generate_video_pdf_report(db, video_id=video_id)
+        relative_pdf_path = generate_video_pdf_report(db, video_id=video_id, pavement=pavement)
 
         # Log metadata in DB
         report_in = ReportCreate(
@@ -94,6 +95,7 @@ def generate_pdf_report(
 @router.post("/excel/{video_id}", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 def generate_excel_report(
     video_id: int,
+    pavement: str = Query("bituminous", pattern="^(bituminous|concrete)$"),
     db: Session = Depends(get_db)
 ) -> ReportResponse:
     """
@@ -109,7 +111,7 @@ def generate_excel_report(
 
     try:
         # Generate the Excel file
-        relative_excel_path = generate_video_excel_report(db, video_id=video_id)
+        relative_excel_path = generate_video_excel_report(db, video_id=video_id, pavement=pavement)
 
         # Log metadata in DB
         report_in = ReportCreate(
