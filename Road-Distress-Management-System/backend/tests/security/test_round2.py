@@ -1,5 +1,5 @@
 """
-Round-2 hardening: admin-only registration, proxy-aware client IPs, fail-closed APP_ENV, platform markers,
+Round-2 hardening: admin-only registration (Google sign-in has no self-registration), proxy-aware client IPs, fail-closed APP_ENV, platform markers,
 bounded rate-limit memory, login timing equalisation, fatal production start-up, CORS 'null', weak secrets,
 trimmed /health.
 """
@@ -19,7 +19,7 @@ from tests.security.conftest import unique_email
 from tests.security.route_inventory import inventory, concrete_path
 
 GOOD_SECRET = "Kq7vZ3mT9xW2bN8cR5yH1jL4pD6sF0aGuE!"
-PROD = dict(APP_ENV="production", SMTP_HOST="smtp.example.test", SMTP_FROM="noreply@example.test",
+PROD = dict(APP_ENV="production", FIREBASE_CREDENTIALS_JSON='{"type": "service_account"}',
             DOWNLOAD_SIGNING_SECRET=GOOD_SECRET, BACKEND_CORS_ORIGINS="https://app.example.test")
 
 
@@ -33,15 +33,9 @@ def register(client, headers=None, **extra):
 
 
 # =============================================================== ISSUE 1: registration
-def test_registration_is_open_by_default_only_in_development(client):
-    assert settings.allow_self_registration is True
-    assert register(client).status_code == 201
-
-
-@pytest.mark.parametrize("env", ["production", "prod", "staging", "live", "whatever"])
-def test_anonymous_registration_is_refused_outside_development(client, monkeypatch, env, db):
+@pytest.mark.parametrize("env", ["development", "production", "prod", "staging", "live", "whatever"])
+def test_anonymous_registration_is_refused_in_every_environment(client, monkeypatch, env, db):
     monkeypatch.setattr(settings, "APP_ENV", env)
-    assert settings.allow_self_registration is False
     email = unique_email("anon")
     r = client.post("/api/v1/auth/register", json={"email": email, "password": "S3cure-pass!"})
     assert r.status_code == 401
@@ -56,29 +50,15 @@ def test_non_admin_cannot_register_accounts(client, monkeypatch, make_user):
     assert register(client, emp).status_code == 403
 
 
-def test_admin_can_register_accounts_and_they_are_only_inspectors(client, monkeypatch, admin, db):
+def test_admin_can_register_accounts_with_a_valid_role_and_an_optional_password(client, monkeypatch, admin, db):
     monkeypatch.setattr(settings, "APP_ENV", "production")
     _, _, headers = admin
-    for requested in (None, "admin", "maintenance"):
-        extra = {} if requested is None else {"role": requested}
-        r = register(client, headers, **extra)
-        assert r.status_code == 201, r.text
-        assert r.json()["role"] == "inspector"  # registration never yields an admin, even when an admin calls it
-    # admin-created accounts with other roles go through the admin-only users router
-    r = client.post("/api/v1/users/", headers=headers,
-                    json={"email": unique_email("m"), "password": "S3cure-pass!", "role": "maintenance"})
-    assert r.status_code == 201 and r.json()["role"] == "maintenance"
-
-
-def test_registration_flag_is_respected_both_ways(client, monkeypatch):
-    monkeypatch.setattr(settings, "APP_ENV", "production")
-    monkeypatch.setattr(settings, "ALLOW_SELF_REGISTRATION", "true")
-    assert register(client).status_code == 201          # owner deliberately opened it
-    monkeypatch.setattr(settings, "APP_ENV", "development")
-    monkeypatch.setattr(settings, "ALLOW_SELF_REGISTRATION", "false")
-    assert register(client).status_code == 401          # owner closed it even in development
-    monkeypatch.setattr(settings, "ALLOW_SELF_REGISTRATION", "no")
-    assert register(client).status_code == 401
+    r = register(client, headers, role="maintenance")
+    assert r.status_code == 201, r.text
+    assert r.json()["role"] == "maintenance"
+    r = client.post("/api/v1/auth/register", headers=headers, json={"email": unique_email("nopw")})  # Google users have no password
+    assert r.status_code == 201 and r.json()["role"] == "inspector"
+    assert register(client, headers, role="superuser").status_code == 422  # roles are validated, never invented
 
 
 def test_expired_or_invalid_session_cannot_register(client, monkeypatch):
@@ -86,27 +66,19 @@ def test_expired_or_invalid_session_cannot_register(client, monkeypatch):
     assert register(client, {"Authorization": "Bearer " + "0" * 64}).status_code == 401
 
 
-def test_every_route_rejects_anonymous_callers_in_locked_down_mode(client, monkeypatch):
-    """Same matrix as test_route_auth, but with self-registration off: the ONLY anonymous POSTs left
-    are the login steps; /auth/register is no longer public."""
+def test_every_route_rejects_anonymous_callers(client):
+    """Same matrix as test_route_auth: the ONLY anonymous POSTs are the login calls; /auth/register is not public."""
     from app.main import app
     from tests.security.test_route_auth import PUBLIC_ROUTES, DEV_ONLY_PUBLIC
-    monkeypatch.setattr(settings, "ALLOW_SELF_REGISTRATION", "false")
-    still_public = set(PUBLIC_ROUTES) - {("POST", "/api/v1/auth/register")}
+    assert ("POST", "/api/v1/auth/register") not in PUBLIC_ROUTES
     offenders = []
     for kind, method, path in sorted(inventory(app)):
-        if kind != "http" or (method, path) in still_public or (method, path) in DEV_ONLY_PUBLIC:
+        if kind != "http" or (method, path) in PUBLIC_ROUTES or (method, path) in DEV_ONLY_PUBLIC:
             continue
         r = client.request(method, concrete_path(path))
         if r.status_code != 401:
             offenders.append((method, path, r.status_code))
     assert not offenders, offenders
-
-
-def test_production_warns_when_self_registration_is_enabled():
-    warnings = collect_config_warnings(cfg(**PROD, ALLOW_SELF_REGISTRATION="true"))
-    assert any("ALLOW_SELF_REGISTRATION" in w for w in warnings)
-    assert not any("ALLOW_SELF_REGISTRATION" in w for w in collect_config_warnings(cfg(**PROD)))
 
 
 # =============================================================== ISSUE 2: client IP behind proxies
@@ -145,16 +117,13 @@ def test_client_ip_never_raises():
 
 
 def test_spoofed_header_cannot_dodge_the_per_ip_limit(client, monkeypatch):
-    from app.services import otp_service
+    from app.api.v1.routes import auth as auth_routes
     monkeypatch.setattr(settings, "TRUSTED_PROXY_COUNT", 1)
-    otp_service.ip_request_limiter.limit = 3
-    try:
-        # the attacker rotates the LEFT (client supplied) part; the proxy-appended right part is constant
-        codes = [client.post("/api/v1/auth/request-otp", json={"email": unique_email("x")},
-                             headers={"X-Forwarded-For": f"9.9.9.{i}, 203.0.113.50"}).status_code for i in range(5)]
-    finally:
-        otp_service.ip_request_limiter.limit = otp_service.OTP_REQUESTS_PER_IP
-    assert codes == [200, 200, 200, 429, 429]
+    monkeypatch.setattr(auth_routes.google_limiter, "limit", 3)
+    # the attacker rotates the LEFT (client supplied) part; the proxy-appended right part is constant
+    codes = [client.post("/api/v1/auth/google", json={"id_token": "not-a-token"},
+                         headers={"X-Forwarded-For": f"9.9.9.{i}, 203.0.113.50"}).status_code for i in range(5)]
+    assert codes == [401, 401, 401, 429, 429]
 
 
 def test_production_logs_a_loud_warning_when_forwarded_headers_appear_with_zero_proxies(monkeypatch, caplog):
@@ -208,12 +177,12 @@ def test_app_env_values(value, production_like):
     assert c.is_production is production_like
     assert c.is_development is (not production_like)
     if production_like:
-        assert c.otp_dev_mode is False and c.seed_demo_data is False and c.allow_mock_model is False
-        assert c.cors_origins == [] and c.allow_self_registration is False
+        assert c.seed_demo_data is False and c.allow_mock_model is False
+        assert c.cors_origins == []
         assert collect_config_errors(c), "production-like environments must demand a full configuration"
     else:
-        assert c.otp_dev_mode is True and c.seed_demo_data is True and c.allow_mock_model is True
-        assert c.cors_origins == ["*"] and c.allow_self_registration is True
+        assert c.seed_demo_data is True and c.allow_mock_model is True
+        assert c.cors_origins == ["*"]
         assert collect_config_errors(c) == []
 
 
@@ -237,33 +206,19 @@ def test_unrecognised_env_names_are_flagged_and_refuse_to_start(value):
 def test_staging_with_full_configuration_starts_under_strict_rules():
     c = cfg(**{**PROD, "APP_ENV": "staging"})
     assert collect_config_errors(c) == []
-    assert c.otp_dev_mode is False
+    assert c.seed_demo_data is False and c.allow_mock_model is False
 
 
 @pytest.mark.parametrize("marker", ["RAILWAY_ENVIRONMENT", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID",
                                     "DYNO", "K_SERVICE", "KUBERNETES_SERVICE_HOST"])
-def test_platform_markers_refuse_dev_otp(monkeypatch, marker, caplog):
-    c = cfg(APP_ENV="development")
-    assert c.otp_dev_mode is True and c.dev_otp_blocked_by_platform is False
+def test_platform_markers_make_an_unset_app_env_production_like(monkeypatch, marker):
+    c = cfg(APP_ENV="")
+    assert c.is_development is True and c.platform_markers == []
     monkeypatch.setenv(marker, "1")
     assert c.platform_markers == [marker]
-    assert c.dev_otp_blocked_by_platform is True
-    assert c.otp_dev_mode is False
-    reasons = " ".join(collect_config_warnings(c))
-    assert marker in reasons and "DISABLED" in reasons                 # the reason is logged at start-up
-    monkeypatch.setenv("ALLOW_DEV_OTP_ON_PLATFORM", "true")
-    assert cfg(APP_ENV="development").otp_dev_mode is True            # explicit override (read from the environment)
-    assert any("ALLOW_DEV_OTP_ON_PLATFORM" in w for w in collect_config_warnings(cfg(APP_ENV="development")))
-
-
-def test_platform_marker_makes_the_api_withhold_the_dev_code(client, make_user, monkeypatch):
-    _, email, _ = make_user()
-    assert client.post("/api/v1/auth/request-otp", json={"email": email}).json()["dev_otp"] is not None
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
-    body = client.post("/api/v1/auth/request-otp", json={"email": email}).json()
-    assert body == {"sent": True, "dev_otp": None}
-    monkeypatch.setattr(settings, "ALLOW_DEV_OTP_ON_PLATFORM", "true")
-    assert client.post("/api/v1/auth/request-otp", json={"email": email}).json()["dev_otp"] is not None
+    assert c.is_production is True and c.app_env_implicit_production is True
+    assert any(marker in w for w in collect_config_warnings(c))
+    assert cfg(APP_ENV="development").is_development is True          # an explicit choice of development still wins
 
 
 def test_empty_marker_values_do_not_count(monkeypatch):
@@ -346,18 +301,6 @@ def test_limits_still_work_with_the_bounding(clock):
     assert lockout.is_locked("x") is False
 
 
-def test_flood_of_unknown_emails_does_not_grow_server_state(client):
-    from app.services import otp_service
-    otp_service.ip_lockout.max_failures = 10_000  # keep the IP lock out of the way for this test
-    try:
-        for _ in range(60):
-            client.post("/api/v1/auth/verify-otp", json={"email": unique_email("flood"), "code": "123456"})
-    finally:
-        otp_service.ip_lockout.max_failures = otp_service.OTP_IP_MAX_FAILED_ATTEMPTS
-    assert otp_service.email_lockout.size() == 0
-    assert otp_service.email_request_limiter.size() == 0
-
-
 # =============================================================== ISSUE 5: /auth/login timing
 @pytest.fixture()
 def hasher_calls(monkeypatch):
@@ -399,9 +342,9 @@ def test_the_unusable_hash_path_calls_the_hasher(client, make_user, hasher_calls
     assert len(hasher_calls) == 1
 
 
-def test_successful_login_still_works_and_empty_password_vs_unusable_hash_is_rejected(client, make_user):
+def test_successful_login_still_works_and_empty_password_vs_unusable_hash_is_rejected(client, make_user, admin):
     email = unique_email("ok")
-    client.post("/api/v1/auth/register", json={"email": email, "password": "S3cure-pass!"})
+    client.post("/api/v1/auth/register", json={"email": email, "password": "S3cure-pass!"}, headers=admin[2])
     assert client.post("/api/v1/auth/login", json={"email": email, "password": "S3cure-pass!"}).status_code == 200
     _, otp_only, _ = make_user("admin")
     for guess in ("", "!", "x"):

@@ -85,24 +85,21 @@ First build takes a while (torch + opencv + yolox compile). Watch progress with:
 docker compose logs -f backend
 ```
 
-## 5. Create the database tables + admin login (one-time)
+## 5. Create the database tables (one-time) and set up sign-in
 
 ```bash
 docker compose exec backend python -m app.db.init_db
 ```
 
-This creates all tables and the first administrator. **No password is ever
-created** — administrators sign in with Email + OTP:
-
-- **Development** (`APP_ENV` unset): the admin is `admin@roaddistress.org` and the
-  login code is shown in the app (`dev_otp`).
-- **Production** (`APP_ENV=production`): set `BOOTSTRAP_ADMIN_EMAIL` to a mailbox you
-  control (and configure SMTP — see `SECURITY.md`); that account is created as admin and
-  the login code is e-mailed to it.
+This creates all tables. **No users and no passwords are created in production**: people sign in with Google and the allow-list
+(the Firestore `allowedUsers` collection, managed in the Firebase console) decides who may. Give the backend the Firebase service-account key
+(`FIREBASE_CREDENTIALS_JSON` on a host such as Railway, `FIREBASE_CREDENTIALS_PATH` locally), and add the first administrator to `allowedUsers`
+with `role` = `admin`; they are created in the users table on their first sign-in. In development (`APP_ENV` unset) user 1
+`admin@roaddistress.org` is seeded for the demo data only.
 
 Before exposing the server, read `SECURITY.md` (production environment variables,
 TLS, and the Play Store checklist). The server refuses to start in production mode
-when SMTP / CORS / the download-signing secret are not configured.
+when the Firebase credentials / CORS / the download-signing secret are not configured.
 
 ## 6. Verify
 

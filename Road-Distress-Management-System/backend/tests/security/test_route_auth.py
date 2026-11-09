@@ -16,11 +16,8 @@ PUBLIC_ROUTES = {
     ("GET", "/health"): "load-balancer health probe (generic output only)",
     ("GET", "/api/v1/health"): "liveness probe",
     ("POST", "/api/v1/auth/login"): "login (rate limited)",
-    # Public ONLY while ALLOW_SELF_REGISTRATION is on (default: development only). Everywhere else it needs an
-    # admin session; test_round2.py::test_every_route_rejects_anonymous_callers_in_locked_down_mode proves that.
-    ("POST", "/api/v1/auth/register"): "self registration, development default only (non-admin role, rate limited)",
-    ("POST", "/api/v1/auth/request-otp"): "login step 1 (rate limited, uniform response)",
-    ("POST", "/api/v1/auth/verify-otp"): "login step 2 (attempt limited)",
+    # Google sign-in: the Firebase ID token is verified server-side and the email must be on the allow-list.
+    ("POST", "/api/v1/auth/google"): "Google sign-in via Firebase (rate limited, allow-list controlled)",
     ("GET", "/download-apk"): "sideload link for the owner's APK (REMOVE before Play release)",
     ("GET", "/app-release.apk"): "alias of /download-apk (REMOVE before Play release)",
 }
@@ -112,5 +109,5 @@ def test_malformed_authorization_headers_are_401(client, header):
 
 
 def test_public_login_flow_routes_do_not_leak_data_without_valid_input(client):
-    assert client.post("/api/v1/auth/verify-otp", json={"email": "nobody@example.test", "code": "000000"}).status_code == 401
+    assert client.post("/api/v1/auth/google", json={"id_token": "not-a-real-token"}).status_code == 401
     assert client.post("/api/v1/auth/login", json={"email": "nobody@example.test", "password": "x"}).status_code == 401

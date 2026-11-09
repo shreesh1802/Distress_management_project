@@ -1,5 +1,5 @@
 """
-Account hardening: registration cannot create admins, role matrix for the users router,
+Account hardening: registration is admin-only and validates roles, role matrix for the users router,
 reduced user directory, pagination caps, password verification.
 """
 
@@ -18,56 +18,79 @@ from app.models.user import User
 from tests.security.conftest import unique_email
 
 
-# ----------------------------------------------------------------------------- register
-@pytest.mark.parametrize("role", ["admin", "ADMIN", "superuser", "maintenance", None])
-def test_register_never_accepts_a_client_role(client, db, role):
+# ----------------------------------------------------------------------------- register (admin only)
+def test_register_requires_an_admin(client, db, make_user):
+    email = unique_email("reg")
+    body = {"email": email, "password": "S3cure-pass!"}
+    assert client.post("/api/v1/auth/register", json=body).status_code == 401
+    _, _, insp = make_user("inspector")
+    assert client.post("/api/v1/auth/register", json=body, headers=insp).status_code == 403
+    assert db.query(User).filter(User.email == email).count() == 0
+
+
+@pytest.mark.parametrize("role", ["admin", "maintenance", "employee", None])
+def test_register_by_an_admin_honours_a_valid_role(client, db, admin, role):
     email = unique_email("reg")
     body = {"email": email, "password": "S3cure-pass!", "full_name": "Eve"}
     if role is not None:
         body["role"] = role
-    r = client.post("/api/v1/auth/register", json=body)
+    r = client.post("/api/v1/auth/register", json=body, headers=admin[2])
     assert r.status_code == 201, r.text
-    assert r.json()["role"] == "inspector"
+    assert r.json()["role"] == (role or "inspector")
     db.expire_all()
-    assert db.query(User).filter(User.email == email).one().role == "inspector"
+    assert db.query(User).filter(User.email == email).one().role == (role or "inspector")
 
 
-def test_register_stores_a_real_hash_not_the_password(client, db):
+@pytest.mark.parametrize("role", ["ADMIN", "superuser", "root", ""])
+def test_register_rejects_unknown_roles(client, db, admin, role):
+    email = unique_email("reg")
+    r = client.post("/api/v1/auth/register", json={"email": email, "password": "S3cure-pass!", "role": role},
+                    headers=admin[2])
+    assert r.status_code == 422
+    assert db.query(User).filter(User.email == email).count() == 0
+
+
+def test_register_stores_a_real_hash_not_the_password(client, db, admin):
     email = unique_email("hash")
-    client.post("/api/v1/auth/register", json={"email": email, "password": "S3cure-pass!"})
+    client.post("/api/v1/auth/register", json={"email": email, "password": "S3cure-pass!"}, headers=admin[2])
     row = db.query(User).filter(User.email == email).one()
     assert row.hashed_password.startswith("pbkdf2_sha256$")
     assert "S3cure-pass!" not in row.hashed_password
-    # the freshly registered account can use the password login
+    # the freshly registered account can use the password login (which grants no session)
     assert client.post("/api/v1/auth/login", json={"email": email, "password": "S3cure-pass!"}).status_code == 200
     assert client.post("/api/v1/auth/login", json={"email": email, "password": "wrong-pass!"}).status_code == 401
 
 
-def test_register_duplicate_is_generic_and_case_insensitive(client):
+def test_register_without_a_password_stores_an_unguessable_one(client, db, admin):
+    email = unique_email("nopw")
+    assert client.post("/api/v1/auth/register", json={"email": email}, headers=admin[2]).status_code == 201
+    row = db.query(User).filter(User.email == email).one()
+    assert row.hashed_password.startswith("pbkdf2_sha256$")   # a random one: Google users never type a password
+
+
+def test_register_duplicate_is_refused_case_insensitively(client, admin):
     email = unique_email("dup")
-    assert client.post("/api/v1/auth/register", json={"email": email, "password": "S3cure-pass!"}).status_code == 201
-    dup = client.post("/api/v1/auth/register", json={"email": email.upper(), "password": "S3cure-pass!"})
+    body = {"email": email, "password": "S3cure-pass!"}
+    assert client.post("/api/v1/auth/register", json=body, headers=admin[2]).status_code == 201
+    dup = client.post("/api/v1/auth/register", json={**body, "email": email.upper()}, headers=admin[2])
     assert dup.status_code == 400
-    assert "exist" not in dup.text.lower()  # does not confirm that the address is registered
 
 
-def test_register_normalizes_email(client, db):
+def test_register_normalizes_email(client, db, admin):
     email = unique_email("norm")
-    r = client.post("/api/v1/auth/register", json={"email": email.upper(), "password": "S3cure-pass!"})
+    r = client.post("/api/v1/auth/register", json={"email": email.upper(), "password": "S3cure-pass!"}, headers=admin[2])
     assert r.status_code == 201
     assert r.json()["email"] == email
 
 
-def test_register_is_rate_limited_per_ip(client):
+def test_register_is_rate_limited_per_ip(client, admin, monkeypatch):
     from app.api.v1.routes import auth as auth_routes
-    auth_routes.register_limiter.limit = 3
-    try:
-        statuses = [
-            client.post("/api/v1/auth/register", json={"email": unique_email("rl"), "password": "S3cure-pass!"}).status_code
-            for _ in range(5)
-        ]
-    finally:
-        auth_routes.register_limiter.limit = 20
+    monkeypatch.setattr(auth_routes.register_limiter, "limit", 3)
+    statuses = [
+        client.post("/api/v1/auth/register", json={"email": unique_email("rl"), "password": "S3cure-pass!"},
+                    headers=admin[2]).status_code
+        for _ in range(5)
+    ]
     assert statuses[:3] == [201, 201, 201]
     assert statuses[3:] == [429, 429]
 

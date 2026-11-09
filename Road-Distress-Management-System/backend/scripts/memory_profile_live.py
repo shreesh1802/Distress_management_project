@@ -5,7 +5,7 @@ phone-style camera stream (the app's "This device's camera" path).
 What it does (all local, nothing is sent anywhere):
   1. Starts the FastAPI server in a child process on a private port with a
      temporary SQLite database (your real database is not touched).
-  2. Logs in with the development one-time code, opens the authenticated
+  2. Creates a development session directly in the temporary database, opens the authenticated
      /live/phone-stream WebSocket, and sends one JPEG frame every 0.4 s --
      exactly what the Flutter app does -- for --duration seconds.
   3. Samples the server process memory every 0.5 s (RSS = RAM in use, USS =
@@ -135,8 +135,20 @@ def main():
         stage["name"] = "idle (server up, no models)"
         time.sleep(4)
 
-        otp = api(base, "POST", "/auth/request-otp", body={"email": "admin@roaddistress.org"})["dev_otp"]
-        token = api(base, "POST", "/auth/verify-otp", body={"email": "admin@roaddistress.org", "code": otp})["token"]
+        # Login is Google sign-in, which a script cannot do: create a session for the seeded development admin
+        # (user 1) directly in the temporary database instead.
+        import hashlib
+        import secrets
+        import sqlite3
+        token = secrets.token_hex(32)
+        con = sqlite3.connect(env["DATABASE_URL"].replace("sqlite:///", ""))
+        con.execute(
+            "INSERT INTO auth_tokens (token, user_id, expires_at, created_at) "
+            "VALUES (?, 1, datetime('now', '+1 day'), datetime('now'))",
+            (hashlib.sha256(token.encode()).hexdigest(),),
+        )
+        con.commit()
+        con.close()
         jpeg = road_like_jpeg()
 
         async def stream():

@@ -1,45 +1,51 @@
 """
 Authentication routes for the Road Distress Management System.
 
-Email + OTP login (request-otp / verify-otp) is what the app uses. The
-password-based /login and the public /register are kept for compatibility:
-/register ALWAYS creates a non-admin account (the role is chosen by the
-server, never by the client).
+Login is Google sign-in via Firebase (POST /auth/google): the app signs the
+user in with Google, sends the Firebase ID token here, and gets back an
+opaque bearer session token. Only emails on the allow-list can sign in --
+the Firestore `allowedUsers` collection, managed in the Firebase console
+(see app/services/access_service.py).
 
-Abuse protection (in-process counters, per instance -- see app/core/rate_limit.py):
-request-otp / verify-otp / login / register are rate limited per client IP, and
-OTP guessing is additionally limited per e-mail address.
+The original password-based /login and /register are kept: /login doesn't
+issue a session token (so it grants no API access), and /register is
+admin-only like POST /users/.
+
+Abuse protection (in-process counters, per instance -- see app/core/rate_limit.py): /google, /login and
+/register are rate limited per client IP.
 """
 
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
-from app.core.config import settings
+
+from app.core.deps import extract_bearer_token, get_current_user, require_admin
 from app.core.rate_limit import SlidingWindowLimiter, client_ip
+from app.core.security import dummy_password_hash, is_usable_hash, normalize_email, verify_password
+from app.crud.user import create_user, get_user_by_email
 from app.db.session import get_db
-from app.crud.user import get_user_by_email, create_user
-from app.schemas.user import UserResponse, RegisterRequest
-from app.core.security import verify_password, normalize_email, is_usable_hash, dummy_password_hash
-from app.core.roles import Role, SELF_REGISTER_ROLE
-from app.core.deps import get_current_user, extract_bearer_token, registration_gate
 from app.models.user import User
-from app.services import otp_service
+from app.schemas.user import UserCreate, UserResponse
+from app.services.access_service import remove_allowed_entry, sync_user
 from app.services.account_deletion import AccountDeletionError, delete_account, is_placeholder_email
-from app.services.otp_service import create_otp, deliver_otp_email, verify_otp, issue_token, revoke_token, OtpLocked
+from app.services.firebase_service import verify_google_id_token
+from app.services.session_service import issue_token, revoke_token
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Per-IP throttles for the password routes (each login attempt costs a PBKDF2 run).
+# Per-IP throttles (each password login attempt costs a PBKDF2 run; each Google login a token verification).
 login_limiter = SlidingWindowLimiter(30, 60)
 register_limiter = SlidingWindowLimiter(20, 3600)
+google_limiter = SlidingWindowLimiter(30, 60)
+
 
 def _too_many(detail: str = "Too many requests. Please try again later.") -> HTTPException:
-    return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail, headers={"Retry-After": "900"})
+    return HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail, headers={"Retry-After": "60"})
 
 
 class LoginRequest(BaseModel):
@@ -53,13 +59,13 @@ class LoginRequest(BaseModel):
 @router.post("/login", response_model=UserResponse)
 def login(request: LoginRequest, http_request: Request, db: Session = Depends(get_db)) -> UserResponse:
     """
-    Authenticate user using email and password.
+    Authenticate user using email and password. Grants no API access (no session is issued).
     """
     if not login_limiter.hit(client_ip(http_request)):
         raise _too_many()
     user = get_user_by_email(db, email=request.email)
-    # Every branch spends the same PBKDF2 time: unknown e-mails and OTP-only accounts (unusable hash)
-    # are verified against a precomputed dummy hash, so response time does not reveal which case it was.
+    # Every branch spends the same PBKDF2 time: unknown e-mails are verified against a precomputed dummy hash,
+    # so response time does not reveal which case it was.
     usable = user is not None and is_usable_hash(user.hashed_password)
     password_ok = verify_password(request.password, user.hashed_password if usable else dummy_password_hash())
     if not (usable and password_ok):
@@ -72,114 +78,72 @@ def login(request: LoginRequest, http_request: Request, db: Session = Depends(ge
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register(
-    user_in: RegisterRequest,
+    user_in: UserCreate,
     http_request: Request,
     db: Session = Depends(get_db),
-    _gate: Optional[User] = Depends(registration_gate),
+    _admin: User = Depends(require_admin),
 ) -> UserResponse:
     """
-    Register a new account. Admin-only unless ALLOW_SELF_REGISTRATION is on (default: development only).
-    The role is assigned by the server (always the non-admin SELF_REGISTER_ROLE); a role in the request
-    body is ignored - use the admin-only POST /users/ to create other roles.
+    Register a new inspector or user in the database (admin only -- the
+    users table mirrors the login allow-list, so self-registration is closed).
+    Note this does not grant login access: that is the Firestore allowedUsers list.
     """
     if not register_limiter.hit(client_ip(http_request)):
         raise _too_many()
     if get_user_by_email(db, email=user_in.email):
-        # Deliberately generic: do not confirm which e-mails already have an account.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Registration could not be completed"
+            detail="A user with this email already exists"
         )
-    return create_user(db, user_in=user_in, role=SELF_REGISTER_ROLE)
+    return create_user(db, user_in=user_in)
 
 
-class RequestOtpRequest(BaseModel):
-    email: str = Field(..., max_length=255)
+class GoogleLoginRequest(BaseModel):
+    id_token: str = Field(..., max_length=8192)
 
 
-class RequestOtpResponse(BaseModel):
-    sent: bool
-    dev_otp: str | None = None  # only ever populated in development mode (never in production)
-
-
-@router.post("/request-otp", response_model=RequestOtpResponse)
-def request_otp_route(
-    req: RequestOtpRequest,
-    http_request: Request,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-) -> RequestOtpResponse:
-    """
-    Step 1 of Email + OTP login: send a 6-digit code to an *existing*
-    account's email. The response is identical for known and unknown e-mails
-    (sent=true, dev_otp=null) so account existence is not revealed; in
-    production the code is only ever delivered by e-mail. In development the
-    code for a known account is returned in ``dev_otp``.
-    """
-    if not otp_service.ip_request_limiter.hit(client_ip(http_request)):
-        raise _too_many()
-
-    email = normalize_email(req.email)
-    user = get_user_by_email(db, email=email)
-    dev_otp: Optional[str] = None
-    # No code is issued for the "Deleted user" placeholder, nor for the app-store reviewer account (which signs in
-    # with a fixed code and may have no real mailbox).
-    skip = user is not None and (
-        is_placeholder_email(user.email) or (otp_service.is_reviewer_email(email) and user.role != Role.ADMIN)
-    )
-    if user is not None and not skip:
-        code = create_otp(db, email)
-        if code is not None:
-            if settings.otp_dev_mode:
-                logger.info("[DEV MODE] OTP issued for a login request; the code is returned in the API response only.")
-                dev_otp = code
-            elif settings.email_configured:
-                # Sent after the response so latency does not differ from the unknown-email path.
-                background_tasks.add_task(deliver_otp_email, email, code)
-            else:
-                logger.error("Cannot deliver login code: no e-mail delivery is configured (BREVO_API_KEY or SMTP_HOST) and dev OTP mode is off.")
-    return RequestOtpResponse(sent=True, dev_otp=dev_otp)
-
-
-class VerifyOtpRequest(BaseModel):
-    email: str = Field(..., max_length=255)
-    code: str = Field(..., max_length=16)
-
-
-class VerifyOtpResponse(BaseModel):
+class SessionResponse(BaseModel):
     token: str
     user: UserResponse
 
 
-@router.post("/verify-otp", response_model=VerifyOtpResponse)
-def verify_otp_route(
-    req: VerifyOtpRequest,
+@router.post("/google", response_model=SessionResponse)
+def google_login_route(
+    req: GoogleLoginRequest,
     http_request: Request,
     db: Session = Depends(get_db),
-) -> VerifyOtpResponse:
-    """Step 2: verify the code and issue a bearer session token."""
-    ip = client_ip(http_request)
-    if otp_service.ip_lockout.is_locked(ip):
-        raise _too_many("Too many failed attempts. Please try again later.")
+) -> SessionResponse:
+    """
+    Google sign-in via Firebase: verify the Firebase ID token, check the
+    email against the Firestore allow-list, and issue a bearer session
+    token. An email that isn't on the list gets a 403.
+    """
+    if not google_limiter.hit(client_ip(http_request)):
+        raise _too_many()
+    try:
+        claims = verify_google_id_token(req.id_token)
+    except Exception:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Google token")
 
-    user = get_user_by_email(db, email=req.email)
-    if user is not None and is_placeholder_email(user.email):
-        user = None  # the "Deleted user" placeholder can never sign in
-    if otp_service.reviewer_code_matches(user, req.code):
-        code_ok = True
-    else:
-        try:
-            code_ok = verify_otp(db, req.email, req.code, account_exists=user is not None)
-        except OtpLocked:
-            # Deliberately the SAME answer as an ordinary wrong code: a per-e-mail lock only exists for real
-            # accounts, so a distinct 429 here would reveal that the address has an account.
-            code_ok = False
+    email = normalize_email(claims.get("email"))
+    if not email or not claims.get("email_verified"):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Google email not verified")
+    if is_placeholder_email(email):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No account for this email")
 
-    if user is None or not code_ok:
-        otp_service.ip_lockout.register_failure(ip)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired code")
+    try:
+        user = sync_user(db, email, fallback_name=claims.get("name"))
+    except Exception:
+        logger.exception("Couldn't read the Firestore allow-list")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Couldn't check the access list. Please try again shortly.",
+        )
+    if user is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "No account for this email")
+
     token = issue_token(db, user.id)
-    return VerifyOtpResponse(token=token, user=UserResponse.model_validate(user))
+    return SessionResponse(token=token, user=UserResponse.model_validate(user))
 
 
 @router.get("/me", response_model=UserResponse)
@@ -214,12 +178,18 @@ def delete_my_account(
     """
     Permanently deletes the signed-in user's own account (Google Play account-deletion requirement).
     The caller must type their own e-mail address as confirmation. See app.services.account_deletion
-    for exactly what is removed and what is kept (anonymised) for other project members.
+    for exactly what is removed and what is kept (anonymised) for other project members. The person's
+    entry in the Firestore allow-list is removed as well, so they can no longer sign in.
     """
     if normalize_email(req.confirm_email) != normalize_email(user.email):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "The e-mail address does not match your account.")
+    email = user.email
     try:
         delete_account(db, user)
     except AccountDeletionError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    try:
+        remove_allowed_entry(email)
+    except Exception:
+        logger.exception("Account deleted, but the Firestore allow-list entry could not be removed")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

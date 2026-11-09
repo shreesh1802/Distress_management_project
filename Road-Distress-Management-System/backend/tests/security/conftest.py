@@ -20,10 +20,8 @@ _DB_FILE = os.path.join(_TMP_ROOT, "test.db").replace("\\", "/")
 
 # Hermetic configuration: never inherit a developer's real settings.
 for _var in (
-    "OTP_DEV_MODE", "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
-    "SMTP_STARTTLS", "SEED_DEMO_DATA", "BOOTSTRAP_ADMIN_EMAIL", "ALLOW_MOCK_MODEL",
-    "DOWNLOAD_SIGNING_SECRET", "BACKEND_CORS_ORIGINS", "TRUSTED_PROXY_COUNT", "ALLOW_SELF_REGISTRATION",
-    "ALLOW_DEV_OTP_ON_PLATFORM", "REVIEWER_EMAIL", "REVIEWER_CODE", "BREVO_API_KEY",
+    "SEED_DEMO_DATA", "ALLOW_MOCK_MODEL", "DOWNLOAD_SIGNING_SECRET", "BACKEND_CORS_ORIGINS", "TRUSTED_PROXY_COUNT",
+    "FIREBASE_CREDENTIALS_JSON", "FIREBASE_CREDENTIALS_PATH", "MODEL_BASE_URL", "MODEL_DOWNLOAD_TOKEN",
     "RAILWAY_ENVIRONMENT", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID", "DYNO", "K_SERVICE", "KUBERNETES_SERVICE_HOST",
 ):
     os.environ.pop(_var, None)
@@ -48,7 +46,7 @@ from app.db.session import SessionLocal  # noqa: E402
 from app.core import safe_paths  # noqa: E402
 from app.core.security import UNUSABLE_PASSWORD, normalize_email  # noqa: E402
 from app.models.user import User  # noqa: E402
-from app.services import otp_service  # noqa: E402
+from app.services import session_service  # noqa: E402
 from app.api.v1.routes import auth as auth_routes  # noqa: E402
 
 
@@ -67,21 +65,15 @@ def client():
 @pytest.fixture(autouse=True)
 def _reset_state(monkeypatch):
     """Fresh abuse counters + development settings for every test."""
-    otp_service.reset_abuse_counters()
+    auth_routes.google_limiter.reset()
     auth_routes.login_limiter.reset()
     auth_routes.register_limiter.reset()
     for marker in ("RAILWAY_ENVIRONMENT", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID", "DYNO", "K_SERVICE", "KUBERNETES_SERVICE_HOST"):
         monkeypatch.delenv(marker, raising=False)  # tests must not depend on the machine they run on
-    monkeypatch.setattr(settings, "ALLOW_SELF_REGISTRATION", None)
-    monkeypatch.setattr(settings, "ALLOW_DEV_OTP_ON_PLATFORM", None)
     monkeypatch.setattr(settings, "TRUSTED_PROXY_COUNT", 0)
     monkeypatch.setattr(settings, "APP_ENV", "development")
-    monkeypatch.setattr(settings, "OTP_DEV_MODE", None)
-    monkeypatch.setattr(settings, "SMTP_HOST", None)
-    monkeypatch.setattr(settings, "SMTP_FROM", None)
-    monkeypatch.setattr(settings, "BREVO_API_KEY", None)
-    monkeypatch.setattr(settings, "REVIEWER_EMAIL", None)
-    monkeypatch.setattr(settings, "REVIEWER_CODE", None)
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_JSON", None)
+    monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_PATH", None)
     yield
 
 
@@ -108,7 +100,7 @@ def make_user(db):
         db.add(user)
         db.commit()
         db.refresh(user)
-        token = otp_service.issue_token(db, user.id)
+        token = session_service.issue_token(db, user.id)
         return user.id, email, {"Authorization": f"Bearer {token}"}
 
     return _make
@@ -145,3 +137,66 @@ def sandbox_storage(tmp_path, monkeypatch):
         reports_dir = reports
 
     return Sandbox
+
+
+# ------------------------------------------------------------------------------------ fake Google sign-in
+class FakeAllowList:
+    """Stands in for the Firestore ``allowedUsers`` collection."""
+
+    def __init__(self):
+        self.entries = {}
+        self.removed = []
+        self.unreachable = False
+
+    def allow(self, email, role="inspector", name=None):
+        entry = {"role": role}
+        if name:
+            entry["name"] = name
+        self.entries[normalize_email(email)] = entry
+
+    def remove(self, email):
+        self.entries.pop(normalize_email(email), None)
+
+    def get(self, email):
+        if self.unreachable:
+            raise RuntimeError("Firestore unreachable")
+        return self.entries.get(normalize_email(email))
+
+    def delete_entry(self, email):
+        self.removed.append(normalize_email(email))
+        self.entries.pop(normalize_email(email), None)
+
+
+@pytest.fixture()
+def allow_list(monkeypatch):
+    """A fake Firestore allow-list wired into the access service, the auth dependency and the delete-account route."""
+    from app.core import deps
+    from app.services import access_service
+
+    fake = FakeAllowList()
+    monkeypatch.setattr(access_service, "get_allowed_entry", fake.get)
+    monkeypatch.setattr(deps, "get_allowed_entry", fake.get)
+    monkeypatch.setattr(auth_routes, "remove_allowed_entry", fake.delete_entry)
+    return fake
+
+
+@pytest.fixture()
+def google(client, monkeypatch, allow_list):
+    """
+    Fake Google sign-in. ``google(email)`` posts a token of the form ``fake:<email>`` to POST /auth/google; the
+    Firebase verification is replaced by one that accepts those tokens. Emails starting with ``unverified.`` come
+    back with email_verified = False. Returns the HTTP response.
+    """
+
+    def fake_verify(id_token):
+        if not id_token.startswith("fake:"):
+            raise ValueError("not a valid Google token")
+        email = id_token[len("fake:"):]
+        return {"email": email, "email_verified": not email.startswith("unverified."), "name": "Test Person"}
+
+    monkeypatch.setattr(auth_routes, "verify_google_id_token", fake_verify)
+
+    def login(email):
+        return client.post("/api/v1/auth/google", json={"id_token": f"fake:{email}"})
+
+    return login

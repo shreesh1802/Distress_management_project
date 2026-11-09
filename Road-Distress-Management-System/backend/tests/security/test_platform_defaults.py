@@ -26,9 +26,7 @@ def test_marker_plus_unset_app_env_is_strict_for_every_dev_default(monkeypatch, 
     c = cfg(APP_ENV=unset)
     assert c.app_env_implicit_production is True
     assert c.is_development is False and c.is_production is True
-    assert c.allow_self_registration is False
     assert c.seed_demo_data is False and c.allow_mock_model is False
-    assert c.otp_dev_mode is False
     assert c.cors_origins == []                      # CORS must be explicit
     assert collect_config_errors(c), "a platform deployment with no APP_ENV must be fully configured"
     assert any("APP_ENV is not set" in w for w in collect_config_warnings(c))
@@ -40,7 +38,7 @@ def test_marker_plus_unset_app_env_with_full_configuration_starts_strictly(monke
     monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
     c = cfg(APP_ENV="", **STRICT_CONFIG)
     assert collect_config_errors(c) == []
-    assert c.allow_self_registration is False and c.otp_dev_mode is False
+    assert c.seed_demo_data is False and c.allow_mock_model is False
 
 
 @pytest.mark.parametrize("name", ["development", "dev", "local", "test", " Development "])
@@ -49,19 +47,15 @@ def test_marker_plus_explicit_development_is_the_owners_choice(monkeypatch, name
     c = cfg(APP_ENV=name)
     assert c.app_env_implicit_production is False
     assert c.is_development is True
-    assert c.allow_self_registration is True and c.seed_demo_data is True and c.allow_mock_model is True
+    assert c.seed_demo_data is True and c.allow_mock_model is True
     assert c.cors_origins == ["*"]
     assert collect_config_errors(c) == []
-    # ...but the dev OTP shortcut stays refused on a platform unless explicitly overridden
-    assert c.otp_dev_mode is False
-    assert cfg(APP_ENV=name, ALLOW_DEV_OTP_ON_PLATFORM="true").otp_dev_mode is True
 
 
 def test_no_marker_and_unset_app_env_behaves_exactly_as_before():
     c = cfg(APP_ENV="")
     assert c.app_env_implicit_production is False
     assert c.is_development is True
-    assert c.otp_dev_mode is True and c.allow_self_registration is True
     assert c.seed_demo_data is True and c.allow_mock_model is True and c.cors_origins == ["*"]
     assert collect_config_errors(c) == []
 
@@ -78,10 +72,10 @@ def test_api_marker_plus_unset_app_env_registration_is_admin_only(client, monkey
     body = {"email": unique_email("plat"), "password": "S3cure-pass!"}
     assert client.post("/api/v1/auth/register", json=body).status_code == 401
     assert client.post("/api/v1/auth/register", json=body, headers=admin[2]).status_code == 201
-    # and the explicit development choice reopens it
+    # there is no self-registration in any environment: the explicit development choice does not reopen it
     monkeypatch.setattr(settings, "APP_ENV", "development")
     body2 = {"email": unique_email("plat2"), "password": "S3cure-pass!"}
-    assert client.post("/api/v1/auth/register", json=body2).status_code == 201
+    assert client.post("/api/v1/auth/register", json=body2).status_code == 401
 
 
 def test_process_marker_plus_unset_app_env_refuses_to_start_without_configuration():

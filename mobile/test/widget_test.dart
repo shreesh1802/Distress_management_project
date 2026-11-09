@@ -8,7 +8,7 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: RoadDistressApp()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Administrator Access'), findsOneWidget);
-    expect(find.text('Secure Login'), findsOneWidget);
+    expect(find.text('Secure Access'), findsOneWidget);
+    expect(find.text('Sign in with your authorized Google account.'), findsOneWidget);
   });
 }

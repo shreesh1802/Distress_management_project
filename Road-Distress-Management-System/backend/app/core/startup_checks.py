@@ -31,56 +31,18 @@ def weak_signing_secret_reason(secret: str) -> str:
     return ""
 
 
-def weak_reviewer_code_reason(code: str) -> str:
-    """Returns why a reviewer code is unacceptable, or '' if it looks fine."""
-    if not (len(code) == 6 and code.isdigit()):
-        return "it must be exactly 6 digits (the app's code box takes 6 digits)"
-    if len(set(code)) < 4:
-        return "it uses fewer than 4 distinct digits"
-    if code in ("123456", "654321", "012345", "123123", "121212"):
-        return "it is a well-known weak code"
-    return ""
-
-
-def reviewer_config_errors(cfg: Settings) -> List[str]:
-    """REVIEWER_EMAIL / REVIEWER_CODE must be set together, be sane, and never name an administrator address."""
-    email, code = cfg.reviewer_email, (cfg.REVIEWER_CODE or "").strip()
-    if not email and not code:
-        return []
-    if not email or not code:
-        return ["REVIEWER_EMAIL and REVIEWER_CODE must be set together (or both left unset to switch reviewer access off)."]
-    errors: List[str] = []
-    if "@" not in email:
-        errors.append("REVIEWER_EMAIL is not an e-mail address.")
-    reason = weak_reviewer_code_reason(code)
-    if reason:
-        errors.append(f"REVIEWER_CODE is unacceptable: {reason}.")
-    admin = (cfg.BOOTSTRAP_ADMIN_EMAIL or "").strip().lower()
-    if email == admin or email == "admin@roaddistress.org":
-        errors.append("REVIEWER_EMAIL must not be an administrator address (reviewer accounts are always non-admin).")
-    return errors
-
-
 def collect_config_errors(cfg: Settings) -> List[str]:
     """Returns human-readable problems that make the configuration unsafe for production."""
     errors: List[str] = []
     if not cfg.is_production:
         return errors
 
-    if cfg.otp_dev_mode_requested:
+    if not ((cfg.FIREBASE_CREDENTIALS_JSON or "").strip() or (cfg.FIREBASE_CREDENTIALS_PATH or "").strip()):
         errors.append(
-            "OTP_DEV_MODE is enabled but this is not a development environment. Dev OTP delivery (code in the "
-            "API response) is not allowed outside development; unset OTP_DEV_MODE or set it to false."
+            "Firebase credentials are not configured, so nobody could sign in with Google. Set "
+            "FIREBASE_CREDENTIALS_JSON (the service-account JSON, for hosts such as Railway) or "
+            "FIREBASE_CREDENTIALS_PATH."
         )
-
-    if not cfg.email_configured:
-        errors.append(
-            "E-mail delivery is not configured. Set SMTP_FROM plus either BREVO_API_KEY (HTTPS API, works where "
-            "outbound SMTP is blocked, e.g. Railway Free/Hobby) or SMTP_HOST (and SMTP_USER/SMTP_PASSWORD, "
-            "SMTP_PORT, SMTP_STARTTLS as your provider requires) so login codes can be e-mailed."
-        )
-    elif not cfg.email_api_configured and bool(cfg.SMTP_USER) != bool(cfg.SMTP_PASSWORD):
-        errors.append("SMTP_USER and SMTP_PASSWORD must be set together (or both left empty).")
 
     raw_cors = cfg.BACKEND_CORS_ORIGINS
     if raw_cors is not None:
@@ -93,8 +55,6 @@ def collect_config_errors(cfg: Settings) -> List[str]:
             )
         if "null" in origins:
             errors.append("BACKEND_CORS_ORIGINS contains 'null' (sandboxed iframes / file:// pages), which is not allowed.")
-
-    errors.extend(reviewer_config_errors(cfg))
 
     secret = cfg.DOWNLOAD_SIGNING_SECRET or ""
     reason = weak_signing_secret_reason(secret) if secret else "it is not set"
@@ -113,49 +73,27 @@ def collect_config_warnings(cfg: Settings) -> List[str]:
     if cfg.app_env_implicit_production:
         warnings.append(
             "APP_ENV is not set but hosting-platform markers are present (" + ", ".join(cfg.platform_markers) + "): "
-            "treating this as a PRODUCTION-like environment (strict rules: no dev OTP, no open registration, no /docs, "
-            "no demo data, no mock model, explicit CORS). Set APP_ENV=production, or APP_ENV=development to choose "
-            "development deliberately."
+            "treating this as a PRODUCTION-like environment (strict rules: no /docs, no demo data, no mock model, "
+            "explicit CORS, Firebase credentials required). Set APP_ENV=production, or APP_ENV=development to "
+            "choose development deliberately."
         )
     if cfg.app_env_unrecognised:
         warnings.append(
             f"APP_ENV={cfg.APP_ENV!r} is not a recognised environment name. Unknown names fail closed: the STRICT "
-            "production rules apply (no dev OTP, no wildcard CORS, no demo data, no mock model, SMTP required). "
+            "production rules apply (no wildcard CORS, no demo data, no mock model, Firebase credentials required). "
             "Use 'production' for deployments and 'development' (or leave it unset) for local work."
         )
-    if cfg.is_production:
-        if cfg.TRUSTED_PROXY_COUNT == 0:
-            warnings.append(
-                "TRUSTED_PROXY_COUNT is 0. Behind Railway, nginx or any other reverse proxy every user then shares the "
-                "proxy's IP address, so the per-IP rate limits (OTP requests/attempts, login, register) can lock "
-                "everyone out at once. Set TRUSTED_PROXY_COUNT=1 when exactly one proxy sits in front of the app "
-                "(the app also logs a CRITICAL message as soon as it sees an X-Forwarded-For header in this state)."
-            )
-        if cfg.allow_self_registration:
-            warnings.append(
-                "ALLOW_SELF_REGISTRATION is enabled in a production-like environment: anyone can create an account, "
-                "obtain a login code at their own mailbox and then use every signed-in feature. Leave it off unless "
-                "you really want public sign-up."
-            )
-    markers = cfg.platform_markers
-    if markers and not cfg.is_production:
-        if cfg.dev_otp_blocked_by_platform:
-            warnings.append(
-                "Hosting-platform markers are present (" + ", ".join(markers) + ") while APP_ENV is a development value: "
-                "the dev OTP shortcut is DISABLED. " + (
-                    "Login codes will be e-mailed." if cfg.email_configured else
-                    "E-mail delivery is not configured, so nobody can log in. Configure BREVO_API_KEY or SMTP_HOST (with SMTP_FROM) and set APP_ENV=production."
-                ) + " (Override for a throw-away demo only: ALLOW_DEV_OTP_ON_PLATFORM=true.)"
-            )
-        elif cfg.otp_dev_mode:
-            warnings.append(
-                "ALLOW_DEV_OTP_ON_PLATFORM=true on a hosting platform (" + ", ".join(markers) + "): the login code is "
-                "returned in API responses, so anyone who knows an account e-mail can log in as that account."
-            )
-    if not cfg.is_production and not markers:
+    if cfg.is_production and cfg.TRUSTED_PROXY_COUNT == 0:
         warnings.append(
-            f"APP_ENV={cfg.APP_ENV!r}: running with DEVELOPMENT security defaults (dev OTP returned in API "
-            "responses, open CORS, open self-registration, demo seeding). Set APP_ENV=production for any internet-facing deployment."
+            "TRUSTED_PROXY_COUNT is 0. Behind Railway, nginx or any other reverse proxy every user then shares the "
+            "proxy's IP address, so the per-IP rate limits (Google sign-in, login, register) can lock "
+            "everyone out at once. Set TRUSTED_PROXY_COUNT=1 when exactly one proxy sits in front of the app "
+            "(the app also logs a CRITICAL message as soon as it sees an X-Forwarded-For header in this state)."
+        )
+    if not cfg.is_production and not cfg.platform_markers:
+        warnings.append(
+            f"APP_ENV={cfg.APP_ENV!r}: running with DEVELOPMENT security defaults (open CORS, demo seeding, mock "
+            "detector allowed). Set APP_ENV=production for any internet-facing deployment."
         )
     return warnings
 

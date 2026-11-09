@@ -7,11 +7,10 @@ Deployment mode
 ``APP_ENV`` selects the security posture:
 
 * ``development`` (default; also ``dev``, ``local``, ``test`` or empty): behaves like the original local/demo setup --
-  OTP codes are returned in the API response (``dev_otp``), CORS is open,
-  demo data is seeded, the mock detector is allowed.
+  CORS is open, demo data is seeded, the mock detector is allowed.
 * ``production``: and ANY OTHER non-empty value (``prod``, ``staging``, ``live``, ``prd``, a typo ...) -
-  the setting fails CLOSED, unknown names get the strict production rules. Dev OTP is never returned or
-  logged, SMTP must be configured, CORS must be an explicit allow-list,
+  the setting fails CLOSED, unknown names get the strict production rules. Firebase credentials must be
+  configured (Google sign-in), CORS must be an explicit allow-list,
   /docs and /openapi.json are disabled, demo seeding and the mock detector
   are OFF unless explicitly re-enabled. Misconfiguration makes the process
   refuse to start (see ``app.core.startup_checks``).
@@ -31,8 +30,8 @@ DEVELOPMENT_ENV_NAMES = frozenset({"", "development", "dev", "local", "test"})
 EXPLICIT_DEVELOPMENT_NAMES = frozenset({"development", "dev", "local", "test"})
 RECOGNISED_PRODUCTION_NAMES = frozenset({"production", "prod"})
 
-# Environment variables set by hosting platforms. If one is present, the dev OTP shortcut
-# (login code returned in the API response) is refused unless ALLOW_DEV_OTP_ON_PLATFORM=true.
+# Environment variables set by hosting platforms. If one is present and APP_ENV is empty, the process is
+# treated as production-like (strict rules) instead of as a developer machine.
 PLATFORM_MARKERS = (
     "RAILWAY_ENVIRONMENT", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID",
     "DYNO", "K_SERVICE", "KUBERNETES_SERVICE_HOST",
@@ -76,37 +75,16 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str | None = None
 
-    # --- OTP / e-mail delivery -------------------------------------------------
-    # Unset = on in development, always off in production.
-    OTP_DEV_MODE: Optional[str] = None
-    SMTP_HOST: Optional[str] = None
-    SMTP_PORT: int = 587
-    SMTP_USER: Optional[str] = None
-    SMTP_PASSWORD: Optional[str] = None
-    SMTP_FROM: Optional[str] = None
-    SMTP_STARTTLS: Optional[str] = None  # default true; port 465 uses implicit TLS
-    # HTTPS e-mail API (Brevo). Use this where outbound SMTP is blocked (Railway Free/Hobby plans). Needs
-    # SMTP_FROM as the verified sender address; when set it is used instead of SMTP.
-    BREVO_API_KEY: Optional[str] = None
-
-    # Unset = on in development, off otherwise. Open self-registration lets ANY mailbox owner obtain a
-    # working login, so production keeps it admin-only unless the owner deliberately turns it on.
-    ALLOW_SELF_REGISTRATION: Optional[str] = None
-    # Explicit override: allow the dev OTP shortcut even though a hosting-platform marker is present.
-    ALLOW_DEV_OTP_ON_PLATFORM: Optional[str] = None
-
-    # --- Seeding / bootstrap ------------------------------------------------------
+    # --- Seeding ----------------------------------------------------------------------
     # Unset = on in development, off in production.
     SEED_DEMO_DATA: Optional[str] = None
-    # Production: e-mail of the first admin account created at startup if it does not exist.
-    BOOTSTRAP_ADMIN_EMAIL: Optional[str] = None
 
-    # --- App-store reviewer access -----------------------------------------------
-    # Google Play reviewers cannot read a mailbox, so ONE designated non-admin account can sign in with a
-    # fixed 6-digit code instead of an e-mailed one. Active only when BOTH are set; the account gets the
-    # employee role and a demo project (see app.db.bootstrap). Remove both variables to switch it off.
-    REVIEWER_EMAIL: Optional[str] = None
-    REVIEWER_CODE: Optional[str] = None
+    # --- Google sign-in (Firebase) --------------------------------------------------------
+    # Firebase Admin credentials (see app/services/firebase_service.py). Local dev: path to the service-account
+    # JSON. Hosted (Railway): paste the JSON itself into FIREBASE_CREDENTIALS_JSON. Required in production:
+    # without them nobody can sign in. Who may sign in is the Firestore `allowedUsers` collection.
+    FIREBASE_CREDENTIALS_PATH: Optional[str] = None
+    FIREBASE_CREDENTIALS_JSON: Optional[str] = None
 
     # --- AI model --------------------------------------------------------------
     # Where to fetch road_best.pth / signage_best.pth when they are missing (or are Git-LFS pointer stubs) at
@@ -171,60 +149,12 @@ class Settings(BaseSettings):
         return [name for name in PLATFORM_MARKERS if os.environ.get(name)]
 
     @property
-    def dev_otp_blocked_by_platform(self) -> bool:
-        """A hosting-platform marker is present and nobody explicitly allowed the dev OTP shortcut there."""
-        return bool(self.platform_markers) and not parse_flag(self.ALLOW_DEV_OTP_ON_PLATFORM, False)
-
-    @property
-    def otp_dev_mode(self) -> bool:
-        """Dev OTP delivery (code in API response). Never in production-like modes or on hosting platforms."""
-        if self.is_production or self.dev_otp_blocked_by_platform:
-            return False
-        # Historical semantics: dev mode unless explicitly "false".
-        return parse_flag(self.OTP_DEV_MODE, True)
-
-    @property
-    def allow_self_registration(self) -> bool:
-        return parse_flag(self.ALLOW_SELF_REGISTRATION, self.is_development)
-
-    @property
-    def otp_dev_mode_requested(self) -> bool:
-        """What the env var asked for, ignoring the production override (used by startup checks)."""
-        return parse_flag(self.OTP_DEV_MODE, False)
-
-    @property
     def seed_demo_data(self) -> bool:
         return parse_flag(self.SEED_DEMO_DATA, not self.is_production)
 
     @property
     def allow_mock_model(self) -> bool:
         return parse_flag(self.ALLOW_MOCK_MODEL, not self.is_production)
-
-    @property
-    def email_api_configured(self) -> bool:
-        return bool((self.BREVO_API_KEY or "").strip() and (self.SMTP_FROM or "").strip())
-
-    @property
-    def email_configured(self) -> bool:
-        """Some way to deliver login codes by e-mail exists (HTTPS API or SMTP)."""
-        return self.email_api_configured or self.smtp_configured
-
-    @property
-    def reviewer_email(self) -> str:
-        """Normalised reviewer e-mail, or '' when reviewer access is not configured."""
-        return (self.REVIEWER_EMAIL or "").strip().lower()
-
-    @property
-    def reviewer_access_enabled(self) -> bool:
-        return bool(self.reviewer_email and (self.REVIEWER_CODE or "").strip())
-
-    @property
-    def smtp_starttls(self) -> bool:
-        return parse_flag(self.SMTP_STARTTLS, True)
-
-    @property
-    def smtp_configured(self) -> bool:
-        return bool((self.SMTP_HOST or "").strip() and (self.SMTP_FROM or "").strip())
 
     @property
     def cors_origins(self) -> List[str]:

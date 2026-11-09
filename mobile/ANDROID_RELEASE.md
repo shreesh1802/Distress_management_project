@@ -1,10 +1,8 @@
 # Building the Play Store release (Android App Bundle)
 
-## 1. Choose the application ID (once, permanent)
+## 1. Application ID
 
-`applicationId` in `android/app/build.gradle.kts` is still `com.example.mobile`, which Google Play rejects.
-Pick the final ID (for example `edu.thapar.roadinspection`) before the first upload: **it cannot be changed after
-the app is published.** Only `applicationId` needs to change; `namespace` can stay as it is.
+The application ID is `com.thapar.roaddistress` (`android/app/build.gradle.kts`). **It cannot be changed after the app is published.**
 
 ## 2. Create the upload keystore (once)
 
@@ -36,7 +34,9 @@ debug key, which is fine for installing on your own phone.)
 ## 5. Before uploading
 
 * `versionCode` must increase with every upload: raise the number after the `+` in `pubspec.yaml` (`version: 1.0.0+2`).
-* Play Console > App access: give the reviewer the e-mail and 6-digit code from the Railway variables
-  `REVIEWER_EMAIL` / `REVIEWER_CODE` (see `SECURITY.md`).
+* Firebase console: add the SHA-1 and SHA-256 fingerprints of the key you sign with (upload key, and the Play App Signing key from the
+  Play Console) to the Android app, otherwise Google sign-in fails with `DEVELOPER_ERROR`. Print a keystore's fingerprints with
+  `keytool -list -v -keystore <file>.jks -alias upload`.
+* Play Console > App access: a dedicated Google test account that is on the Firestore `allowedUsers` list (role `inspector`); see `SECURITY.md`.
 * Play Console > App content: privacy policy URL, Data safety form, and the account-deletion URL
   (the in-app "Delete account" button plus the web page in `docs/privacy/delete-account.html`).

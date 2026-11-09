@@ -34,8 +34,8 @@ from app.api.v1.routes import (
     assets,
 )
 
-# Fail closed BEFORE the app object exists: in production a missing SMTP / CORS / signing
-# secret configuration (or OTP_DEV_MODE=true) aborts startup with a clear message.
+# Fail closed BEFORE the app object exists: in production missing Firebase credentials, a missing CORS /
+# signing-secret configuration or an unsafe setting aborts startup with a clear message.
 validate_runtime_config(settings)
 
 # Initialize FastAPI application (interactive docs and the OpenAPI schema are not exposed in production)
@@ -89,7 +89,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(nam
 
 logger = logging.getLogger(__name__)
 
-from app.db.bootstrap import bootstrap_admin as _bootstrap_admin, bootstrap_reviewer as _bootstrap_reviewer  # noqa: E402
+from app.db.bootstrap import bootstrap_admin as _bootstrap_admin  # noqa: E402
 
 def _seed_demo_data(db) -> None:
     """Demo video 20 + 8 demo detections and the demo display name for user 1 (SEED_DEMO_DATA)."""
@@ -256,9 +256,8 @@ def startup_event() -> None:
         from app.core.security import dummy_password_hash
         dummy_password_hash()
 
-        # First-admin bootstrap (development: user id 1; production: only from BOOTSTRAP_ADMIN_EMAIL)
+        # Development: seed admin user id 1. Production: nothing (admins come from the Firestore allow-list)
         _bootstrap_admin(db)
-        _bootstrap_reviewer(db)
 
         # Detection weights: download in the background if the deployment did not ship them
         from app.services.ai.model_provisioning import ensure_models_in_background

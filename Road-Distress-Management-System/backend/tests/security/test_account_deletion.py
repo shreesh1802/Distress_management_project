@@ -6,7 +6,7 @@ from app.core.config import settings
 from app.core.roles import Role
 from app.models.asset import ProjectAsset
 from app.models.audit import SafetyAudit
-from app.models.auth import AuthToken, OtpCode
+from app.models.auth import AuthToken
 from app.models.project import Project, ProjectMember
 from app.models.user import User
 from app.services.account_deletion import DELETED_USER_EMAIL
@@ -31,17 +31,13 @@ def test_wrong_confirmation_email_deletes_nothing(client, db, make_user):
     assert _user_row(db, uid) is not None
 
 
-def test_deletes_account_sessions_and_codes(client, db, make_user):
+def test_deletes_account_and_sessions(client, db, make_user):
     uid, email, headers = make_user("employee")
-    db.add(OtpCode(email=email, code="111222", expires_at=__import__("datetime").datetime(2099, 1, 1)))
-    db.commit()
-
     r = client.post(URL, json={"confirm_email": email.upper()}, headers=headers)  # case-insensitive confirmation
     assert r.status_code == 204
 
     assert _user_row(db, uid) is None
     assert db.query(AuthToken).filter(AuthToken.user_id == uid).count() == 0
-    assert db.query(OtpCode).filter(OtpCode.email == email).count() == 0
     # the session that deleted the account no longer works
     assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
 
@@ -71,16 +67,6 @@ def test_shared_records_are_kept_but_reattributed(client, db, make_user, admin):
     assert db.get(ProjectAsset, asset_id).uploaded_by_id == placeholder.id
     members = {m.user_id for m in db.query(ProjectMember).filter(ProjectMember.project_id == project_id)}
     assert members == {admin_id}  # the deleted user's membership is gone, the other member's stays
-
-
-def test_placeholder_cannot_sign_in(client, db, make_user):
-    uid, email, headers = make_user("employee")
-    assert client.post(URL, json={"confirm_email": email}, headers=headers).status_code == 204
-
-    r = client.post("/api/v1/auth/request-otp", json={"email": DELETED_USER_EMAIL})
-    assert r.status_code == 200 and r.json()["dev_otp"] is None  # no code even in development mode
-    assert db.query(OtpCode).filter(OtpCode.email == DELETED_USER_EMAIL).count() == 0
-    assert client.post("/api/v1/auth/verify-otp", json={"email": DELETED_USER_EMAIL, "code": "000000"}).status_code == 401
 
 
 def test_placeholder_account_cannot_be_deleted(db):

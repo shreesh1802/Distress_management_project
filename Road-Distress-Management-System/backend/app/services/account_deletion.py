@@ -1,8 +1,7 @@
 """
 Self-service account deletion (a Google Play requirement for apps with accounts).
 
-What is removed: the user's account, every session token, every pending login code and the user's
-project memberships. Records the user created inside shared projects (projects, audits, uploaded
+What is removed: the user's account, every session token and the user's project memberships. Records the user created inside shared projects (projects, audits, uploaded
 documents) are kept for the other members but re-attributed to a neutral "Deleted user" placeholder
 account, exactly as the privacy policy states; nullable references (videos, maintenance tasks,
 reports) are simply cleared. The placeholder cannot sign in.
@@ -17,7 +16,7 @@ from app.core.roles import Role
 from app.core.security import UNUSABLE_PASSWORD
 from app.models.asset import ProjectAsset
 from app.models.audit import SafetyAudit
-from app.models.auth import AuthToken, OtpCode
+from app.models.auth import AuthToken
 from app.models.maintenance import MaintenanceTask
 from app.models.project import Project, ProjectMember
 from app.models.report import Report
@@ -69,7 +68,7 @@ def delete_account(db: Session, user: User) -> None:
                 "You are the only administrator. Make another account an administrator before deleting this one."
             )
 
-    user_id, email = user.id, user.email
+    user_id = user.id
     try:
         placeholder = _placeholder_user(db)
         for model, column in (
@@ -88,7 +87,6 @@ def delete_account(db: Session, user: User) -> None:
 
         db.execute(delete(ProjectMember).where(ProjectMember.user_id == user_id))
         db.execute(delete(AuthToken).where(AuthToken.user_id == user_id))
-        db.execute(delete(OtpCode).where(func.lower(OtpCode.email) == email.strip().lower()))
         db.execute(delete(User).where(User.id == user_id))
         db.commit()
     except Exception:

@@ -185,7 +185,7 @@ _xff_warning_logged = False
 XFF_WARNING = (
     "An X-Forwarded-For header was received but TRUSTED_PROXY_COUNT is 0: this server is behind a "
     "reverse proxy, so every client appears to share the proxy's IP address and the per-IP rate limits "
-    "(OTP requests/attempts, login, register) would lock EVERYONE out together. Set TRUSTED_PROXY_COUNT=1 "
+    "(Google sign-in, login, register) would lock EVERYONE out together. Set TRUSTED_PROXY_COUNT=1 "
     "(the number of proxies in front of the app, e.g. 1 on Railway or behind nginx)."
 )
 

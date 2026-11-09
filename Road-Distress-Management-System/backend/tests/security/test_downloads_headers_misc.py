@@ -151,7 +151,7 @@ def test_validation_errors_never_echo_input_and_survive_nan(client, make_user):
 
 
 def test_cors_follows_configuration_in_development(client):
-    r = client.options("/api/v1/auth/request-otp",
+    r = client.options("/api/v1/auth/google",
                        headers={"Origin": "https://evil.test", "Access-Control-Request-Method": "POST"})
     assert r.headers.get("access-control-allow-origin") in ("*", "https://evil.test")
     assert "access-control-allow-credentials" not in r.headers

@@ -64,8 +64,8 @@ def init_db(db: Session) -> None:
     logger.info("All required tables are present in the database.")
 
     logger.info("Checking for administrative seeding conditions...")
-    # First administrator (OTP login, no password): development -> admin@roaddistress.org as user 1;
-    # production -> only if BOOTSTRAP_ADMIN_EMAIL is set. No default password is ever created.
+    # Development only: admin@roaddistress.org as user 1 (unusable password). Production creates no users here;
+    # people are created on their first Google sign-in if they are on the Firestore allow-list.
     from app.db.bootstrap import bootstrap_admin
     bootstrap_admin(db)
     logger.info("Administrator bootstrap check completed.")
