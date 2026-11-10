@@ -114,7 +114,7 @@ class _DashboardGisMapCardState extends State<DashboardGisMapCard> {
                   children: [
                     TileLayer(
                       urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.thapar.akcm.road_distress',
+                      userAgentPackageName: 'com.distress.roadmanager',
                     ),
                     MarkerLayer(
                       markers: [
