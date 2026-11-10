@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.project import Project, ProjectMember
 from app.models.user import User
 from app.schemas.project import ProjectCreate
+from app.services.access_service import sync_user
 
 
 def _member_emails(db: Session, project_id: int) -> List[str]:
@@ -45,7 +46,23 @@ def user_can_access_project(db: Session, user: User, project: Project) -> bool:
     )
 
 
+def _resolve_member(db: Session, email: str) -> Optional[User]:
+    """A member email may belong to someone who's on the Firestore allow-list
+    but hasn't signed in yet (so has no users row) -- create it from the list."""
+    email = email.strip().lower()
+    user = db.query(User).filter(User.email == email).first()
+    if user is not None:
+        return user
+    try:
+        return sync_user(db, email)
+    except Exception:
+        return None
+
+
 def create_project(db: Session, project_in: ProjectCreate, owner: User) -> Project:
+    # Resolve members first: sync_user may create users rows (and commit).
+    members = [m for m in (_resolve_member(db, e) for e in project_in.member_emails) if m is not None]
+
     project = Project(
         name=project_in.name,
         description=project_in.description,
@@ -59,10 +76,8 @@ def create_project(db: Session, project_in: ProjectCreate, owner: User) -> Proje
     db.add(project)
     db.flush()  # get project.id before adding members
 
-    for email in project_in.member_emails:
-        member_user = db.query(User).filter(User.email == email.strip().lower()).first()
-        if member_user is not None:
-            db.add(ProjectMember(project_id=project.id, user_id=member_user.id))
+    for member_user in {m.id: m for m in members}.values():
+        db.add(ProjectMember(project_id=project.id, user_id=member_user.id))
 
     db.commit()
     db.refresh(project)

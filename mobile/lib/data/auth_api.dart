@@ -39,41 +39,27 @@ class AuthApiException implements Exception {
   String toString() => message;
 }
 
-/// Talks to the new `/auth/request-otp`, `/auth/verify-otp` and `/auth/me`
-/// routes (app/api/v1/routes/auth.py) that replaced the hardcoded mock
-/// login check in AuthNotifier.
+/// Talks to the `/auth/google` and `/auth/me` routes
+/// (app/api/v1/routes/auth.py) -- Google sign-in is the only login method.
 class AuthApi {
   AuthApi();
 
   final http.Client _client = CustomHttpClient();
 
-  /// Returns the dev-mode OTP code (only populated when the backend's
-  /// OTP_DEV_MODE is on, which is the default for local dev) so the UI can
-  /// surface it directly instead of requiring a real mailbox.
-  Future<String?> requestOtp(String email) async {
+  /// Exchanges a Firebase ID token (from Google sign-in) for our own
+  /// bearer session token -- see POST /auth/google.
+  Future<(String token, SessionUser user)> googleLogin(String firebaseIdToken) async {
     final response = await _client.post(
-      Uri.parse('$kApiV1/auth/request-otp'),
+      Uri.parse('$kApiV1/auth/google'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email}),
+      body: jsonEncode({'id_token': firebaseIdToken}),
     );
-    if (response.statusCode != 200) {
-      throw const AuthApiException('Failed to request a login code. Please try again.');
+    if (response.statusCode == 403) {
+      throw const AuthApiException(
+          'No account exists for this Google email. Ask an admin to add you.');
     }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return body['dev_otp'] as String?;
-  }
-
-  Future<(String token, SessionUser user)> verifyOtp({
-    required String email,
-    required String code,
-  }) async {
-    final response = await _client.post(
-      Uri.parse('$kApiV1/auth/verify-otp'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'code': code}),
-    );
     if (response.statusCode != 200) {
-      throw const AuthApiException('Invalid or expired code. Please request a new one.');
+      throw const AuthApiException('Google sign-in failed. Please try again.');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final token = body['token'] as String;

@@ -5,15 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../../data/auth_api.dart' show AuthApiException;
 import '../../data/auth_provider.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 
-enum _LoginStep { email, otp }
-
-/// Real Email + OTP login (two-step: request code, then verify it),
-/// replacing the old hardcoded admin@akcm.com / Admin@123 mock check.
+/// Google sign-in (via Firebase) is the only login method. Only accounts on
+/// the Firestore `allowedUsers` list (managed in the Firebase console) get
+/// past POST /auth/google.
 /// Visual layout is still a direct port of Road-Distress-Management-System/
 /// frontend/src/pages/Login/LoginPage.tsx / LoginPage.css.
 class LoginScreen extends ConsumerStatefulWidget {
@@ -24,108 +24,32 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _otpController = TextEditingController();
-
-  _LoginStep _step = _LoginStep.email;
-  bool _rememberMe = false;
   bool _isLoading = false;
   List<String> _errors = [];
-  String? _devOtpHint;
 
-  @override
-  void initState() {
-    super.initState();
-    final remembered = ref.read(authProvider).rememberedEmail;
-    if (remembered != null) {
-      _emailController.text = remembered;
-      _rememberMe = true;
-    }
-  }
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _otpController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleRequestOtp() async {
-    final email = _emailController.text.trim();
-    final emailPattern = RegExp(r'^\S+@\S+\.\S+$');
-
-    if (email.isEmpty) {
-      setState(() => _errors = ['Email address is required.']);
-      return;
-    }
-    if (!emailPattern.hasMatch(email)) {
-      setState(() => _errors = [
-            'Please enter a valid email address (e.g., user@example.com).',
-          ]);
-      return;
-    }
-
+  Future<void> _handleGoogleSignIn() async {
     setState(() {
       _errors = [];
       _isLoading = true;
     });
 
     try {
-      final devOtp = await ref.read(authProvider.notifier).requestOtp(email);
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _step = _LoginStep.otp;
-        _devOtpHint = devOtp;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _errors = ['$e'];
-      });
-    }
-  }
-
-  Future<void> _handleVerifyOtp() async {
-    final email = _emailController.text.trim();
-    final code = _otpController.text.trim();
-
-    if (code.isEmpty) {
-      setState(() => _errors = ['Enter the 6-digit code sent to $email.']);
-      return;
-    }
-
-    setState(() {
-      _errors = [];
-      _isLoading = true;
-    });
-
-    try {
-      await ref.read(authProvider.notifier).verifyOtp(
-            email: email,
-            code: code,
-            rememberMe: _rememberMe,
-          );
+      final signedIn = await ref.read(authProvider.notifier).signInWithGoogle();
       if (!mounted) return;
       setState(() => _isLoading = false);
-      context.go(AppRoutes.projects);
+      if (signedIn) context.go(AppRoutes.projects);
     } catch (e) {
+      debugPrint('Google sign-in failed: $e');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errors = ['$e'];
+        _errors = [
+          e is AuthApiException
+              ? e.message
+              : "Couldn't complete sign-in. Check your connection and try again.",
+        ];
       });
     }
-  }
-
-  void _handleChangeEmail() {
-    setState(() {
-      _step = _LoginStep.email;
-      _otpController.clear();
-      _errors = [];
-      _devOtpHint = null;
-    });
   }
 
   @override
@@ -168,18 +92,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                           final rightCard = Center(
                             child: _GlassLoginCard(
-                              step: _step,
-                              emailController: _emailController,
-                              otpController: _otpController,
-                              rememberMe: _rememberMe,
                               errors: _errors,
                               isLoading: _isLoading,
-                              devOtpHint: _devOtpHint,
-                              onRememberMeChanged: (v) =>
-                                  setState(() => _rememberMe = v),
-                              onRequestOtp: _handleRequestOtp,
-                              onVerifyOtp: _handleVerifyOtp,
-                              onChangeEmail: _handleChangeEmail,
+                              onGoogleSignIn: _handleGoogleSignIn,
                             ),
                           );
 
@@ -432,30 +347,14 @@ class _FeatureCard extends StatelessWidget {
 
 class _GlassLoginCard extends StatelessWidget {
   const _GlassLoginCard({
-    required this.step,
-    required this.emailController,
-    required this.otpController,
-    required this.rememberMe,
     required this.errors,
     required this.isLoading,
-    required this.devOtpHint,
-    required this.onRememberMeChanged,
-    required this.onRequestOtp,
-    required this.onVerifyOtp,
-    required this.onChangeEmail,
+    required this.onGoogleSignIn,
   });
 
-  final _LoginStep step;
-  final TextEditingController emailController;
-  final TextEditingController otpController;
-  final bool rememberMe;
   final List<String> errors;
   final bool isLoading;
-  final String? devOtpHint;
-  final ValueChanged<bool> onRememberMeChanged;
-  final VoidCallback onRequestOtp;
-  final VoidCallback onVerifyOtp;
-  final VoidCallback onChangeEmail;
+  final VoidCallback onGoogleSignIn;
 
   @override
   Widget build(BuildContext context) {
@@ -482,118 +381,19 @@ class _GlassLoginCard extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _CardHeader(step: step),
+                const _CardHeader(),
                 if (errors.isNotEmpty) ...[
                   const SizedBox(height: 24),
                   _ErrorBox(errors: errors),
                 ],
-                if (devOtpHint != null) ...[
-                  const SizedBox(height: 24),
-                  _DevOtpHintBox(code: devOtpHint!),
-                ],
-                const SizedBox(height: 24),
-                if (step == _LoginStep.email) ...[
-                  _LoginField(
-                    label: 'Email Address',
-                    controller: emailController,
-                    icon: LucideIcons.mail,
-                    hint: 'name@domain.com',
-                    enabled: !isLoading,
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      GestureDetector(
-                        onTap: isLoading
-                            ? null
-                            : () => onRememberMeChanged(!rememberMe),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 16,
-                              height: 16,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: rememberMe
-                                    ? AppColors.warning
-                                    : const Color(0x590F172A),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: rememberMe
-                                      ? AppColors.warning
-                                      : Colors.white.withValues(alpha: 0.3),
-                                ),
-                              ),
-                              child: rememberMe
-                                  ? const Icon(
-                                      Icons.check,
-                                      size: 12,
-                                      color: Colors.white,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Remember Me',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFFCBD5E1),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  _PrimaryButton(
-                    label: 'Send Login Code',
-                    isLoading: isLoading,
-                    onTap: onRequestOtp,
-                  ),
-                ] else ...[
-                  Text(
-                    'Enter the 6-digit code sent to ${emailController.text}',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFFCBD5E1),
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _LoginField(
-                    label: 'Verification Code',
-                    controller: otpController,
-                    icon: LucideIcons.keyRound,
-                    hint: '••••••',
-                    enabled: !isLoading,
-                  ),
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: isLoading ? null : onChangeEmail,
-                    style: TextButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      alignment: Alignment.centerLeft,
-                    ),
-                    child: const Text(
-                      'Use a different email',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppColors.warning,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  _PrimaryButton(
-                    label: 'Verify & Sign In',
-                    isLoading: isLoading,
-                    onTap: onVerifyOtp,
-                  ),
-                ],
+                const SizedBox(height: 28),
+                _GoogleButton(isLoading: isLoading, onTap: onGoogleSignIn),
+                const SizedBox(height: 14),
+                const Text(
+                  'Access is limited to accounts added by an administrator.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8), height: 1.4),
+                ),
                 const SizedBox(height: 36),
                 Container(
                   height: 1,
@@ -627,14 +427,9 @@ class _GlassLoginCard extends StatelessWidget {
   }
 }
 
-class _PrimaryButton extends StatelessWidget {
-  const _PrimaryButton({
-    required this.label,
-    required this.isLoading,
-    required this.onTap,
-  });
+class _GoogleButton extends StatelessWidget {
+  const _GoogleButton({required this.isLoading, required this.onTap});
 
-  final String label;
   final bool isLoading;
   final VoidCallback onTap;
 
@@ -658,8 +453,29 @@ class _PrimaryButton extends StatelessWidget {
             onTap: isLoading ? null : onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 14),
-              child: Center(
-                child: Text(label, style: AppTextStyles.loginButtonLabel),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                    child: const Text(
+                      'G',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF4285F4),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    isLoading ? 'Signing in…' : 'Continue with Google',
+                    style: AppTextStyles.loginButtonLabel,
+                  ),
+                ],
               ),
             ),
           ),
@@ -669,53 +485,8 @@ class _PrimaryButton extends StatelessWidget {
   }
 }
 
-class _DevOtpHintBox extends StatelessWidget {
-  const _DevOtpHintBox({required this.code});
-
-  final String code;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.success.withValues(alpha: 0.12),
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          const Icon(LucideIcons.flaskConical, size: 16, color: AppColors.success),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: const TextStyle(fontSize: 12.5, color: Color(0xFFCBD5E1)),
-                children: [
-                  const TextSpan(text: 'Dev mode — your code is '),
-                  TextSpan(
-                    text: code,
-                    style: const TextStyle(
-                      fontFamily: 'JetBrains Mono',
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.success,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _CardHeader extends StatelessWidget {
-  const _CardHeader({required this.step});
-
-  final _LoginStep step;
+  const _CardHeader();
 
   @override
   Widget build(BuildContext context) {
@@ -741,22 +512,14 @@ class _CardHeader extends StatelessWidget {
               ),
             ],
           ),
-          child: Icon(
-            step == _LoginStep.email ? LucideIcons.shieldCheck : LucideIcons.keyRound,
-            color: Colors.white,
-            size: 28,
-          ),
+          child: const Icon(LucideIcons.shieldCheck, color: Colors.white, size: 28),
         ),
         const SizedBox(height: 16),
-        Text(
-          step == _LoginStep.email ? 'Secure Access' : 'Verify Your Identity',
-          style: AppTextStyles.loginCardTitle,
-        ),
+        Text('Secure Access', style: AppTextStyles.loginCardTitle),
         const SizedBox(height: 6),
         Text(
-          step == _LoginStep.email
-              ? 'Sign in with your email to receive a one-time code.'
-              : 'Check your inbox for the login code.',
+          'Sign in with your authorized Google account.',
+          textAlign: TextAlign.center,
           style: AppTextStyles.loginCardSubtitle,
         ),
       ],
@@ -837,79 +600,6 @@ class _ErrorBox extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _LoginField extends StatelessWidget {
-  const _LoginField({
-    required this.label,
-    required this.controller,
-    required this.icon,
-    required this.hint,
-    this.obscureText = false,
-    this.enabled = true,
-    this.suffixIcon,
-  });
-
-  final String label;
-  final TextEditingController controller;
-  final IconData icon;
-  final String hint;
-  final bool obscureText;
-  final bool enabled;
-  final Widget? suffixIcon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: AppTextStyles.loginLabel),
-        const SizedBox(height: 8),
-        TextField(
-          controller: controller,
-          obscureText: obscureText,
-          enabled: enabled,
-          style: AppTextStyles.loginInputText,
-          cursorColor: AppColors.warning,
-          decoration: InputDecoration(
-            hintText: hint,
-            hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 14),
-            prefixIcon: Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Icon(icon, size: 16, color: const Color(0xFF94A3B8)),
-            ),
-            prefixIconConstraints: const BoxConstraints(
-              minWidth: 42,
-              minHeight: 16,
-            ),
-            suffixIcon: suffixIcon,
-            filled: true,
-            fillColor: const Color(0x590F172A),
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 12,
-              horizontal: 14,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(
-                color: Colors.white.withValues(alpha: 0.15),
-              ),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(
-                color: Colors.white.withValues(alpha: 0.15),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: AppColors.warning),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }

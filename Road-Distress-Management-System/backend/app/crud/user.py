@@ -2,6 +2,7 @@
 CRUD operations for the User entity.
 """
 
+import secrets
 from typing import List, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,7 +40,7 @@ def create_user(db: Session, user_in: UserCreate) -> User:
         email=user_in.email,
         full_name=user_in.full_name,
         role=user_in.role,
-        hashed_password=get_password_hash(user_in.password),
+        hashed_password=get_password_hash(user_in.password or secrets.token_urlsafe(32)),
     )
     db.add(db_user)
     db.commit()
