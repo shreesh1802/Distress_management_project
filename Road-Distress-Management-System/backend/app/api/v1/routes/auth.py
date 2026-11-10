@@ -25,7 +25,7 @@ from app.core.deps import get_current_user, require_admin
 from app.models.user import User
 from app.services.session_service import issue_token
 from app.services.access_service import sync_user
-from app.services.firebase_service import verify_google_id_token
+from app.services.firebase_service import get_firebase_app, verify_google_id_token
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -89,12 +89,25 @@ def google_login_route(req: GoogleLoginRequest, db: Session = Depends(get_db)) -
     token. An email that isn't on the list gets a 403.
     """
     try:
+        get_firebase_app()
+    except Exception as e:
+        # A server-side setup problem (e.g. the service-account key file is
+        # missing) -- not the user's fault, so don't report it as a bad token.
+        logger.error(f"Firebase Admin isn't configured: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Sign-in isn't configured on the server. Please contact an administrator.",
+        )
+
+    try:
         claims = verify_google_id_token(req.id_token)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Rejected Google ID token: {type(e).__name__}: {e}")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Google token")
 
     email = claims.get("email")
     if not email or not claims.get("email_verified"):
+        logger.warning(f"Rejected Google sign-in for unverified email: {email!r}")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Google email not verified")
 
     try:
