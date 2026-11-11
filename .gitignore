@@ -13,6 +13,10 @@
 *.keystore
 key.properties
 
+# Firebase app config (contains API keys -- share via secure channel, not git)
+google-services.json
+GoogleService-Info.plist
+
 # Firebase CLI debug output (can contain request details)
 firebase-debug.log
 firestore-debug.log

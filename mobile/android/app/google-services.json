@@ -9,6 +9,42 @@
       "client_info": {
         "mobilesdk_app_id": "1:949675387155:android:ad22006e71dd6064bdd2e6",
         "android_client_info": {
+          "package_name": "com.distress.roadmanager"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "949675387155-veq1cn4h9lbq8l3ah9mvdtj66a1qb139.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDMmK5_m_0DQP02qGyGXKt2UYNyubdWG3o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "949675387155-veq1cn4h9lbq8l3ah9mvdtj66a1qb139.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "949675387155-tint8piblmgukq37lijpjasmt579h3mf.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.thapar.roaddistress"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:949675387155:android:ad22006e71dd6064bdd2e6",
+        "android_client_info": {
           "package_name": "com.thapar.roaddistress"
         }
       },
