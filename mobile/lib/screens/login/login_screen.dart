@@ -37,7 +37,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final signedIn = await ref.read(authProvider.notifier).signInWithGoogle();
       if (!mounted) return;
       setState(() => _isLoading = false);
-      if (signedIn) context.go(AppRoutes.projects);
+      if (signedIn) {
+        context.go(AppRoutes.projects);
+      } else {
+        // Closing the Google sheet looks the same as a refused sign-in on some devices, so say something.
+        setState(() => _errors = [
+              'Sign-in was cancelled. If you did not cancel it, this version of the app may not be '
+                  'registered for Google sign-in yet - please contact your administrator.',
+            ]);
+      }
     } catch (e) {
       debugPrint('Google sign-in failed: $e');
       if (!mounted) return;

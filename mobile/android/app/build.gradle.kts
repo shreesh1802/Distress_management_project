@@ -28,6 +28,7 @@ gradle.taskGraph.whenReady {
 }
 
 android {
+    // The code package (kept so MainActivity does not have to move). The Play / Firebase id is applicationId below.
     namespace = "com.thapar.roaddistress"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
@@ -38,8 +39,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.thapar.roaddistress"
+        // The id of the app that is already published on Google Play (and registered in Firebase). Never change it.
+        applicationId = "com.distress.roadmanager"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

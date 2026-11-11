@@ -120,7 +120,9 @@ class AuthNotifier extends Notifier<AuthState> {
         account = await GoogleSignIn.instance.authenticate();
       } on GoogleSignInException catch (e) {
         if (e.code == GoogleSignInExceptionCode.canceled) return false;
-        rethrow;
+        throw AuthApiException(
+          'Google sign-in is not set up correctly on this device (${e.code.name}). Please contact your administrator.',
+        );
       }
       credential = await FirebaseAuth.instance.signInWithCredential(
         GoogleAuthProvider.credential(idToken: account.authentication.idToken),

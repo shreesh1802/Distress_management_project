@@ -51,7 +51,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDMmK5_m_0DQP02qGyGXKt2UYNyubdWG3o',
-    appId: '1:949675387155:android:ad22006e71dd6064bdd2e6',
+    appId: '1:949675387155:android:045ef4e58210431dbdd2e6',
     messagingSenderId: '949675387155',
     projectId: 'road-distress-a0e09',
     storageBucket: 'road-distress-a0e09.firebasestorage.app',

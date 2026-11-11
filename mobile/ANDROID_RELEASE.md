@@ -2,7 +2,9 @@
 
 ## 1. Application ID
 
-The application ID is `com.thapar.roaddistress` (`android/app/build.gradle.kts`). **It cannot be changed after the app is published.**
+The application ID is `com.distress.roadmanager` (`android/app/build.gradle.kts`): the id of the app that is already on Google Play and registered in Firebase. **It cannot be changed.** (The Kotlin package `com.thapar.roaddistress` is only the code's namespace.)
+
+To upload an update to that Play app you must sign the bundle with that app's **upload key** (held by whoever created the Play app) and use a `versionCode` higher than the one already on Play (the number after `+` in `pubspec.yaml`).
 
 ## 2. Create the upload keystore (once)
 
