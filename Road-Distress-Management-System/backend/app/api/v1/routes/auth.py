@@ -31,7 +31,7 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse
 from app.services.access_service import remove_allowed_entry, sync_user
 from app.services.account_deletion import AccountDeletionError, delete_account, is_placeholder_email
-from app.services.firebase_service import verify_google_id_token
+from app.services.firebase_service import get_firebase_app, verify_google_id_token
 from app.services.session_service import issue_token, revoke_token
 
 logger = logging.getLogger(__name__)
@@ -121,12 +121,25 @@ def google_login_route(
     if not google_limiter.hit(client_ip(http_request)):
         raise _too_many()
     try:
+        get_firebase_app()
+    except Exception as e:
+        # A server-side setup problem (e.g. the service-account key file is
+        # missing) -- not the user's fault, so don't report it as a bad token.
+        logger.error(f"Firebase Admin isn't configured: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Sign-in isn't configured on the server. Please contact an administrator.",
+        )
+
+    try:
         claims = verify_google_id_token(req.id_token)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Rejected Google ID token: {type(e).__name__}: {e}")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid Google token")
 
     email = normalize_email(claims.get("email"))
     if not email or not claims.get("email_verified"):
+        logger.warning(f"Rejected Google sign-in for unverified email: {email!r}")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Google email not verified")
     if is_placeholder_email(email):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "No account for this email")

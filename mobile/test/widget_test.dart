@@ -9,6 +9,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Secure Access'), findsOneWidget);
-    expect(find.text('Sign in with your authorized Google account.'), findsOneWidget);
+    expect(find.text('Continue with Google'), findsOneWidget);
   });
 }

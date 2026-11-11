@@ -12,6 +12,16 @@
 .swiftpm/
 migrate_working_dir/
 
+
+.env
+
+# Android signing & Firebase secrets (never commit these)
+android/key.properties
+android/upload-keystore.jks
+android/*.jks
+android/app/google-services.json
+ios/GoogleService-Info.plist
+
 # IntelliJ related
 *.iml
 *.ipr

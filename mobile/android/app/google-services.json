@@ -22,6 +22,22 @@
           }
         },
         {
+          "client_id": "949675387155-9q5tuar6jnv8qcemceu61r2ba933kna0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.distress.roadmanager",
+            "certificate_hash": "d6a32cd188e15c960a1833433cdccba5c0b78cdf"
+          }
+        },
+        {
+          "client_id": "949675387155-fppaome9j8mbtn4vck8ie108nhl5kmnk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.distress.roadmanager",
+            "certificate_hash": "93b581526d5fdf5051f807af0e38070bd0e91ea3"
+          }
+        },
+        {
           "client_id": "949675387155-tg69js7el4dai2lkff0ou5jtc5dgrllt.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

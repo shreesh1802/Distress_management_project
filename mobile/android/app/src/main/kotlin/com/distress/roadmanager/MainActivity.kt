@@ -1,4 +1,4 @@
-package com.thapar.roaddistress
+package com.distress.roadmanager
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -409,7 +409,7 @@ class _GlassLoginCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Road Distress Management System • Version 1.0',
+                  'Road Distress Management System • Version 1.1',
                   style: TextStyle(
                     fontSize: 11,
                     color: Color(0xFF94A3B8),

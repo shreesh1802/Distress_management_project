@@ -74,6 +74,8 @@ def _reset_state(monkeypatch):
     monkeypatch.setattr(settings, "APP_ENV", "development")
     monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_JSON", None)
     monkeypatch.setattr(settings, "FIREBASE_CREDENTIALS_PATH", None)
+    # Tests never talk to Firebase: pretend the Firebase Admin app is configured (a test below checks the 503 when it is not).
+    monkeypatch.setattr(auth_routes, "get_firebase_app", lambda: object())
     yield
 
 

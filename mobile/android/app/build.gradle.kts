@@ -11,6 +11,7 @@ plugins {
 }
 
 // Release signing: android/key.properties (git-ignored, see key.properties.example and ../ANDROID_RELEASE.md).
+// It only exists on the machine that signs store releases.
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
@@ -28,8 +29,7 @@ gradle.taskGraph.whenReady {
 }
 
 android {
-    // The code package (kept so MainActivity does not have to move). The Play / Firebase id is applicationId below.
-    namespace = "com.thapar.roaddistress"
+    namespace = "com.distress.roadmanager"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -39,22 +39,24 @@ android {
     }
 
     defaultConfig {
-        // The id of the app that is already published on Google Play (and registered in Firebase). Never change it.
+        // The id of the app that is already published on Google Play and registered in Firebase. Never change it.
         applicationId = "com.distress.roadmanager"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
+    // Without key.properties, fall back to the debug key so everyone else can still build and test an APK
+    // (bundleRelease refuses, see above).
+    val hasReleaseKey = keystorePropertiesFile.exists()
+
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
+        if (hasReleaseKey) {
             create("release") {
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String
-                storeFile = file(keystoreProperties["storeFile"] as String)
+                storeFile = keystoreProperties["storeFile"]?.let { file(it as String) }
                 storePassword = keystoreProperties["storePassword"] as String
             }
         }
@@ -62,13 +64,7 @@ android {
 
     buildTypes {
         release {
-            // Upload key when android/key.properties exists; otherwise the debug key, so that
-            // `flutter run --release` / a test APK still work (bundleRelease refuses, see above).
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
         }
     }
 }

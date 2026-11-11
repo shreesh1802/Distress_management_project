@@ -179,3 +179,15 @@ def test_the_live_camera_websocket_also_stops_working_after_removal(google, allo
         with client.websocket_connect("/api/v1/live/phone-stream") as ws:
             ws.send_text(json.dumps({"type": "auth", "token": token}))
             ws.receive_text()
+
+
+def test_a_server_without_firebase_credentials_says_so_instead_of_blaming_the_token(client, monkeypatch):
+    from app.api.v1.routes import auth as auth_routes
+
+    def not_configured():
+        raise RuntimeError("Firebase credentials are not configured")
+
+    monkeypatch.setattr(auth_routes, "get_firebase_app", not_configured)
+    r = client.post("/api/v1/auth/google", json={"id_token": "anything"})
+    assert r.status_code == 503
+    assert "configured" in r.json()["detail"] and "credentials" not in r.json()["detail"]   # internals stay in the log
