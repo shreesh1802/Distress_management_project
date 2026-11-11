@@ -42,18 +42,22 @@ class MaintenanceRecommendation {
   }
 }
 
-/// Direct Dart port of `UserResponse`.
+/// Reduced user record from `GET /api/v1/users/` (id, full_name, role; the
+/// e-mail is only sent for admins or the caller's own record, so it may be empty).
 class AppUser {
-  const AppUser({required this.id, required this.email, this.fullName});
+  const AppUser({required this.id, this.email = '', this.fullName});
 
   final int id;
   final String email;
   final String? fullName;
 
+  /// Name shown in pickers: full name, else e-mail, else a neutral label.
+  String get displayName => fullName ?? (email.isNotEmpty ? email : 'User #$id');
+
   factory AppUser.fromJson(Map<String, dynamic> json) {
     return AppUser(
       id: json['id'] as int,
-      email: json['email'] as String,
+      email: (json['email'] as String?) ?? '',
       fullName: json['full_name'] as String?,
     );
   }

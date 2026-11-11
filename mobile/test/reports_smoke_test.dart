@@ -82,6 +82,7 @@ void main() {
           onToggleFavorite: (_) {},
           onPreview: (_) {},
           onDownload: (_) {},
+          onShare: (_) {},
           onDelete: (_) {},
           onPrevPage: () {},
           onNextPage: () {},
@@ -116,6 +117,7 @@ void main() {
           report: _sampleReports()[0],
           onClose: () {},
           onDownload: () {},
+          onShare: () {},
         ),
       ),
     ));
@@ -132,6 +134,7 @@ void main() {
           report: _sampleReports()[1],
           onClose: () {},
           onDownload: () {},
+          onShare: () {},
         ),
       ),
     ));

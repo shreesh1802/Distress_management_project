@@ -3,8 +3,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'custom_http_client.dart';
-import 'live_detection_api.dart' show kApiV1;
+import 'live_detection_api.dart' show kApiBaseUrl, kApiV1;
 import 'maintenance_api.dart' show AppUser;
+import 'report_settings.dart';
 import 'video_api.dart' show UploadedVideo;
 
 /// Direct Dart port of `ReportResponse` in apiService.ts.
@@ -223,7 +224,9 @@ class ReportsApi {
   }
 
   Future<ReportRecord> generatePdfReport(int videoId) async {
-    final response = await _client.post(Uri.parse('$kApiV1/reports/generate/$videoId'));
+    final response = await _client.post(
+      Uri.parse('$kApiV1/reports/generate/$videoId').replace(queryParameters: {'pavement': ReportSettings.pavement}),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw const ReportsApiException('Error compiling PDF report from CCTV processing.');
     }
@@ -231,7 +234,9 @@ class ReportsApi {
   }
 
   Future<ReportRecord> generateExcelReport(int videoId) async {
-    final response = await _client.post(Uri.parse('$kApiV1/reports/excel/$videoId'));
+    final response = await _client.post(
+      Uri.parse('$kApiV1/reports/excel/$videoId').replace(queryParameters: {'pavement': ReportSettings.pavement}),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw const ReportsApiException('Error compiling Excel report from CCTV processing.');
     }
@@ -245,11 +250,20 @@ class ReportsApi {
     }
   }
 
-  String reportDownloadUrl(int reportId) => '$kApiV1/reports/download/$reportId';
-
-  String excelReportDownloadUrl(int reportId) => '$kApiV1/reports/excel/download/$reportId';
-
-  String reportPreviewUrl(int reportId) => '$kApiV1/reports/preview/$reportId';
+  /// Browsers / the OS cannot attach an Authorization header when opening a
+  /// download URL (launchUrl, anchor download), so ask the backend (authenticated)
+  /// for a short-lived signed link first. [kind] is 'pdf', 'excel' or 'preview'.
+  /// The returned absolute URL is valid for about 5 minutes.
+  Future<String> signedUrl(int reportId, String kind) async {
+    final uri = Uri.parse('$kApiV1/reports/$reportId/download-link')
+        .replace(queryParameters: {'kind': kind});
+    final response = await _client.post(uri);
+    if (response.statusCode != 200) {
+      throw const ReportsApiException('Could not prepare the report download. Please try again.');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return '$kApiBaseUrl${body['path']}';
+  }
 
   void dispose() => _client.close();
 }

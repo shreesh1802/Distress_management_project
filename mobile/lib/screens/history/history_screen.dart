@@ -398,24 +398,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
   }
 
-  Future<void> _downloadReport(ReportRecord r) async {
-    final url = r.reportType.toLowerCase() == 'excel' ? _reportsApi.excelReportDownloadUrl(r.id) : _reportsApi.reportDownloadUrl(r.id);
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  /// Opens a report through a short-lived signed link (launchUrl cannot send
+  /// an Authorization header).
+  Future<void> _openSignedReport(int reportId, String kind) async {
+    try {
+      final url = await _reportsApi.signedUrl(reportId, kind);
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open the report.')));
+    }
   }
 
-  Future<void> _viewReport(ReportRecord r) async {
-    await launchUrl(Uri.parse(_reportsApi.reportPreviewUrl(r.id)), mode: LaunchMode.externalApplication);
-  }
+  Future<void> _downloadReport(ReportRecord r) =>
+      _openSignedReport(r.id, r.reportType.toLowerCase() == 'excel' ? 'excel' : 'pdf');
 
-  Future<void> _downloadReportEvent(TimelineEvent act) async {
-    final id = act.reportId!;
-    final url = (act.reportType ?? '').toLowerCase() == 'excel' ? _reportsApi.excelReportDownloadUrl(id) : _reportsApi.reportDownloadUrl(id);
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-  }
+  Future<void> _viewReport(ReportRecord r) => _openSignedReport(r.id, 'preview');
 
-  Future<void> _viewReportEvent(TimelineEvent act) async {
-    await launchUrl(Uri.parse(_reportsApi.reportPreviewUrl(act.reportId!)), mode: LaunchMode.externalApplication);
-  }
+  Future<void> _downloadReportEvent(TimelineEvent act) =>
+      _openSignedReport(act.reportId!, (act.reportType ?? '').toLowerCase() == 'excel' ? 'excel' : 'pdf');
+
+  Future<void> _viewReportEvent(TimelineEvent act) => _openSignedReport(act.reportId!, 'preview');
 
   Future<void> _handleDeleteReport(int id) async {
     final confirmed = await _confirm('Are you sure you want to delete this historical report record?');

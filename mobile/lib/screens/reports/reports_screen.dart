@@ -10,7 +10,9 @@ import '../../data/reports_api.dart';
 import '../../data/video_api.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/download_helper.dart';
+import 'widgets/pavement_type_selector.dart';
 import 'widgets/registry_overview_card.dart';
+import 'widgets/report_ready_sheet.dart';
 import 'widgets/report_preview_modal.dart';
 import 'widgets/reports_registry_card.dart';
 
@@ -203,12 +205,27 @@ class _ReportsScreenState extends State<ReportsScreen> {
     });
   }
 
+  Future<void> _shareExisting(ReportItem report) => shareReport(
+        context,
+        _reportsApi,
+        reportId: report.reportId,
+        excel: report.reportType == 'EXCEL',
+        name: report.id,
+      );
+
   Future<void> _triggerDownload(ReportItem report) async {
-    final url = report.reportType == 'EXCEL'
-        ? _reportsApi.excelReportDownloadUrl(report.reportId)
-        : _reportsApi.reportDownloadUrl(report.reportId);
-    final ext = report.reportType == 'EXCEL' ? 'xlsx' : 'pdf';
-    await triggerReportDownload(url, '${report.id}.$ext');
+    final isExcel = report.reportType == 'EXCEL';
+    final ext = isExcel ? 'xlsx' : 'pdf';
+    try {
+      // Short-lived signed link: the download cannot carry an Authorization header.
+      final url = await _reportsApi.signedUrl(report.reportId, isExcel ? 'excel' : 'pdf');
+      await triggerReportDownload(url, '${report.id}.$ext');
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not download the report.')),
+      );
+    }
   }
 
   void _handleBulkDownload() {
@@ -258,6 +275,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _reports = [newItem, ..._reports];
         _selectedVideoId = null;
       });
+      await showReportReadySheet(context, api: _reportsApi, reportId: rec.id, excel: false, name: rec.reportName);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -280,6 +298,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _reports = [newItem, ..._reports];
         _selectedVideoId = null;
       });
+      await showReportReadySheet(context, api: _reportsApi, reportId: rec.id, excel: true, name: rec.reportName);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -388,6 +407,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   onToggleFavorite: _toggleFavorite,
                   onPreview: (r) => setState(() => _previewReport = r),
                   onDownload: _triggerDownload,
+                  onShare: _shareExisting,
                   onDelete: _handleDeleteReport,
                   onPrevPage: () => setState(() => _currentPage = (_currentPage - 1).clamp(1, totalPages)),
                   onNextPage: () => setState(() => _currentPage = (_currentPage + 1).clamp(1, totalPages)),
@@ -416,6 +436,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
             report: _previewReport!,
             onClose: () => setState(() => _previewReport = null),
             onDownload: () => _triggerDownload(_previewReport!),
+            onShare: () => _shareExisting(_previewReport!),
           ),
       ],
     );
@@ -544,6 +565,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       children: [
         const Text('Configure AI Reports Compilation', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
         const SizedBox(height: 14),
+        const PavementTypeSelector(),
+        const SizedBox(height: 16),
         if (_videos.isNotEmpty) ...[
           const Text('Select Completed Surveillance Run', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.accentBlue)),
           const SizedBox(height: 6),

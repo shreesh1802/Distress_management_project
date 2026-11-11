@@ -5,7 +5,7 @@ across modules. Scoped by the same Admin/Employee project access rule as
 /projects (see app/crud/project.py's user_can_access_project).
 """
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
@@ -58,8 +58,8 @@ def list_assets_route(
 async def upload_asset_route(
     project_id: int,
     file: UploadFile = File(...),
-    category: str = Form("other"),
-    description: Optional[str] = Form(None),
+    category: Literal["report", "drawing", "photo", "survey_data", "other"] = Form("other"),
+    description: Optional[str] = Form(None, max_length=2000),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ProjectAssetResponse:

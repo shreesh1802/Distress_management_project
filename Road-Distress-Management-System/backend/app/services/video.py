@@ -11,6 +11,7 @@ from typing import List, Optional
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.safe_paths import resolve_upload_path, safe_remove
 from app.models.video import UploadedVideo
 from app.schemas.video import UploadedVideoCreate, UploadedVideoUpdate
 from app.crud.video import (
@@ -114,7 +115,7 @@ async def handle_video_upload(
         logger.error(f"Failed to write video file to disk: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Could not save video file to server disk: {str(e)}"
+            detail="Could not save video file to the server."
         )
 
     # 5. Populate database record
@@ -170,26 +171,20 @@ def remove_video(db: Session, video_id: int) -> UploadedVideo:
     # 2. Delete database record
     crud_delete_video(db, video_id=video_id)
 
-    # 3. Delete file from disk
-    if video.filepath:
-        full_path = os.path.join(BASE_DIR, video.filepath)
-        if os.path.exists(full_path):
-            try:
-                os.remove(full_path)
-                logger.info(f"Successfully deleted video file from disk: {full_path}")
-            except Exception as e:
-                logger.error(f"Failed to delete video file {full_path} from disk: {e}")
-        else:
-            logger.warning(f"Video file not found on disk during deletion: {full_path}")
-
-    # Delete processed annotated video file from disk
-    if getattr(video, "processed_filepath", None):
-        processed_full_path = os.path.join(BASE_DIR, video.processed_filepath)
-        if os.path.exists(processed_full_path):
-            try:
-                os.remove(processed_full_path)
-                logger.info(f"Successfully deleted processed video file from disk: {processed_full_path}")
-            except Exception as e:
-                logger.error(f"Failed to delete processed video file {processed_full_path} from disk: {e}")
+    # 3. Delete files from disk -- only paths that resolve inside uploads/ are ever touched.
+    for stored in (video.filepath, getattr(video, "processed_filepath", None), getattr(video, "processed_video_path", None)):
+        if not stored:
+            continue
+        real_path = resolve_upload_path(stored)
+        if real_path is None:
+            logger.warning(f"Refusing to delete a stored path outside uploads/ for video {video_id}.")
+            continue
+        try:
+            if safe_remove(real_path):
+                logger.info(f"Deleted video file from disk: {real_path}")
+            else:
+                logger.warning(f"Video file not found on disk during deletion: {real_path}")
+        except Exception as e:
+            logger.error(f"Failed to delete video file {real_path} from disk: {e}")
 
     return video

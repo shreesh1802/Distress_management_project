@@ -93,8 +93,11 @@ def run_transcription_job(clip_id: int) -> None:
             update_audio_transcript(db, clip_id, None, "unavailable")
             return
 
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        full_path = os.path.join(base_dir, clip.filepath)
+        from app.core.safe_paths import resolve_upload_path
+        full_path = resolve_upload_path(clip.filepath)
+        if full_path is None:
+            update_audio_transcript(db, clip_id, None, "failed")
+            return
         text = transcribe_audio_file(full_path)
         update_audio_transcript(db, clip_id, text, "done" if text else "failed")
     finally:

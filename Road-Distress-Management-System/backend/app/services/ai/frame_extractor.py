@@ -7,6 +7,8 @@ import cv2
 import logging
 from typing import List, Dict, Any
 
+from app.core.safe_paths import resolve_upload_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,18 +35,15 @@ def extract_frames(video_path: str, video_id: int, frame_interval: int = 30, in_
     if not in_memory:
         os.makedirs(frames_dir, exist_ok=True)
 
-    # Determine absolute path to video file
-    full_video_path = os.path.join(base_dir, video_path)
-    if not os.path.exists(full_video_path):
-        # Fallback if path is already absolute
-        full_video_path = video_path
-
-    if not os.path.exists(full_video_path):
-        raise FileNotFoundError(f"Video file not found at: {full_video_path}")
+    # Determine absolute path to video file. The stored path is untrusted data:
+    # it must resolve inside uploads/ (no absolute paths, no ../, no symlink escapes).
+    full_video_path = resolve_upload_path(video_path)
+    if full_video_path is None or not os.path.isfile(full_video_path):
+        raise FileNotFoundError(f"Video file not found for video {video_id}")
 
     cap = cv2.VideoCapture(full_video_path)
     if not cap.isOpened():
-        raise ValueError(f"Could not open video file using OpenCV: {full_video_path}")
+        raise ValueError(f"Could not open video file using OpenCV for video {video_id}")
 
     # Determine frames per second (FPS) to compute correct video timestamps
     fps = cap.get(cv2.CAP_PROP_FPS)

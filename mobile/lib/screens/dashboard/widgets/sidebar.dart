@@ -177,7 +177,7 @@ class _DashboardSidebarState extends State<DashboardSidebar> {
                     ),
                   ),
                   child: const Text(
-                    'DA',
+                    'ME',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,

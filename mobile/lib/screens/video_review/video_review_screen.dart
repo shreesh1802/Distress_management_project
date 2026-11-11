@@ -1,20 +1,20 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:video_player/video_player.dart';
 
-import '../../data/live_detection_api.dart' show kApiBaseUrl, kApiV1;
+import '../../data/custom_http_client.dart' show SessionToken;
+import '../../data/live_detection_api.dart' show kApiBaseUrl;
+import '../../data/reports_api.dart';
 import '../../data/road_distress_api.dart';
 import '../../data/video_api.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_colors.dart';
-import '../../utils/download_helper.dart';
+import '../reports/widgets/report_ready_sheet.dart';
 import 'widgets/detections_sidebar.dart';
 import 'widgets/dual_player_panel.dart';
 
@@ -59,6 +59,7 @@ class VideoReviewScreen extends StatefulWidget {
 class _VideoReviewScreenState extends State<VideoReviewScreen> {
   final _videoApi = VideoApi();
   final _distressApi = RoadDistressApi();
+  final _reportsApi = ReportsApi();
 
   List<UploadedVideo> _videos = [];
   UploadedVideo? _selectedVideo;
@@ -97,6 +98,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
     _annotatedController?.dispose();
     _videoApi.dispose();
     _distressApi.dispose();
+    _reportsApi.dispose();
     super.dispose();
   }
 
@@ -146,6 +148,37 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
     }
   }
 
+  /// Generates a PDF/Excel report for the selected video and downloads it through a
+  /// short-lived signed link (a plain download URL cannot carry the bearer token).
+  Future<void> _exportReport({required bool excel}) async {
+    final video = _selectedVideo;
+    if (video == null) return;
+    try {
+      final record = excel
+          ? await _reportsApi.generateExcelReport(video.id)
+          : await _reportsApi.generatePdfReport(video.id);
+      if (!mounted) return;
+      await showReportReadySheet(
+        context,
+        api: _reportsApi,
+        reportId: record.id,
+        excel: excel,
+        name: excel ? 'Road_Inspection_Audit_Video_${video.id}' : 'Road_Inspection_Report_Video_${video.id}',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(excel ? 'Failed to export Excel report.' : 'Failed to export PDF report.')),
+      );
+    }
+  }
+
+  /// Videos normally load from the public /uploads mount (no header needed); when the app falls
+  /// back to the authenticated /videos/{id}/stream-raw|download-processed endpoints, send the token
+  /// (honoured on Android/iOS; browsers cannot add headers to a <video> element).
+  Map<String, String> _playerHeaders(String url) =>
+      url.contains('/api/v1/videos/') ? SessionToken.authHeaders : const {};
+
   String _resolveOriginalUrl(UploadedVideo v) {
     final fp = v.filepath;
     if (fp == null || fp.isEmpty) return _videoApi.rawVideoUrl(v.id);
@@ -183,7 +216,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
     try {
       final originalUrl = _resolveOriginalUrl(video);
       print('Initializing original video from: $originalUrl');
-      final original = VideoPlayerController.networkUrl(Uri.parse(originalUrl));
+      final original = VideoPlayerController.networkUrl(Uri.parse(originalUrl), httpHeaders: _playerHeaders(originalUrl));
       await original.initialize().timeout(initTimeout);
       await original.setVolume(_isMuted ? 0 : _volume);
       await original.setPlaybackSpeed(_playbackSpeed);
@@ -200,7 +233,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
       try {
         final annotatedUrl = _resolveAnnotatedUrl(video);
         print('Initializing annotated video from: $annotatedUrl');
-        final annotated = VideoPlayerController.networkUrl(Uri.parse(annotatedUrl));
+        final annotated = VideoPlayerController.networkUrl(Uri.parse(annotatedUrl), httpHeaders: _playerHeaders(annotatedUrl));
         await annotated.initialize().timeout(initTimeout);
         await annotated.setVolume(_isMuted ? 0 : _volume);
         await annotated.setPlaybackSpeed(_playbackSpeed);
@@ -610,21 +643,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
               ElevatedButton.icon(
                 onPressed: _selectedVideo == null
                     ? null
-                    : () async {
-                        try {
-                          final videoId = _selectedVideo!.id;
-                          final genRes = await http.post(Uri.parse('$kApiV1/reports/generate/$videoId'));
-                          int reportId = 28;
-                          if (genRes.statusCode == 200 || genRes.statusCode == 201) {
-                            final data = jsonDecode(genRes.body);
-                            reportId = data['id'] as int? ?? 28;
-                          }
-                          final downloadUrl = '$kApiBaseUrl/api/v1/reports/download/$reportId';
-                          await triggerReportDownload(downloadUrl, 'Road_Inspection_Report_Video_$videoId.pdf');
-                        } catch (e) {
-                          await triggerReportDownload('$kApiBaseUrl/api/v1/reports/download/28', 'Road_Inspection_Report_Video_20.pdf');
-                        }
-                      },
+                    : () => _exportReport(excel: false),
                 icon: const Icon(LucideIcons.fileText, size: 13),
                 label: const Text('PDF Report', style: TextStyle(fontSize: 11)),
                 style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentBlue, foregroundColor: Colors.white),
@@ -632,21 +651,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
               OutlinedButton.icon(
                 onPressed: _selectedVideo == null
                     ? null
-                    : () async {
-                        try {
-                          final videoId = _selectedVideo!.id;
-                          final genRes = await http.post(Uri.parse('$kApiV1/reports/excel/$videoId'));
-                          int reportId = 29;
-                          if (genRes.statusCode == 200 || genRes.statusCode == 201) {
-                            final data = jsonDecode(genRes.body);
-                            reportId = data['id'] as int? ?? 29;
-                          }
-                          final downloadUrl = '$kApiBaseUrl/api/v1/reports/excel/download/$reportId';
-                          await triggerReportDownload(downloadUrl, 'Road_Inspection_Audit_Video_$videoId.xlsx');
-                        } catch (e) {
-                          await triggerReportDownload('$kApiBaseUrl/api/v1/reports/excel/download/29', 'Road_Inspection_Audit_Video_20.xlsx');
-                        }
-                      },
+                    : () => _exportReport(excel: true),
                 icon: const Icon(LucideIcons.table2, size: 13),
                 label: const Text('Excel Report', style: TextStyle(fontSize: 11)),
                 style: OutlinedButton.styleFrom(foregroundColor: AppColors.primaryText, side: const BorderSide(color: AppColors.cardBorder)),

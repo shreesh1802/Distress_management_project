@@ -1,7 +1,10 @@
 """CRUD operations for Project, with Admin/Employee visibility scoping."""
 
 from typing import List, Optional
+from sqlalchemy import or_, func
 from sqlalchemy.orm import Session
+from app.core.roles import Role
+from app.core.security import normalize_email
 from app.models.project import Project, ProjectMember
 from app.models.user import User
 from app.schemas.project import ProjectCreate
@@ -23,20 +26,20 @@ def get_project(db: Session, project_id: int) -> Optional[Project]:
 
 
 def get_visible_projects(db: Session, user: User) -> List[Project]:
-    """Admins see every project; employees only see ones they're a member of."""
-    if user.role == "admin":
+    """Admins see every project; everyone else sees projects they own or are a member of."""
+    if user.role == Role.ADMIN:
         return db.query(Project).order_by(Project.id.desc()).all()
+    member_project_ids = db.query(ProjectMember.project_id).filter(ProjectMember.user_id == user.id)
     return (
         db.query(Project)
-        .join(ProjectMember, ProjectMember.project_id == Project.id)
-        .filter(ProjectMember.user_id == user.id)
+        .filter(or_(Project.owner_id == user.id, Project.id.in_(member_project_ids)))
         .order_by(Project.id.desc())
         .all()
     )
 
 
 def user_can_access_project(db: Session, user: User, project: Project) -> bool:
-    if user.role == "admin" or project.owner_id == user.id:
+    if user.role == Role.ADMIN or project.owner_id == user.id:
         return True
     return (
         db.query(ProjectMember)

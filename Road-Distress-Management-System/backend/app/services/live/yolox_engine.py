@@ -26,6 +26,47 @@ except ImportError as _imp_err:
     _IMPORT_ERROR = _imp_err
 
 
+def _numpy_safe_globals() -> list:
+    """
+    Narrow allow-list that lets the project's own checkpoints load with
+    ``weights_only=True``: they contain numpy scalars (best_ap / curr_ap) saved
+    by older numpy versions. Nothing else is allowed to be unpickled.
+    """
+    import numpy as np
+    allowed: list = [np.dtype]
+    try:
+        from numpy._core.multiarray import scalar as np_scalar  # numpy >= 2
+    except ImportError:  # pragma: no cover - numpy < 2
+        from numpy.core.multiarray import scalar as np_scalar
+    allowed.append((np_scalar, "numpy.core.multiarray.scalar"))
+    allowed.extend(getattr(np.dtypes, name) for name in dir(np.dtypes) if name.endswith("DType"))
+    return allowed
+
+
+def _allow_unsafe_checkpoint() -> bool:
+    return os.getenv("YOLOX_ALLOW_UNSAFE_CHECKPOINT", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _load_checkpoint(path: str):
+    """
+    Loads a checkpoint without executing arbitrary pickle code: ``weights_only=True``
+    with a narrow numpy allow-list. Full unpickling (``weights_only=False``) is only
+    possible when the operator explicitly sets YOLOX_ALLOW_UNSAFE_CHECKPOINT=true.
+    """
+    try:
+        with torch.serialization.safe_globals(_numpy_safe_globals()):
+            return torch.load(path, map_location="cpu", weights_only=True)
+    except Exception as exc:
+        if not _allow_unsafe_checkpoint():
+            raise RuntimeError(
+                "Checkpoint could not be loaded in safe (weights-only) mode; "
+                "set YOLOX_ALLOW_UNSAFE_CHECKPOINT=true only for checkpoints you fully trust."
+            ) from exc
+        logger.warning("Falling back to UNSAFE full unpickling of %s (YOLOX_ALLOW_UNSAFE_CHECKPOINT=true).", path)
+        if _allow_unsafe_checkpoint():  # guard: weights_only=False is reachable only behind the explicit flag
+            return torch.load(path, map_location="cpu", weights_only=False)
+
+
 class YOLOXDetector:
     """
     Wraps a single YOLOX model (exp file + checkpoint) behind a simple
@@ -91,7 +132,7 @@ class YOLOXDetector:
         self.model = self.exp.get_model()
         self.model.eval()
 
-        ckpt = torch.load(ckpt_to_load, map_location="cpu", weights_only=False)
+        ckpt = _load_checkpoint(ckpt_to_load)
         self.model.load_state_dict(ckpt["model"], strict=True)
 
         if not use_fallback:

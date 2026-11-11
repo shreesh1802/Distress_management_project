@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import time
 import sys
@@ -13,9 +14,12 @@ def start_tunnel():
     # Try Localtunnel first
     try:
         print("[1/2] Connecting localtunnel instance...")
+        # No shell: argument list + pinned package version (an unpinned `npx -y` runs whatever is newest).
+        npx = shutil.which("npx")
+        if npx is None:
+            raise FileNotFoundError("npx (Node.js) is not installed")
         proc = subprocess.Popen(
-            "npx -y localtunnel --port 8080",
-            shell=True,
+            [npx, "-y", "localtunnel@2.0.2", "--port", str(PORT)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -47,7 +51,7 @@ def start_tunnel():
     # Fallback to Pinggy via SSH
     try:
         print("[2/2] Attempting Pinggy SSH Tunnel Fallback...")
-        cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-p", "443", "-R", f"0:localhost:{PORT}", "qr@a.pinggy.io"]
+        cmd = ["ssh", "-o", "StrictHostKeyChecking=accept-new", "-p", "443", "-R", f"0:localhost:{PORT}", "qr@a.pinggy.io"]
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,

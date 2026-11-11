@@ -12,6 +12,8 @@ from typing import Optional
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.safe_paths import resolve_upload_path
+from app.core.upload_checks import content_type_for, magic_matches, file_head
 from app.models.asset import ProjectAsset
 from app.crud.asset import create_asset, get_asset, delete_asset
 
@@ -83,7 +85,17 @@ async def handle_asset_upload(
         logger.error(f"Failed to write asset file to disk: {e}")
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
-            f"Could not save document to server disk: {str(e)}",
+            "Could not save document to the server.",
+        )
+
+    # Reject files whose content obviously does not match their extension (high-confidence formats only).
+    head = file_head(target_filepath)
+    if head is None or not magic_matches(original_filename, head):
+        if os.path.exists(target_filepath):
+            os.remove(target_filepath)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "File content does not match its extension.",
         )
 
     relative_filepath = os.path.relpath(target_filepath, BASE_DIR).replace("\\", "/")
@@ -95,7 +107,7 @@ async def handle_asset_upload(
             uploaded_by_id=uploaded_by_id,
             filename=original_filename,
             filepath=relative_filepath,
-            content_type=file.content_type,
+            content_type=content_type_for(original_filename),  # never trust the client-supplied type
             file_size=total_bytes,
             category=category,
             description=description,
@@ -119,8 +131,10 @@ def remove_asset(db: Session, asset_id: int) -> None:
     delete_asset(db, asset_id)
 
     if asset.filepath:
-        full_path = os.path.join(BASE_DIR, asset.filepath)
-        if os.path.exists(full_path):
+        full_path = resolve_upload_path(asset.filepath)
+        if full_path is None:
+            logger.warning("Refusing to delete an asset path outside uploads/.")
+        elif os.path.exists(full_path):
             try:
                 os.remove(full_path)
             except Exception as e:

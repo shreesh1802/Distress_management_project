@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../data/custom_http_client.dart';
+
 /// Renders an MJPEG (`multipart/x-mixed-replace`) endpoint — what the React
 /// source just points a plain `<img src="...">` tag at — since Flutter has
 /// no built-in equivalent. Reads the response as a byte stream and scans for
@@ -43,7 +45,8 @@ class _MjpegViewState extends State<MjpegView> {
   }
 
   Future<void> _connect() async {
-    final client = http.Client();
+    // CustomHttpClient attaches the bearer token (GET /live/stream requires authentication).
+    final client = CustomHttpClient();
     _client = client;
     try {
       final response = await client.send(http.Request('GET', Uri.parse(widget.url)));

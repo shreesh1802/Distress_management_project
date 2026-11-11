@@ -20,6 +20,7 @@ import time
 from firebase_admin import firestore
 from sqlalchemy.orm import Session
 
+from app.core.roles import ALL_ROLES
 from app.crud.user import create_user, get_user_by_email
 from app.models.user import User
 from app.schemas.user import UserCreate
@@ -60,8 +61,18 @@ def _normalize(doc: dict) -> dict:
 
 
 def _role_of(entry: dict) -> str:
+    """The role in the document; a typo or unknown value gets the least-privileged default, never admin by accident."""
     role = entry.get("role")
-    return role.strip().lower() if isinstance(role, str) and role.strip() else DEFAULT_ROLE
+    role = role.strip().lower() if isinstance(role, str) and role.strip() else DEFAULT_ROLE
+    return role if role in ALL_ROLES else DEFAULT_ROLE
+
+
+def remove_allowed_entry(email: str) -> None:
+    """Deletes the person's allowedUsers document (used when they delete their own account)."""
+    email = email.strip().lower()
+    client = firestore.client(app=get_firebase_app())
+    client.collection(ALLOWLIST_COLLECTION).document(email).delete()
+    _cache.pop(email, None)
 
 
 def apply_entry(db: Session, user: User, entry: dict) -> User:

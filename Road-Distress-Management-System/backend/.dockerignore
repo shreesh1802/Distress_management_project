@@ -1,10 +1,35 @@
 .venv
 venv
 __pycache__
+**/__pycache__
 *.pyc
 uploads/
 reports/
+# Model weights never go into the image: app.services.ai.model_provisioning downloads them at
+# start-up from MODEL_BASE_URL (private Hugging Face repo). docker-compose bind-mounts ./backend/models.
 models/
+*.pth
+*.pt
 .pytest_cache
 .git
 *.log
+
+# --- never bake secrets, local databases, binaries or caches into an image ---
+.env
+.env.*
+*.db
+*.sqlite
+*.sqlite3
+*.exe
+scripts/*.exe
+.cache/
+*.apk
+*.mp4
+*.jks
+*.keystore
+key.properties
+google-services.json
+
+# --- tests and test data are not needed at runtime ---
+tests/
+test_*.py

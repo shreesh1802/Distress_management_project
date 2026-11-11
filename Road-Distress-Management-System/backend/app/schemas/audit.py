@@ -1,8 +1,15 @@
 """Pydantic schemas for the M2 Road Safety Audit entities."""
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
+
+# Keep in sync with app/models/audit.py AUDIT_CATEGORIES / AUDIT_SEVERITIES (asserted in tests).
+AuditCategory = Literal[
+    "signage", "road_markings", "guardrail", "lighting",
+    "sight_distance", "junction", "pedestrian", "other",
+]
+AuditSeverity = Literal["low", "medium", "high", "critical"]
 
 
 class SafetyAuditCreate(BaseModel):
@@ -24,10 +31,10 @@ class SafetyAuditResponse(BaseModel):
 
 
 class AuditChecklistItemCreate(BaseModel):
-    chainage_km: float
-    category: str = Field(..., max_length=30)
-    severity: str = Field("medium", max_length=20)
-    description: str = Field(..., max_length=2000)
+    chainage_km: float = Field(..., ge=0, le=100000, allow_inf_nan=False)
+    category: AuditCategory
+    severity: AuditSeverity = "medium"
+    description: str = Field(..., min_length=1, max_length=2000)
 
 
 class AuditChecklistItemResponse(BaseModel):

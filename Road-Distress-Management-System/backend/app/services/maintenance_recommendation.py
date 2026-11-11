@@ -13,6 +13,7 @@ from app.models.distress import RoadDistress
 from app.models.maintenance import MaintenanceTask
 from app.crud.maintenance import create_maintenance_task
 from app.schemas.maintenance import MaintenanceTaskCreate
+from app.services.repair_strategies import BITUMINOUS, strategy_for
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,9 @@ def recommend_maintenance(
     severity: str,
     confidence: float,
     frequency: int = 1,
-    damage_percentage: float = None
+    damage_percentage: float = None,
+    pavement: str = BITUMINOUS,
+    pothole_diameter_m: float = None,
 ) -> Dict[str, Any]:
     """
     Core algorithm of the Maintenance Recommendation Engine.
@@ -33,6 +36,8 @@ def recommend_maintenance(
         confidence (float): AI model confidence score (0.0 to 1.0)
         frequency (int): Number of duplicate/spatially near distresses in the vicinity
         damage_percentage (float): Bounding box percentage area of the frame (optional)
+        pavement (str): 'bituminous' (IRC:82-2015) or 'concrete' (IRC:SP:83-2018) - selects the repair strategy
+        pothole_diameter_m (float): estimated pothole diameter, picks the IRC pothole size class (optional)
         
     Outputs:
         Dict: Contains recommended_action, priority, estimated_response_time,
@@ -86,6 +91,11 @@ def recommend_maintenance(
             action = "Structural Patching & Surface Dressing"
         else:
             action = "Routine Surface Sweeping & Monitoring"
+
+    # Cracks and potholes: the repair strategy comes from the IRC codes (see repair_strategies.py)
+    strategy = strategy_for(distress_type, severity, pavement=pavement, pothole_diameter_m=pothole_diameter_m)
+    if strategy is not None:
+        action = strategy.headline
 
     # Priority mapping P1 to P4 based on severity & area size
     if sev == "critical" or (sev == "high" and damage_percentage >= 8.0):
@@ -192,7 +202,8 @@ def generate_recommendations_for_pending_distresses(db: Session) -> List[Mainten
                 severity=distress.severity,
                 confidence=distress.confidence_score,
                 frequency=frequency,
-                damage_percentage=damage_percentage
+                damage_percentage=damage_percentage,
+                pothole_diameter_m=getattr(distress, "pothole_diameter", None),
             )
             
             # 5. Compute due date based on response time

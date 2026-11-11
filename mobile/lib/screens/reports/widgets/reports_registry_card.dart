@@ -37,6 +37,7 @@ class ReportsRegistryCard extends StatelessWidget {
     required this.onToggleFavorite,
     required this.onPreview,
     required this.onDownload,
+    required this.onShare,
     required this.onDelete,
     required this.onPrevPage,
     required this.onNextPage,
@@ -70,6 +71,7 @@ class ReportsRegistryCard extends StatelessWidget {
   final ValueChanged<ReportItem> onToggleFavorite;
   final ValueChanged<ReportItem> onPreview;
   final ValueChanged<ReportItem> onDownload;
+  final ValueChanged<ReportItem> onShare;
   final ValueChanged<ReportItem> onDelete;
   final VoidCallback onPrevPage;
   final VoidCallback onNextPage;
@@ -314,6 +316,14 @@ class ReportsRegistryCard extends StatelessWidget {
               onPressed: () => onDownload(r),
               style: ElevatedButton.styleFrom(minimumSize: const Size(0, 28), padding: const EdgeInsets.symmetric(horizontal: 8), backgroundColor: AppColors.accentBlue, foregroundColor: Colors.white),
               child: const Text('Download', style: TextStyle(fontSize: 11)),
+            ),
+            const SizedBox(width: 6),
+            IconButton(
+              icon: const Icon(LucideIcons.share2, size: 14, color: AppColors.accentBlue),
+              tooltip: 'Share',
+              onPressed: () => onShare(r),
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              padding: EdgeInsets.zero,
             ),
             const SizedBox(width: 6),
             IconButton(

@@ -85,24 +85,30 @@ First build takes a while (torch + opencv + yolox compile). Watch progress with:
 docker compose logs -f backend
 ```
 
-## 5. Create the database tables + admin login (one-time)
+## 5. Create the database tables (one-time) and set up sign-in
 
 ```bash
 docker compose exec backend python -m app.db.init_db
 ```
 
-This creates all tables and seeds a default admin account:
-- **Email:** `admin@roaddistress.org`
-- **Password:** `AdminSecurePassword123!`
+This creates all tables. **No users and no passwords are created in production**: people sign in with Google and the allow-list
+(the Firestore `allowedUsers` collection, managed in the Firebase console) decides who may. Give the backend the Firebase service-account key
+(`FIREBASE_CREDENTIALS_JSON` on a host such as Railway, `FIREBASE_CREDENTIALS_PATH` locally), and add the first administrator to `allowedUsers`
+with `role` = `admin`; they are created in the users table on their first sign-in. In development (`APP_ENV` unset) user 1
+`admin@roaddistress.org` is seeded for the demo data only.
 
-**Log in and change this password immediately** — it's a well-known default
-sitting in the repo's source code, not a secret.
+Before exposing the server, read `SECURITY.md` (production environment variables,
+TLS, and the Play Store checklist). The server refuses to start in production mode
+when the Firebase credentials / CORS / the download-signing secret are not configured.
 
 ## 6. Verify
 
 Open `http://<your-server-ip>` in a browser. You should see the login screen.
-Check the backend directly at `http://<your-server-ip>/api/v1/docs` (or
-whatever path FastAPI's OpenAPI docs are mounted at) to confirm it's reachable.
+Check the backend directly with `http://<your-server-ip>/health`: it returns only
+`{"status":"healthy"}` (HTTP 200) when the database is reachable, and a generic 500/503 otherwise.
+Details (tables, AI-model status) are at the authenticated `GET /api/v1/health/details` (send your
+login token). The interactive API docs (`/docs`) exist only in development; with `APP_ENV=production`
+(or on a hosting platform with `APP_ENV` unset) they are disabled.
 
 Try a full round trip: log in, upload a short video, confirm it processes and
 Video Review shows real detections — the same thing we verified locally, now
@@ -164,3 +170,22 @@ secure origins, relevant if the live-camera feature is used).
 - **A CI/CD pipeline.** Deploys above are manual (`git pull` + rebuild). Fine
   for a pilot; worth automating (GitHub Actions → SSH deploy) once this is a
   real production system with frequent updates.
+
+---
+
+## Model weights on a platform without bind mounts (Railway)
+
+`docker-compose.yml` mounts `backend/models/` into the container. A platform that builds straight from GitHub has no
+such mount, and the weights must not be baked into the image or added to git (`.dockerignore` excludes `models/`,
+`*.pth` and `*.pt`). Without them the server has no detection model and every video ends as **failed**
+("Detection model unavailable ...").
+
+Host `road_best.pth` and `signage_best.pth` in a **private** repository (for example on Hugging Face) and set, in the
+platform's variables (see `backend/railway.env.example`):
+
+* `MODEL_BASE_URL` - the folder URL, e.g. `https://huggingface.co/<user>/<repo>/resolve/main` (HTTPS only)
+* `MODEL_DOWNLOAD_TOKEN` - a read-only access token for that repository
+
+At start-up the server checks `models/road_best.pth` and `models/signage_best.pth` and downloads any that is missing
+(about 270 MB, in the background). Until the log says "Detection weights ... ready", uploads report "model not
+available" - upload the video again afterwards. The token is only sent to the configured host, never logged.

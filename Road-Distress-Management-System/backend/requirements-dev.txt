@@ -1,0 +1,5 @@
+# Development / CI only -- NOT installed in the production image.
+# Install with:  pip install -r requirements.txt -r requirements-dev.txt
+pytest>=8.0
+httpx>=0.27          # required by fastapi.testclient.TestClient
+pip-audit>=2.7       # dependency vulnerability scan (run in CI: pip-audit -r requirements.txt)

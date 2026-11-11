@@ -11,12 +11,23 @@ Endpoints:
   GET  /live/status         - counters/state for polling clients
   GET  /live/stream         - MJPEG stream of annotated frames (use in an <img> tag)
   WS   /live/ws             - pushes status + detection events (~2Hz)
+
+Security:
+  * HTTP routes require a bearer token (router-level dependency in app/main.py).
+  * WebSockets require a first-message token: the client's first frame must be the
+    text message {"type":"auth","token":"<session token>"} (see app/core/ws_auth.py).
+    The token is never accepted in the URL.
+  * Incoming phone frames are size-capped, and decoded image dimensions are checked
+    from the image header BEFORE decoding.
+  * Only the connection that started a remote session may stop it.
 """
 
 import asyncio
 import logging
+import os
+import struct
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -24,18 +35,58 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, st
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.core.ws_auth import authenticate_websocket
 from app.services.live.live_camera_service import LiveCameraManager
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter()      # HTTP routes (bearer token required, see app/main.py)
+ws_router = APIRouter()   # WebSocket routes (first-message auth, see app/core/ws_auth.py)
 
 MJPEG_BOUNDARY = "frame"
 
+# Limits for frames pushed by remote clients (override with env vars if a camera needs more).
+MAX_FRAME_BYTES = int(os.getenv("LIVE_MAX_FRAME_BYTES", str(4 * 1024 * 1024)))   # 4 MB per JPEG
+MAX_FRAME_DIMENSION = int(os.getenv("LIVE_MAX_FRAME_DIMENSION", "4096"))          # px, width and height
+WS_MESSAGE_TOO_BIG = 1009
+WS_POLICY_VIOLATION = 1008
+
 
 class LiveStartRequest(BaseModel):
-    camera_index: int = Field(1, description="cv2 camera index (1 = external USB webcam)")
-    latitude: Optional[float] = Field(None, description="Base GPS latitude for this session")
-    longitude: Optional[float] = Field(None, description="Base GPS longitude for this session")
+    camera_index: int = Field(1, ge=0, le=16, description="cv2 camera index (1 = external USB webcam)")
+    latitude: Optional[float] = Field(None, ge=-90, le=90, allow_inf_nan=False, description="Base GPS latitude for this session")
+    longitude: Optional[float] = Field(None, ge=-180, le=180, allow_inf_nan=False, description="Base GPS longitude for this session")
+
+
+def image_dimensions(data: bytes) -> Optional[Tuple[int, int]]:
+    """
+    Reads (width, height) from a JPEG or PNG header without decoding the image, so a tiny
+    file declaring a gigantic canvas can be rejected before OpenCV allocates memory.
+    Returns None if the bytes are neither a parseable JPEG nor PNG.
+    """
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) >= 24:
+        width, height = struct.unpack(">II", data[16:24])
+        return width, height
+    if data[:2] == b"\xff\xd8":
+        i = 2
+        n = len(data)
+        while i + 9 < n:
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            marker = data[i + 1]
+            if marker == 0xFF:
+                i += 1
+                continue
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            seg_len = struct.unpack(">H", data[i + 2:i + 4])[0]
+            # SOF0..SOF15 except DHT(C4), JPG(C8), DAC(CC)
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                height, width = struct.unpack(">HH", data[i + 5:i + 9])
+                return width, height
+            i += 2 + seg_len
+    return None
 
 
 @router.post("/start")
@@ -48,8 +99,12 @@ def start_live(req: LiveStartRequest) -> Dict[str, Any]:
             longitude=req.longitude,
         )
     except (FileNotFoundError, RuntimeError) as e:
-        # Model files missing or YOLOX not installed
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+        # Model files missing or YOLOX not installed -- details stay in the server log.
+        logger.error("Live start failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Live detection models are not available on this server.",
+        )
 
 
 @router.post("/stop")
@@ -58,18 +113,20 @@ def stop_live() -> Dict[str, Any]:
     return LiveCameraManager.instance().stop()
 
 
-@router.websocket("/phone-stream")
+@ws_router.websocket("/phone-stream")
 async def phone_stream(websocket: WebSocket) -> None:
     """
     Real-time detection fed by a remote client's own camera (the phone app)
     instead of a USB camera attached to this server.
 
-    Protocol: after the WS handshake, send one binary message per frame --
+    Protocol: after the WS handshake, first send the auth message
+    {"type":"auth","token":"..."} as a text frame, then one binary message per frame --
     each message is a single JPEG-encoded image (whatever size/quality the
-    client captures at; typical use is ~5-10fps to match the detection
-    cadence, no need to match full camera framerate). The connection itself
-    starts and stops the session -- closing it stops detection and releases
-    the models' session state, same as POST /live/stop would.
+    client captures at, up to MAX_FRAME_BYTES / MAX_FRAME_DIMENSION; typical use is
+    ~5-10fps to match the detection cadence). The connection itself starts and
+    stops the session -- closing it stops detection and releases the models'
+    session state, same as POST /live/stop would -- but ONLY if this connection
+    is the one that started the session.
 
     Detection results are read the normal way, via GET /live/status,
     GET /live/stream (MJPEG, still valid -- annotated from the last pushed
@@ -78,8 +135,13 @@ async def phone_stream(websocket: WebSocket) -> None:
     open alongside a /live/ws connection for results.
     """
     await websocket.accept()
+    user = await authenticate_websocket(websocket)
+    if user is None:
+        return
+
     manager = LiveCameraManager.instance()
     keepalive_task: Optional[asyncio.Task] = None
+    owns_session = False
     start_time = time.monotonic()
     frames_received = 0
     keepalives_sent = 0
@@ -89,9 +151,10 @@ async def phone_stream(websocket: WebSocket) -> None:
         if result.get("status") == "already_running":
             # Another session (local camera or a different phone) is already
             # active -- refuse rather than silently interleaving two sources
-            # into one inference loop.
+            # into one inference loop. This connection does NOT own the session.
             await websocket.close(code=1013, reason="A live session is already running")
             return
+        owns_session = True
 
         async def _keepalive():
             nonlocal keepalives_sent
@@ -112,6 +175,15 @@ async def phone_stream(websocket: WebSocket) -> None:
         while True:
             data = await websocket.receive_bytes()
             frames_received += 1
+            if len(data) > MAX_FRAME_BYTES:
+                await websocket.close(code=WS_MESSAGE_TOO_BIG, reason="Frame too large")
+                return
+            dims = image_dimensions(data)
+            if dims is None or dims[0] <= 0 or dims[1] <= 0:
+                continue  # not a JPEG/PNG we can vet: skip it, never feed it to the decoder
+            if dims[0] > MAX_FRAME_DIMENSION or dims[1] > MAX_FRAME_DIMENSION:
+                await websocket.close(code=WS_POLICY_VIOLATION, reason="Frame dimensions too large")
+                return
             frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
             if frame is not None:
                 manager.push_frame(frame)
@@ -132,7 +204,8 @@ async def phone_stream(websocket: WebSocket) -> None:
     finally:
         if keepalive_task is not None:
             keepalive_task.cancel()
-        manager.stop()
+        if owns_session:
+            manager.stop()
 
 
 @router.get("/status")
@@ -144,8 +217,9 @@ def live_status() -> Dict[str, Any]:
 @router.get("/stream")
 async def live_stream() -> StreamingResponse:
     """
-    MJPEG stream of annotated frames. Point an <img> tag at this URL:
-        <img src="http://127.0.0.1:8000/api/v1/live/stream" />
+    MJPEG stream of annotated frames. Point an <img> tag at this URL
+    (requires the Authorization header, so use an HTTP client that can send it):
+        GET /api/v1/live/stream
     """
     manager = LiveCameraManager.instance()
     if not manager.is_running():
@@ -168,14 +242,19 @@ async def live_stream() -> StreamingResponse:
         gen(), media_type=f"multipart/x-mixed-replace; boundary={MJPEG_BOUNDARY}")
 
 
-@router.websocket("/ws")
+@ws_router.websocket("/ws")
 async def live_ws(websocket: WebSocket) -> None:
     """
     Pushes {"status": {...}, "events": [...]} every 0.5s. Events are the
     detections since the last message (each with class, confidence,
-    severity, model_source, frame, time).
+    severity, model_source, frame, time). The client must authenticate with a
+    first text message {"type":"auth","token":"..."}.
     """
     await websocket.accept()
+    user = await authenticate_websocket(websocket)
+    if user is None:
+        return
+
     manager = LiveCameraManager.instance()
     last_seq = 0
     try:

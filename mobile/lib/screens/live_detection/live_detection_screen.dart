@@ -7,7 +7,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../data/live_detection_api.dart';
+import '../../data/reports_api.dart';
 import '../../theme/app_colors.dart';
+import '../reports/widgets/pavement_type_selector.dart';
+import '../reports/widgets/report_ready_sheet.dart';
 import 'widgets/mjpeg_view.dart';
 import 'widgets/real_time_detection_feed.dart';
 
@@ -374,6 +377,10 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         const SizedBox(height: 32),
         _DetectionHistoryCard(events: _events),
         const SizedBox(height: 32),
+        if (_status?.sessionVideoId != null) ...[
+          _SessionReportCard(status: _status!),
+          const SizedBox(height: 32),
+        ],
         _KpiFooter(status: _status, running: _running),
       ],
     );
@@ -1446,6 +1453,101 @@ class _TableHeader extends StatelessWidget {
         fontWeight: FontWeight.w600,
         letterSpacing: 0.3,
         color: AppColors.secondaryText,
+      ),
+    );
+  }
+}
+
+/// Turns the detections saved during this live session into a PDF / Excel report (then offers to share it).
+class _SessionReportCard extends StatefulWidget {
+  const _SessionReportCard({required this.status});
+  final LiveStatus status;
+
+  @override
+  State<_SessionReportCard> createState() => _SessionReportCardState();
+}
+
+class _SessionReportCardState extends State<_SessionReportCard> {
+  final _reportsApi = ReportsApi();
+  bool _busyPdf = false;
+  bool _busyExcel = false;
+
+  @override
+  void dispose() {
+    _reportsApi.dispose();
+    super.dispose();
+  }
+
+  Future<void> _generate({required bool excel}) async {
+    final videoId = widget.status.sessionVideoId;
+    if (videoId == null) return;
+    setState(() => excel ? _busyExcel = true : _busyPdf = true);
+    try {
+      final record = excel
+          ? await _reportsApi.generateExcelReport(videoId)
+          : await _reportsApi.generatePdfReport(videoId);
+      if (!mounted) return;
+      await showReportReadySheet(
+        context,
+        api: _reportsApi,
+        reportId: record.id,
+        excel: excel,
+        name: record.reportName,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(excel ? 'Could not build the Excel report.' : 'Could not build the PDF report.')),
+      );
+    } finally {
+      if (mounted) setState(() => excel ? _busyExcel = false : _busyPdf = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final busy = _busyPdf || _busyExcel;
+    final saved = widget.status.persisted;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 14,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          const Icon(LucideIcons.fileText, size: 22, color: AppColors.accentBlue),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Session report', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              Text(
+                '$saved detection${saved == 1 ? '' : 's'} saved from this live session',
+                style: const TextStyle(fontSize: 12, color: AppColors.secondaryText),
+              ),
+            ],
+          ),
+          const PavementTypeSelector(showHint: false),
+          FilledButton.icon(
+            onPressed: busy ? null : () => _generate(excel: false),
+            icon: _busyPdf
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(LucideIcons.fileText, size: 16),
+            label: const Text('PDF report'),
+          ),
+          OutlinedButton.icon(
+            onPressed: busy ? null : () => _generate(excel: true),
+            icon: _busyExcel
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(LucideIcons.sheet, size: 16),
+            label: const Text('Excel report'),
+          ),
+        ],
       ),
     );
   }

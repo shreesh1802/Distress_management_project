@@ -1,11 +1,5 @@
-import java.util.Properties
 import java.io.FileInputStream
-
-val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("key.properties")
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
-}
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -14,6 +8,24 @@ plugins {
     // END: FlutterFire Configuration
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Release signing: android/key.properties (git-ignored, see key.properties.example and ../ANDROID_RELEASE.md).
+// It only exists on the machine that signs store releases.
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
+}
+
+// A Play Store bundle must never be signed with the debug key: fail instead of producing one by accident.
+gradle.taskGraph.whenReady {
+    if (!keystorePropertiesFile.exists() && allTasks.any { it.name == "bundleRelease" }) {
+        throw GradleException(
+            "android/key.properties not found: refusing to build a release app bundle signed with the debug key. " +
+                "See mobile/ANDROID_RELEASE.md."
+        )
+    }
 }
 
 android {
@@ -27,6 +39,7 @@ android {
     }
 
     defaultConfig {
+        // The id of the app that is already published on Google Play and registered in Firebase. Never change it.
         applicationId = "com.distress.roadmanager"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
@@ -34,10 +47,8 @@ android {
         versionName = flutter.versionName
     }
 
-    // key.properties (the Play upload key) is kept off git and only exists on
-    // the machine that signs store releases. Without it, fall back to the
-    // debug key so everyone else can still build and test -- the casts below
-    // would otherwise fail every build, debug included.
+    // Without key.properties, fall back to the debug key so everyone else can still build and test an APK
+    // (bundleRelease refuses, see above).
     val hasReleaseKey = keystorePropertiesFile.exists()
 
     signingConfigs {
