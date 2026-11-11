@@ -61,11 +61,20 @@ String get kApiBaseUrl {
       return origin;
     }
   }
-  // No saved/env URL and not running on web: fall back to localhost. Real
+  // A release build (the Play Store app) with no API_BASE_URL given: use the production server. Without this, a
+  // phone would try http://localhost:8000, which does not exist on a phone, and every sign-in would fail with a
+  // generic "couldn't complete sign-in".
+  if (kReleaseMode) {
+    return kProductionApiBaseUrl;
+  }
+  // Debug builds: no saved/env URL and not running on web: fall back to localhost. Real
   // devices must set the backend URL once via the in-app connection dialog
   // (persisted afterwards by setCustomServerUrl/loadSavedServerUrl).
   return 'http://localhost:8000';
 }
+
+/// The hosted backend that release builds use unless `--dart-define=API_BASE_URL=...` says otherwise.
+const kProductionApiBaseUrl = 'https://distressmanagementproject-production.up.railway.app';
 
 String get kApiV1 => '$kApiBaseUrl/api/v1';
 

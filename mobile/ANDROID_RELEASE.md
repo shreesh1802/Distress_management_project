@@ -29,6 +29,8 @@ Copy `android/key.properties.example` to `android/key.properties` and fill in th
 flutter build appbundle --release --dart-define=API_BASE_URL=https://<your-railway-domain>
 ```
 
+A release build uses the hosted server (`kProductionApiBaseUrl` in `lib/data/live_detection_api.dart`) even if `--dart-define=API_BASE_URL` is left out; pass the define only to point a build at a different server.
+
 Output: `build/app/outputs/bundle/release/app-release.aab`. Without `key.properties` this command refuses to run,
 so a debug-signed bundle can never be produced by accident. (`flutter build apk --release` still falls back to the
 debug key, which is fine for installing on your own phone.)
