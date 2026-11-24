@@ -80,6 +80,8 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   Timer? _voiceTicker;
   int? _playingNoteId;
   List<CameraDescription> _availableCameras = [];
+  CameraDescription? _selectedCamera;
+  bool _loadingCameras = false;
   WebSocketChannel? _phoneStreamChannel;
   Timer? _captureTimer;
   bool _captureBusy = false;
@@ -282,6 +284,45 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     }
   }
 
+  /// An external (USB) camera if one is listed, otherwise the back camera, otherwise the first.
+  CameraDescription? _preferredCamera(List<CameraDescription> cameras) {
+    if (cameras.isEmpty) return null;
+    for (final direction in [
+      CameraLensDirection.external,
+      CameraLensDirection.back,
+      CameraLensDirection.front,
+    ]) {
+      for (final c in cameras) {
+        if (c.lensDirection == direction) return c;
+      }
+    }
+    return cameras.first;
+  }
+
+  /// (Re)reads the cameras this device reports -- also used after plugging a USB camera in.
+  Future<void> _loadCameras() async {
+    if (_loadingCameras) return;
+    setState(() {
+      _loadingCameras = true;
+      _error = null;
+    });
+    try {
+      final cameras = await availableCameras();
+      if (!mounted) return;
+      setState(() {
+        _availableCameras = cameras;
+        final previous = _selectedCamera?.name;
+        _selectedCamera = cameras.where((c) => c.name == previous).firstOrNull ??
+            _preferredCamera(cameras);
+        if (cameras.isEmpty) _error = 'No camera found on this device';
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Could not list the cameras on this device: $e');
+    } finally {
+      if (mounted) setState(() => _loadingCameras = false);
+    }
+  }
+
   Future<void> _startThisDeviceCamera() async {
     setState(() {
       _starting = true;
@@ -296,10 +337,8 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       if (_availableCameras.isEmpty) {
         throw Exception('No camera found on this device');
       }
-      final chosen = _availableCameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.back,
-        orElse: () => _availableCameras.first,
-      );
+      final chosen = _selectedCamera ?? _preferredCamera(_availableCameras)!;
+      _selectedCamera = chosen;
       final controller = CameraController(
         chosen,
         ResolutionPreset.medium,
@@ -622,7 +661,17 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       source: _source,
       onSourceChange: _running
           ? null
-          : (s) => setState(() => _source = s),
+          : (s) {
+              setState(() => _source = s);
+              if (s == LiveSource.thisDeviceCamera && _availableCameras.isEmpty) {
+                _loadCameras();
+              }
+            },
+      cameras: _availableCameras,
+      selectedCamera: _selectedCamera,
+      loadingCameras: _loadingCameras,
+      onSelectCamera: (c) => setState(() => _selectedCamera = c),
+      onRefreshCameras: _loadCameras,
       cameraController: _cameraController,
       previewKey: _previewKey,
       overlayEvent: _overlayEvent,
@@ -962,6 +1011,11 @@ class _CameraFeedCard extends StatelessWidget {
     required this.previewKey,
     required this.overlayEvent,
     required this.onStartThisDeviceCamera,
+    required this.cameras,
+    required this.selectedCamera,
+    required this.loadingCameras,
+    required this.onSelectCamera,
+    required this.onRefreshCameras,
   });
 
   final bool running;
@@ -980,6 +1034,77 @@ class _CameraFeedCard extends StatelessWidget {
   final GlobalKey previewKey;
   final LiveEvent? overlayEvent;
   final VoidCallback onStartThisDeviceCamera;
+  final List<CameraDescription> cameras;
+  final CameraDescription? selectedCamera;
+  final bool loadingCameras;
+  final ValueChanged<CameraDescription> onSelectCamera;
+  final VoidCallback onRefreshCameras;
+
+  static String _directionLabel(CameraLensDirection d) {
+    switch (d) {
+      case CameraLensDirection.back:
+        return 'back';
+      case CameraLensDirection.front:
+        return 'front';
+      case CameraLensDirection.external:
+        return 'external';
+    }
+  }
+
+  static String _cameraLabel(CameraDescription c, int index) {
+    final name = c.name.trim().isEmpty ? 'Camera ${index + 1}' : c.name.trim();
+    return '$name (${_directionLabel(c.lensDirection)})';
+  }
+
+  Widget _cameraPicker() {
+    final selected = selectedCamera;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'Camera:',
+          style: TextStyle(fontSize: 13, color: AppColors.secondaryText),
+        ),
+        const SizedBox(width: 8),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 280),
+          child: cameras.isEmpty
+              ? Text(
+                  loadingCameras ? 'Looking for cameras...' : 'No cameras listed yet',
+                  style: const TextStyle(fontSize: 13, color: AppColors.secondaryText),
+                )
+              // Indexes (not names) are the values: two cameras can share a name.
+              : DropdownButton<int>(
+                  isExpanded: true,
+                  isDense: true,
+                  value: selected == null || !cameras.contains(selected)
+                      ? null
+                      : cameras.indexOf(selected),
+                  items: [
+                    for (var i = 0; i < cameras.length; i++)
+                      DropdownMenuItem<int>(
+                        value: i,
+                        child: Text(
+                          _cameraLabel(cameras[i], i),
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                  ],
+                  onChanged: (i) {
+                    if (i != null && i >= 0 && i < cameras.length) onSelectCamera(cameras[i]);
+                  },
+                ),
+        ),
+        const SizedBox(width: 8),
+        _IconActionButton(
+          icon: LucideIcons.refreshCw,
+          onTap: loadingCameras ? () {} : onRefreshCameras,
+          tooltip: 'Look for cameras again (e.g. after plugging in a USB camera)',
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1035,6 +1160,10 @@ class _CameraFeedCard extends StatelessWidget {
           const SizedBox(height: 16),
           _SourceToggle(source: source, onChange: onSourceChange),
           const SizedBox(height: 16),
+          if (source == LiveSource.thisDeviceCamera && !running) ...[
+            _cameraPicker(),
+            const SizedBox(height: 16),
+          ],
           AspectRatio(
             aspectRatio: isFullscreen ? 16 / 7 : 16 / 9,
             child: ClipRRect(
