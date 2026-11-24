@@ -9,3 +9,6 @@ Future<Uint8List> readRecordedAudioBytes(String path) async {
   final response = await http.get(Uri.parse(path));
   return response.bodyBytes;
 }
+
+/// In a browser `record` keeps the recording in memory, so the name is only a label.
+String newRecordingPath(String name) => name;

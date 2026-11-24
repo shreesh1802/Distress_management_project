@@ -11,6 +11,7 @@ from app.models.project import Project, ProjectMember
 from app.models.auth import AuthToken
 from app.models.audit import SafetyAudit, AuditChecklistItem, AuditAudioClip
 from app.models.asset import ProjectAsset
+from app.models.observation import SessionObservation
 
 __all__ = [
     "User",
@@ -25,4 +26,5 @@ __all__ = [
     "AuditChecklistItem",
     "AuditAudioClip",
     "ProjectAsset",
+    "SessionObservation",
 ]

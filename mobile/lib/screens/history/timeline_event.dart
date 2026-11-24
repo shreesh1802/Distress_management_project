@@ -111,6 +111,9 @@ class TimelineEvent {
 /// the "System Events Log" section that filters specifically for these
 /// seeded events) permanently unreachable, so those were dropped too --
 /// see history_screen.dart's doc comment.
+/// A live detection session is filed as a "video" with no file behind it.
+bool isLiveSessionVideo(UploadedVideo v) => v.processingStage == 'Live session';
+
 List<TimelineEvent> buildTimeline(List<ReportRecord> reports, List<UploadedVideo> videos) {
   final items = <TimelineEvent>[];
 
@@ -131,6 +134,22 @@ List<TimelineEvent> buildTimeline(List<ReportRecord> reports, List<UploadedVideo
   }
 
   for (final vid in videos) {
+    if (isLiveSessionVideo(vid)) {
+      // One honest line per live session (not an "upload" and an "inference run" of a video that never existed).
+      items.add(TimelineEvent(
+        id: 'live-${vid.id}',
+        type: 'Live Session',
+        category: 'Inference',
+        title: 'Live Detection Session',
+        description: 'Live camera detection session "${vid.filename}". Open it under "Live detection sessions" '
+            'for its report and field notes.',
+        timestamp: vid.uploadTimestamp,
+        status: 'Success',
+        user: 'Live camera',
+        videoId: vid.id,
+      ));
+      continue;
+    }
     final details = videoDetailsFor(vid);
     final statusLower = vid.processingStatus.toLowerCase();
     final isFailed = statusLower == 'failed';

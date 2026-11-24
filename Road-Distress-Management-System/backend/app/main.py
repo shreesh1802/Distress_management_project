@@ -32,6 +32,7 @@ from app.api.v1.routes import (
     projects,
     audits,
     assets,
+    observations,
 )
 
 # Fail closed BEFORE the app object exists: in production missing Firebase credentials, a missing CORS /
@@ -351,6 +352,9 @@ api_router.include_router(live.ws_router, prefix="/live", tags=["Live Camera Det
 api_router.include_router(projects.router, prefix="/projects", tags=["Projects (Module Platform)"])
 api_router.include_router(audits.router, prefix="/audits", tags=["M2 Road Safety Audit"])
 api_router.include_router(assets.router, prefix="/assets", tags=["M3 Asset Management"])
+api_router.include_router(observations.router, prefix="/observations", tags=["Field Notes"], dependencies=_authenticated)
+# the two file routes also accept a signed link (an <img> or audio player cannot send a bearer token)
+api_router.include_router(observations.file_router, prefix="/observations", tags=["Field Notes"])
 
 # Bind centralized API version 1 router to application
 app.include_router(api_router, prefix=settings.API_V1_STR)

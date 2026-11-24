@@ -7,13 +7,17 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../../data/field_notes_api.dart';
 import '../../data/live_detection_api.dart';
 import '../../data/reports_api.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/landscape_fullscreen.dart';
 import '../../utils/screen_awake.dart';
+import '../../utils/voice_note_player.dart';
+import '../../utils/voice_recorder.dart';
 import '../reports/widgets/pavement_type_selector.dart';
 import '../reports/widgets/report_ready_sheet.dart';
+import 'widgets/field_note_tile.dart';
 import 'widgets/mjpeg_view.dart';
 import 'widgets/real_time_detection_feed.dart';
 
@@ -57,6 +61,23 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   // expanding moves the same picture instead of building a second one (on the web that would
   // mean a second video view for the one camera).
   final GlobalKey _previewKey = GlobalKey(debugLabel: 'live-camera-preview');
+
+  // Field notes: snapshots and voice notes the surveyor adds by hand to this session's report.
+  static const int _maxVoiceSeconds = 120;
+  final _notesApi = FieldNotesApi();
+  final _voice = VoiceRecorder();
+  late final VoiceNotePlayer _player = VoiceNotePlayer(
+    onFinished: () {
+      if (mounted) setState(() => _playingNoteId = null);
+    },
+  );
+  List<FieldNote> _notes = [];
+  int? _notesVideoId;
+  bool _recordingVoice = false;
+  bool _savingNote = false;
+  int _voiceSeconds = 0;
+  Timer? _voiceTicker;
+  int? _playingNoteId;
   List<CameraDescription> _availableCameras = [];
   WebSocketChannel? _phoneStreamChannel;
   Timer? _captureTimer;
@@ -89,6 +110,140 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         _status = status;
       });
       _connectWs();
+      _loadNotes(status.sessionVideoId);
+    }
+  }
+
+  void _toast(String message, {bool error = false}) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: error ? const Color(0xFFB91C1C) : null,
+        duration: const Duration(seconds: 3),
+      ));
+  }
+
+  Future<void> _loadNotes([int? videoId]) async {
+    final id = videoId ?? _notesVideoId ?? _status?.sessionVideoId;
+    if (id == null) return;
+    try {
+      final list = await _notesApi.list(id);
+      if (!mounted) return;
+      setState(() {
+        _notesVideoId = id;
+        _notes = list;
+      });
+    } catch (_) {
+      // The list is a convenience; a failed refresh must not disturb detection.
+    }
+  }
+
+  /// Saves the newest camera picture to this session's report.
+  Future<void> _addSnapshot() async {
+    if (!_running || _savingNote) return;
+    setState(() => _savingNote = true);
+    try {
+      final note = await _notesApi.addToLiveSession(snapshot: true);
+      await _loadNotes(note.videoId);
+      _toast('Snapshot added to the report');
+    } on FieldNotesException catch (e) {
+      _toast(e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _savingNote = false);
+    }
+  }
+
+  /// Starts a voice note, or (when one is being recorded) stops it and saves it to the report.
+  Future<void> _toggleVoiceNote() async {
+    if (_recordingVoice) {
+      await _finishVoiceNote();
+      return;
+    }
+    if (!_running || _savingNote) return;
+    try {
+      if (!await _voice.start()) {
+        _toast('Allow the microphone to record a voice note.', error: true);
+        return;
+      }
+    } catch (_) {
+      _toast('Could not start the microphone.', error: true);
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _recordingVoice = true;
+      _voiceSeconds = 0;
+    });
+    _voiceTicker?.cancel();
+    _voiceTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _voiceSeconds++);
+      if (_voiceSeconds >= _maxVoiceSeconds) _finishVoiceNote();
+    });
+  }
+
+  Future<void> _finishVoiceNote() async {
+    _voiceTicker?.cancel();
+    _voiceTicker = null;
+    if (!_recordingVoice) return;
+    setState(() {
+      _recordingVoice = false;
+      _savingNote = true;
+    });
+    try {
+      final clip = await _voice.stop();
+      if (clip == null) {
+        _toast('Nothing was recorded.', error: true);
+        return;
+      }
+      final note = await _notesApi.addToLiveSession(
+        audio: clip.bytes,
+        audioFilename: clip.filename,
+        audioSeconds: clip.seconds,
+      );
+      await _loadNotes(note.videoId);
+      _toast('Voice note added to the report');
+    } on FieldNotesException catch (e) {
+      _toast(e.message, error: true);
+    } catch (_) {
+      _toast('Could not save the voice note.', error: true);
+    } finally {
+      if (mounted) setState(() => _savingNote = false);
+    }
+  }
+
+  Future<void> _deleteNote(FieldNote note) async {
+    try {
+      await _notesApi.delete(note.id);
+      if (!mounted) return;
+      if (_playingNoteId == note.id) _player.stop();
+      setState(() {
+        _notes = _notes.where((n) => n.id != note.id).toList();
+        if (_playingNoteId == note.id) _playingNoteId = null;
+      });
+    } on FieldNotesException catch (e) {
+      _toast(e.message, error: true);
+    }
+  }
+
+  Future<void> _togglePlayNote(FieldNote note) async {
+    final url = note.audioUrl;
+    if (url == null) return;
+    if (_playingNoteId == note.id) {
+      _player.stop();
+      setState(() => _playingNoteId = null);
+      return;
+    }
+    // No `await` before the player starts: browsers only allow sound that starts straight from the tap.
+    setState(() => _playingNoteId = note.id);
+    try {
+      await _player.play(url);
+    } on VoicePlaybackException catch (e) {
+      if (mounted) setState(() => _playingNoteId = null);
+      _toast(e.message, error: true);
     }
   }
 
@@ -96,6 +251,8 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     setState(() {
       _starting = true;
       _error = null;
+      _notes = [];
+      _notesVideoId = null;
     });
     try {
       await _api.start(cameraIndex: _cameraIndex);
@@ -121,6 +278,8 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     setState(() {
       _starting = true;
       _error = null;
+      _notes = [];
+      _notesVideoId = null;
     });
     try {
       if (_availableCameras.isEmpty) {
@@ -248,6 +407,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   }
 
   Future<void> _stop() async {
+    if (_recordingVoice) await _finishVoiceNote();
     if (_source == LiveSource.thisDeviceCamera) {
       await _stopThisDeviceCamera();
       return;
@@ -335,6 +495,11 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     _overlayClearTimer?.cancel();
     _phoneStreamChannel?.sink.close();
     _cameraController?.dispose();
+    _voiceTicker?.cancel();
+    _voice.cancel();
+    _voice.dispose();
+    _player.dispose();
+    _notesApi.dispose();
     _api.dispose();
     _cameraIndexController.dispose();
     super.dispose();
@@ -416,6 +581,11 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
           onStart: _source == LiveSource.usbCamera ? _start : _startThisDeviceCamera,
           onStop: _stop,
           onExit: () => _setFullscreen(false),
+          recordingVoice: _recordingVoice,
+          voiceSeconds: _voiceSeconds,
+          savingNote: _savingNote,
+          onSnapshot: _addSnapshot,
+          onVoice: _toggleVoiceNote,
         ),
       );
     }
@@ -462,6 +632,21 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
           },
         ),
         const SizedBox(height: 32),
+        if (_running || _notes.isNotEmpty) ...[
+          _FieldNotesCard(
+            notes: _notes,
+            running: _running,
+            recording: _recordingVoice,
+            voiceSeconds: _voiceSeconds,
+            saving: _savingNote,
+            playingNoteId: _playingNoteId,
+            onSnapshot: _addSnapshot,
+            onVoice: _toggleVoiceNote,
+            onDelete: _deleteNote,
+            onPlay: _togglePlayNote,
+          ),
+          const SizedBox(height: 32),
+        ],
         RealTimeDetectionFeed(detections: _feedDetections),
         const SizedBox(height: 32),
         _DetectionHistoryCard(events: _events),
@@ -1871,17 +2056,18 @@ class _PremiumCard extends StatelessWidget {
 
 /// A small round button that sits on top of the camera picture.
 class _OverlayIconButton extends StatelessWidget {
-  const _OverlayIconButton({required this.icon, required this.tooltip, required this.onTap});
+  const _OverlayIconButton({required this.icon, required this.tooltip, required this.onTap, this.color});
   final IconData icon;
   final String tooltip;
   final VoidCallback onTap;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
       child: Material(
-        color: const Color(0x99000000),
+        color: color ?? const Color(0x99000000),
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
@@ -1938,6 +2124,11 @@ class _LiveFullscreenView extends StatefulWidget {
     required this.onStart,
     required this.onStop,
     required this.onExit,
+    required this.recordingVoice,
+    required this.voiceSeconds,
+    required this.savingNote,
+    required this.onSnapshot,
+    required this.onVoice,
   });
 
   final LiveSource source;
@@ -1953,6 +2144,11 @@ class _LiveFullscreenView extends StatefulWidget {
   final VoidCallback onStart;
   final VoidCallback onStop;
   final VoidCallback onExit;
+  final bool recordingVoice;
+  final int voiceSeconds;
+  final bool savingNote;
+  final VoidCallback onSnapshot;
+  final VoidCallback onVoice;
 
   @override
   State<_LiveFullscreenView> createState() => _LiveFullscreenViewState();
@@ -2105,6 +2301,43 @@ class _LiveFullscreenViewState extends State<_LiveFullscreenView> {
               color: const Color(0xFFFBBF24),
             ),
           ),
+        if (widget.running)
+          Positioned(
+            right: 8,
+            bottom: 56,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _OverlayIconButton(
+                  icon: LucideIcons.camera,
+                  tooltip: 'Add a snapshot to the report',
+                  onTap: widget.savingNote ? () {} : widget.onSnapshot,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.recordingVoice) ...[
+                      _OverlayChip(
+                        'REC  ${_clock(widget.voiceSeconds)}',
+                        color: const Color(0xFFF87171),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    _OverlayIconButton(
+                      icon: widget.recordingVoice ? LucideIcons.square : LucideIcons.mic,
+                      tooltip: widget.recordingVoice
+                          ? 'Stop and add the voice note to the report'
+                          : 'Record a voice note for the report',
+                      onTap: widget.savingNote ? () {} : widget.onVoice,
+                      color: widget.recordingVoice ? const Color(0xCCDC2626) : null,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         Positioned(
           right: 8,
           bottom: 8,
@@ -2130,7 +2363,8 @@ class _LiveFullscreenViewState extends State<_LiveFullscreenView> {
   @override
   Widget build(BuildContext context) {
     // Until it is running there is nothing to look at, so the controls stay (you need Start).
-    final visible = !widget.running || _showControls;
+    // (and keep them while a voice note is being recorded, so it can be stopped)
+    final visible = !widget.running || _showControls || widget.recordingVoice;
     return ColoredBox(
       color: Colors.black,
       child: Stack(
@@ -2162,6 +2396,109 @@ class _LiveFullscreenViewState extends State<_LiveFullscreenView> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+String _clock(int totalSeconds) {
+  final m = totalSeconds ~/ 60;
+  final sec = totalSeconds % 60;
+  return '$m:${sec.toString().padLeft(2, '0')}';
+}
+
+/// Snapshots and voice notes the surveyor adds by hand, for places the camera detection missed. They are
+/// saved to this session's report (PDF and Excel).
+class _FieldNotesCard extends StatelessWidget {
+  const _FieldNotesCard({
+    required this.notes,
+    required this.running,
+    required this.recording,
+    required this.voiceSeconds,
+    required this.saving,
+    required this.playingNoteId,
+    required this.onSnapshot,
+    required this.onVoice,
+    required this.onDelete,
+    required this.onPlay,
+  });
+
+  final List<FieldNote> notes;
+  final bool running;
+  final bool recording;
+  final int voiceSeconds;
+  final bool saving;
+  final int? playingNoteId;
+  final VoidCallback onSnapshot;
+  final VoidCallback onVoice;
+  final ValueChanged<FieldNote> onDelete;
+  final ValueChanged<FieldNote> onPlay;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PremiumCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(LucideIcons.clipboardList, size: 16, color: AppColors.accentBlue),
+              const SizedBox(width: 12),
+              Text(
+                notes.isEmpty ? 'Field Notes' : 'Field Notes (${notes.length})',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryText),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Something the camera missed? Add a snapshot or a voice note. They are saved to this '
+            'session\'s report.',
+            style: TextStyle(fontSize: 12.5, color: AppColors.secondaryText),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _SolidButton(
+                label: 'Add snapshot',
+                icon: LucideIcons.camera,
+                color: AppColors.accentBlue,
+                onTap: running && !saving && !recording ? onSnapshot : null,
+              ),
+              _SolidButton(
+                label: recording ? 'Stop  ${_clock(voiceSeconds)}' : 'Record voice note',
+                icon: recording ? LucideIcons.square : LucideIcons.mic,
+                color: recording ? AppColors.danger : AppColors.success,
+                onTap: running && !saving ? onVoice : null,
+              ),
+              if (saving)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              if (!running && notes.isNotEmpty)
+                const Text(
+                  'Start live detection to add more notes.',
+                  style: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+                ),
+            ],
+          ),
+          if (notes.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(height: 1, color: AppColors.cardBorder),
+            for (final note in notes.reversed)
+              FieldNoteTile(
+                note: note,
+                playing: playingNoteId == note.id,
+                onDelete: () => onDelete(note),
+                onPlay: () => onPlay(note),
+              ),
+          ],
         ],
       ),
     );

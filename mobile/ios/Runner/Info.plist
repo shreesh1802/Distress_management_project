@@ -49,6 +49,10 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>The camera is used for live road distress detection and to add snapshots to the survey report.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The microphone is used to record voice notes that are added to the survey report.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

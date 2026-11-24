@@ -17,6 +17,7 @@ from app.models.video import UploadedVideo
 from app.models.distress import RoadDistress
 from app.models.maintenance import MaintenanceTask
 from app.services.repair_report_sections import add_repair_strategy_sheet, row_recommendation
+from app.services.field_notes_report import add_field_notes_sheet
 from app.services.repair_strategies import BITUMINOUS
 
 logger = logging.getLogger(__name__)
@@ -1765,6 +1766,11 @@ def generate_video_excel_report(db: Session, video_id: int, pavement: str = BITU
     # SHEET 12: Repair Strategies (IRC:82-2015 / IRC:SP:83-2018)
     # ----------------------------------------------------
     add_repair_strategy_sheet(wb, distresses, pavement)
+
+    # ----------------------------------------------------
+    # SHEET 13: Field Notes (snapshots / voice notes added by hand; only when there are some)
+    # ----------------------------------------------------
+    add_field_notes_sheet(wb, db, video_id)
 
     # ----------------------------------------------------
     # GLOBAL FORMATTING & METADATA UPGRADES

@@ -21,7 +21,7 @@ import logging
 import threading
 from collections import deque
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 
@@ -80,6 +80,7 @@ class LiveCameraManager:
         # One uploaded_videos row per live session (created with the first saved detection) so the
         # session's detections can be turned into a PDF / Excel report like any processed video.
         self._session_video_id: Optional[int] = None
+        self._session_lock = threading.Lock()   # only one thread may create the session's report row
         self._error: Optional[str] = None
         self._pavement = None
         self._signage = None
@@ -279,6 +280,41 @@ class LiveCameraManager:
 
     def is_running(self) -> bool:
         return self._running.is_set()
+
+    def snapshot_frame(self):
+        """A copy of the newest camera picture (BGR), or None if no picture has arrived yet."""
+        with self._lock:
+            frame = self._latest_raw_frame
+            return None if frame is None else frame.copy()
+
+    def session_location(self) -> Tuple[float, float]:
+        """The (latitude, longitude) this session reports for its detections."""
+        return self.base_lat, self.base_lon
+
+    def ensure_session_video(self, db) -> int:
+        """
+        The report row (an UploadedVideo) for this live session, created the first time anything needs
+        it -- a saved detection, or a field note the surveyor adds by hand. Committed straight away so
+        other threads and requests can rely on it.
+        """
+        from app.models.video import UploadedVideo
+
+        with self._session_lock:
+            if self._session_video_id is None:
+                session_video = UploadedVideo(
+                    filename=f"Live session {datetime.utcnow():%Y-%m-%d %H:%M} UTC",
+                    filepath=None,
+                    processing_status="completed",
+                    progress=100,
+                    processing_stage="Live session",
+                )
+                db.add(session_video)
+                db.commit()
+                db.refresh(session_video)
+                self._session_video_id = session_video.id
+                with self._lock:
+                    self.stats["session_video_id"] = session_video.id
+            return self._session_video_id
 
     def status(self) -> Dict[str, Any]:
         with self._lock:
@@ -489,19 +525,7 @@ class LiveCameraManager:
 
             db = SessionLocal()
             try:
-                if self._session_video_id is None:
-                    session_video = UploadedVideo(
-                        filename=f"Live session {datetime.utcnow():%Y-%m-%d %H:%M} UTC",
-                        filepath=None,
-                        processing_status="completed",
-                        progress=100,
-                        processing_stage="Live session",
-                    )
-                    db.add(session_video)
-                    db.flush()
-                    self._session_video_id = session_video.id
-                    with self._lock:
-                        self.stats["session_video_id"] = session_video.id
+                self.ensure_session_video(db)
                 db.query(UploadedVideo).filter(UploadedVideo.id == self._session_video_id).update(
                     {"processing_duration": round(elapsed, 1)}
                 )

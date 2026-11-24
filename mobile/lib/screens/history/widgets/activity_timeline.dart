@@ -33,6 +33,8 @@ IconData timelineIcon(String type) {
       return LucideIcons.brain;
     case 'AI Inference Failed':
       return LucideIcons.alertCircle;
+    case 'Live Session':
+      return LucideIcons.radio;
     default:
       return LucideIcons.clock;
   }
@@ -231,7 +233,9 @@ class ActivityTimeline extends StatelessWidget {
                           _actionIconBtn(LucideIcons.trash2, AppColors.danger, () => onDeleteReport(act)),
                         ],
                         if (act.category == 'Inference' && act.videoId != null) ...[
-                          _actionBtn(LucideIcons.refreshCw, 'Retry', () => onRetryVideo(act)),
+                          // A live session has no video to run again.
+                          if (act.type != 'Live Session')
+                            _actionBtn(LucideIcons.refreshCw, 'Retry', () => onRetryVideo(act)),
                           _actionIconBtn(LucideIcons.trash2, AppColors.danger, () => onDeleteVideo(act)),
                         ],
                       ],
