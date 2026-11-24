@@ -1,48 +1,87 @@
 # Road Distress Management System & Mobile Web Platform
 
+An AI-assisted pavement inspection platform. A Flutter app (Android, iOS, web) and a FastAPI backend run
+two YOLOX models (road distress + signage) over uploaded survey videos **and live camera feeds**, then turn
+the detections into maps, maintenance plans and PDF / Excel reports that follow the Indian repair codes
+(IRC:82-2015 and IRC:SP:83-2018).
 
-##  Repository Code Architecture 
+**Current release:** app version `1.1.1+3`, Android application ID `com.distress.roadmanager`
+(the "Pavement Health Monitor (Early Access)" Play app).
 
-The repository is structured into two primary components:
+## What's new
+
+| Area | What changed |
+|---|---|
+| Sign-in | **Google sign-in via Firebase.** Only people on the Firestore `allowedUsers` allow-list (role: `admin`, `inspector`, `employee`, `maintenance`) get in. The old e-mail one-time-code login was removed. |
+| Hosted server | Release builds talk to the hosted backend (Railway) by default - no connection dialog needed. Local servers are still supported (see below). |
+| Live detection quality | Phone live mode looks at **every** frame it receives (no more skipped frames), and the server acknowledges each frame so the app never queues stale pictures on a slow connection. Live inference size raised from 256 to **640**. |
+| Camera picker | In *This Device's Camera* mode the app lists every camera the phone reports (front, back, external USB when the OS exposes it) in a **Camera** drop-down with a refresh button. External > back > front is the default. |
+| Real GPS | Phone live sessions stream the phone's **GPS position**, so detections are stamped with where they really happened (falls back to a default point if location is off). |
+| Full-screen live view | Video-call style full screen with auto-hiding controls, landscape lock and a **screen that stays awake** in the installed app. Video review also has a proper full-screen mode. |
+| Field notes | While a live session runs, add a **snapshot** and / or a **voice note** (optional caption) for something the AI missed. Notes appear in the session's PDF ("Surveyor Field Notes") and Excel ("Field Notes" sheet). Voice notes are transcribed in the background when speech-to-text is available. |
+| History | A *Live detection sessions* card lists past live sessions with duration, detections, serious detections, notes and PDF / Excel buttons. |
+| Reports | Every report includes a **Recommended Repair Strategies** section (PDF) / sheet (Excel) from IRC:82-2015 (bituminous, default) or IRC:SP:83-2018 (concrete). Choose the pavement type under *Reports > Configure AI Reports Compilation*. See [`docs/REPAIR_STRATEGIES.md`](docs/REPAIR_STRATEGIES.md). |
+| Security hardening | Hashed 30-day session tokens, allow-list re-check on every request and live WebSocket, rate limits, signed report-download links, fail-closed production config, in-app *Delete account*. See [`SECURITY.md`](SECURITY.md). |
+
+---
+
+##  Repository Code Architecture
 
 ```
 Distress_management_project/
-├── mobile/                                 # Flutter Cross-Platform App (Web, Android, iOS)
+├── mobile/                                  # Flutter app (Android, iOS, web, desktop)
 │   ├── lib/
-│   │   ├── main.dart                      # Application Entrypoint & Theme Configuration
-│   │   ├── router/app_router.dart          # GoRouter Navigation Setup
-│   │   ├── data/                           # API Connectors & Data Models
-│   │   │   ├── live_detection_api.dart     # Dynamic API Base URL calculation & WebSocket client
-│   │   │   ├── road_distress_api.dart      # Distress Record Data Models & API endpoints
-│   │   │   ├── video_api.dart              # Video upload & streaming connectors
-│   │   │   └── reports_api.dart            # PDF & Excel report generation service
-│   │   ├── screens/                        # UI Screen Modules
-│   │   │   ├── dashboard/                  # Main Dashboard, Shell & Mobile Drawer/Navigation
-│   │   │   ├── video_review/               # Dual Video Player & Detections Inspector
-│   │   │   │   ├── video_review_screen.dart
-│   │   │   │   └── widgets/
-│   │   │   │       ├── web_video_card.dart # HTML5 Video Element & Independent Fullscreen
-│   │   │   │       ├── dual_player_panel.dart
-│   │   │   │       └── detections_sidebar.dart # Mobile Detections Cards & Play Clip triggers
-│   │   │   └── reports/                    # Reports Registry & PDF/Excel Download Triggers
-│   │   └── utils/
-│   │       └── download_helper.dart        # JS Blob & cross-platform report downloader
-│   └── build/
-│       ├── web/                           # Compiled Production Web Assets (served on port 8080)
-│       └── app/outputs/flutter-apk/       # Android APK release builds
+│   │   ├── main.dart                        # Entrypoint, Firebase init, theme
+│   │   ├── firebase_options.dart            # Firebase project configuration
+│   │   ├── router/app_router.dart           # GoRouter navigation + auth redirect
+│   │   ├── data/                            # API clients & models
+│   │   │   ├── auth_api.dart, auth_provider.dart   # Google sign-in -> /auth/google session
+│   │   │   ├── live_detection_api.dart      # API base URL (hosted default), live WebSocket client
+│   │   │   ├── field_notes_api.dart         # Snapshot / voice field notes
+│   │   │   ├── live_sessions_api.dart       # Past live sessions (History)
+│   │   │   └── video_api.dart, reports_api.dart, road_distress_api.dart, ...
+│   │   ├── screens/
+│   │   │   ├── login/                       # Google sign-in screen
+│   │   │   ├── projects/, survey/, asset/, audit/   # Projects, surveys, assets, audits
+│   │   │   ├── dashboard/, dashboard_grid/  # Shell, drawer/navigation, overview
+│   │   │   ├── live_detection/              # Live monitoring: USB / phone camera, camera picker,
+│   │   │   │                                #   GPS banner, full screen, field notes
+│   │   │   ├── upload_video/, video_review/ # Upload + dual (original / AI) player + detections
+│   │   │   ├── road_distresses/, gis_map/, maintenance/, analytics/
+│   │   │   ├── reports/                     # PDF / Excel generation, pavement-type selector
+│   │   │   ├── history/                     # Timeline + live session list
+│   │   │   └── notifications/, account/     # Notifications, delete-account dialog
+│   │   └── utils/                           # Landscape full screen, screen-awake, voice recorder /
+│   │                                        #   player, report share, downloads
+│   ├── android/, ios/, web/ ...             # Platform projects
+│   ├── ANDROID_RELEASE.md                   # Play Store build + signing steps
+│   └── test/                                # Widget / unit tests
 │
-└── Road-Distress-Management-System/
-    └── backend/                            # FastAPI AI Backend & Database
-        ├── app/
-        │   ├── main.py                     # FastAPI Application Entry, CORS, APK Download & Auto-Seeding
-        │   ├── api/v1/routes/              # API Route Handlers (videos, detection, reports)
-        │   ├── models/                     # SQLAlchemy Models (distress.py, video.py, report.py)
-        │   └── services/                   # PDF & Excel Generators, AI Pipeline Utils
-        └── uploads/                        # Raw Videos, Processed Videos, AI Crops & APK builds
-            ├── videos/                     # Raw surveillance MP4 files (+faststart H.264)
-            ├── processed/                  # AI annotated MP4 files (H.264)
-            ├── crops/                      # Zoomed-in AI distress crop image snippets
-            └── RoadDistress.apk            # Android APK installer (downloadable via /download-apk)
+├── Road-Distress-Management-System/
+│   ├── backend/                             # FastAPI AI backend
+│   │   ├── app/
+│   │   │   ├── main.py                      # App entry, CORS, startup checks
+│   │   │   ├── api/v1/routes/               # auth, users, projects, assets, audits, videos, upload,
+│   │   │   │                                #   detection, distress, live, observations (field notes),
+│   │   │   │                                #   reports, maintenance, gis
+│   │   │   ├── models/                      # SQLAlchemy models
+│   │   │   └── services/
+│   │   │       ├── ai/                      # Road + signage detectors, tracker, pipeline
+│   │   │       ├── live/                    # Live camera service, live_config.py, YOLOX engine
+│   │   │       ├── firebase_service.py      # Verifies Firebase ID tokens, reads the allow-list
+│   │   │       ├── repair_strategies.py     # IRC:82 / IRC:SP:83 repair guidance
+│   │   │       ├── pdf_generator.py, excel_generator.py, field_notes_report.py
+│   │   │       └── transcription_service.py # Voice-note speech-to-text (optional)
+│   │   ├── tests/                           # Backend tests (tests/security = security suite)
+│   │   ├── scripts/                         # serve_no_cache.py, run_stable_tunnel.py, benchmarks
+│   │   ├── local.env.example                # Settings for running on your own computer
+│   │   └── railway.env.example              # Settings for the hosted server
+│   ├── docker-compose.yml, nginx/           # Self-hosted Docker deployment (see DEPLOYMENT.md)
+│   └── frontend/                            # Original React app, kept as a design reference
+│
+├── docs/                                    # REPAIR_STRATEGIES.md, live-detection hosting notes, privacy pages
+├── scripts/security_check.py                # Static security check
+└── SECURITY.md, DEPLOYMENT.md, WORKFLOW_ANALYSIS.md
 ```
 
 ---
@@ -66,23 +105,29 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-** Install YOLOX** 
+** Install YOLOX**
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install cmake ninja
 .\.venv\Scripts\python.exe -m pip install yolox==0.3.0 --no-deps --no-build-isolation
 ```
 
-** Point the database at SQLite** (the backend defaults to PostgreSQL on
-`localhost:5432`; for local/laptop hosting without installing Postgres, SQLite is a
-drop-in — the ORM has no Postgres-specific types). Create `Road-Distress-Management-System\backend\.env`:
+** Point the database at SQLite and give the backend your Firebase key** (the backend defaults to
+PostgreSQL on `localhost:5432`; for local/laptop hosting without installing Postgres, SQLite is a
+drop-in). Copy `Road-Distress-Management-System\backend\local.env.example` to `.env` in the same folder and
+adjust it. The essentials are:
 
 ```
 DATABASE_URL=sqlite:///./road_distress.db
 BACKEND_CORS_ORIGINS=*
+FIREBASE_CREDENTIALS_PATH=C:/keys/road-distress-firebase-adminsdk.json
 ```
 
-** Create the tables and seed the default admin account:**
+`FIREBASE_CREDENTIALS_PATH` points at the Firebase **service-account key** (Firebase console > Project
+settings > Service accounts > *Generate new private key*). It is a secret: keep it outside the repository and
+never commit it. The backend uses it to verify Google sign-ins and to read the `allowedUsers` allow-list.
+
+** Create the tables:**
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.db.init_db
@@ -98,23 +143,29 @@ flutter build apk --release
 copy build\app\outputs\flutter-apk\app-release.apk ..\Road-Distress-Management-System\backend\uploads\RoadDistress.apk
 ```
 
+** Signing in.** Add your Google e-mail to the Firestore collection `allowedUsers` (document ID = your
+lower-case e-mail, field `role` = `admin`, `inspector`, `employee` or `maintenance`) in the Firebase console, then
+sign in with that Google account. There is no self-registration and no e-mail-code login - see `SECURITY.md`.
 
+** Which server does the app talk to?**
 
-** First app launch — set the connection URL once.** The native Android app has no
-way to auto-detect the backend's address (that trick only works for the web build, via
-the browser's origin). Open the app's connection dialog once and enter your laptop's
-Wi-Fi IP (see "Getting Your Current Wi-Fi (LAN) Link" below for how to find it),
-e.g. `http://192.168.1.42:8000` — it's saved on-device
-afterward via `shared_preferences`, so this is a one-time step per device, not per
-session. If your laptop's IP changes later (it does, on DHCP networks), re-open the
-dialog and update it.
+* **Release builds** (`flutter build apk --release`, app bundles) use the hosted server
+  (`kProductionApiBaseUrl` in `mobile/lib/data/live_detection_api.dart`) automatically.
+* To point a build at **your own laptop / another server**, pass the address at build time:
+  `flutter build apk --release --dart-define=API_BASE_URL=http://<your-wifi-ip>:8000`
+  (use `https://<tunnel-url>` for the tunnel). Debug builds and the web build served by Terminal 2 detect the
+  backend from the page's address, so they need nothing.
+* **Android Google sign-in** only works for APKs signed with a key whose SHA-1 / SHA-256 fingerprints are
+  registered for the Android app in the Firebase console (otherwise `DEVELOPER_ERROR`). A
+  `flutter build apk --release` without `android/key.properties` is signed with the local debug key, which
+  must be registered too.
 
 ---
 
 ##  How to Start the System (Exact PowerShell Commands)
 
-Every time you want to run the app, start these in **3 separate PowerShell windows**,
-from `<path-to-repo>\Road-Distress-Management-System\backend` in each:
+Every time you want to run the app locally, start these in **3 separate PowerShell windows**,
+from `<path-to-repo>\Road-Distress-Management-System\backend` in each (Terminal 3 is optional):
 
 > ** find `<path-to-repo>` from anywhere inside the cloned folder with
 > `git rev-parse --show-toplevel`.
@@ -127,9 +178,11 @@ cd <path-to-repo>\Road-Distress-Management-System\backend
 ```
 
 - **Backend API**: `http://127.0.0.1:8000`
-- **Swagger Docs**: `http://127.0.0.1:8000/docs`
-- **Auto-Seeding**: verifies/seeds demo video + detection records + reports on startup.
+- **Swagger Docs**: `http://127.0.0.1:8000/docs` (development mode only)
+- **Auto-Seeding**: in development mode, verifies/seeds demo video + detection records + reports on startup.
 - Leave this window open — closing it stops the backend.
+- The hosted server (Railway) runs the same backend with `APP_ENV=production`; see `SECURITY.md` and
+  `backend/railway.env.example`.
 
 ### 2️⃣ Terminal 2 — Web & Reverse Proxy (port 8080)
 
@@ -164,7 +217,7 @@ cd <path-to-repo>\Road-Distress-Management-System\backend
 
 ## 🌐 Getting Your Current Wi-Fi (LAN) Link
 
-Needed any time you connect a phone on the **same Wi-Fi** .laptop's
+Needed any time you connect a phone on the **same Wi-Fi**. The laptop's
 IP can change (DHCP renewals, reconnecting to the network) — always get the *current*
 one rather than reusing an old one.
 
@@ -181,8 +234,8 @@ Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -eq 'Wi-
 
 Then, on your phone (same Wi-Fi):
 - **Browser, no install**: open `http://<ip>:8080`
-- **Installed APK**: open the app's connection dialog, enter `http://<ip>:8000` (port
-  **8000**, not 8080 — the app talks to the backend directly, not through the proxy)
+- **APK built for your laptop** (`--dart-define=API_BASE_URL=http://<ip>:8000`): port
+  **8000**, not 8080 — the app talks to the backend directly, not through the proxy
 
 ---
 
@@ -198,8 +251,7 @@ whatever's on port 8080.
    your url is: https://<random-words>.loca.lt
    ```
 3. Open that exact URL on any device, on any network (Wi-Fi or cellular) — no app
-   install needed for the web version; for the installed APK, enter that same URL
-   (with `https://`) in the connection dialog.
+   install needed for the web version.
 
 **This URL is not permanent** — it changes every time Terminal 3 restarts (crash,
 laptop sleep/wake, manual restart). If a previously-working link stops connecting,
@@ -207,10 +259,9 @@ check Terminal 3's window for whether it's still running and what URL it's curre
 printing; restart it if the window closed.
 
 **First-visit browser warning**: opening the tunnel URL directly in a phone browser
-(not through the installed APK) shows a one-time localtunnel interstitial ("Tunnel
-website ahead!") asking you to confirm the shown IP and click Continue — this is
-localtunnel's own anti-abuse page, not an app error, and only appears once per device
-per 7 days.
+shows a one-time localtunnel interstitial ("Tunnel website ahead!") asking you to
+confirm the shown IP and click Continue — this is localtunnel's own anti-abuse page,
+not an app error, and only appears once per device per 7 days.
 
 ---
 
@@ -238,9 +289,10 @@ that terminal window likely closed or crashed — just re-run its start command.
 
 | Connection Type | Target Device | Access URL |
 |-----------------|---------------|----------------------|
+| **Hosted server** | Any device | the Railway URL in `kProductionApiBaseUrl` (release builds use it automatically) |
 | **Local Desktop** | Laptop / PC | `http://localhost:8080` |
 | **Local Wi-Fi (browser)** | Phone on same Wi-Fi | `http://<your-wifi-ip>:8080` |
-| **Local Wi-Fi (installed APK)** | Phone on same Wi-Fi | `http://<your-wifi-ip>:8000` in the connection dialog |
+| **Local Wi-Fi (APK)** | Phone on same Wi-Fi | APK built with `API_BASE_URL=http://<your-wifi-ip>:8000` |
 | **Mobile Data (4G/5G)** | Any device, any network | `https://<tunnel-url>.loca.lt` |
 | **Download Android APK** | Any browser | `http://<wifi-ip-or-tunnel-url>/download-apk` |
 
@@ -248,34 +300,34 @@ that terminal window likely closed or crashed — just re-run its start command.
 
 ##  Android APK Installation Guide
 
-The system provides a downloadable APK for native Android access with real-time push notifications and offline-capable caching.
+### Build an APK to test the latest features
 
-### Step 1 — Get the Download Link
-When Terminal 3 is running, your APK download link is:
-```
-https://<tunnel-url>.loca.lt/download-apk
-```
-Copy this link from the Terminal 3 console banner.
-
-### Step 2 — Install on Android
-1. Open the APK download link in your Android browser (Chrome recommended).
-2. Tap the downloaded `.apk` file to install.
-3. If prompted with *"Install from unknown sources"*, go to **Settings → Security → Install Unknown Apps** and enable it for your browser.
-4. Open the app, then open its connection dialog and enter the backend URL — either
-   `http://<your-wifi-ip>:8000` (LAN) or `https://<tunnel-url>.loca.lt` (cellular). This
-   is a one-time step; the app saves it on-device and reconnects automatically after
-   that, even across restarts.
-
-### Step 3 — Rebuild the APK After Code Changes
 ```powershell
 cd <path-to-repo>\mobile
+flutter pub get
 flutter build apk --release
+```
+
+Output: `mobile\build\app\outputs\flutter-apk\app-release.apk`. Copy it to the phone (USB, Drive, ...) and open it;
+allow *Install unknown apps* for the app you opened it from if Android asks. Without `android/key.properties`
+the APK is signed with the debug key — fine for testing on your own phone, but that key's fingerprints must be
+registered in Firebase for Google sign-in to work (see above). Play Store bundles: see `mobile/ANDROID_RELEASE.md`.
+
+### Serving the APK from your own backend (optional)
+
+```powershell
 copy build\app\outputs\flutter-apk\app-release.apk ..\Road-Distress-Management-System\backend\uploads\RoadDistress.apk
 ```
-The connection URL does **not** need to be baked in at build time (that's an optional
-`--dart-define=API_BASE_URL=...` flag if you specifically want a default other than
-the in-app dialog) — since tunnel URLs change on every restart, entering it once in
-the running app is simpler than rebuilding whenever the URL changes.
+
+It is then downloadable at `http://<wifi-ip-or-tunnel-url>/download-apk`.
+
+### Testing the live camera on Android
+
+1. Open **Live Monitoring** and choose **This Device's Camera**.
+2. Pick a camera in the **Camera** drop-down (tap the refresh icon after plugging in a USB camera — it only
+   appears if Android exposes it as an external camera).
+3. Allow camera, microphone (voice notes) and location (GPS) when asked, then **Start**.
+4. Use the expand button for full screen, and the Field Notes card to add snapshots / voice notes.
 
 ---
 
@@ -285,28 +337,33 @@ the running app is simpler than rebuilding whenever the URL changes.
    - View raw surveillance footage alongside AI-annotated object detection feeds.
    - Synchronized timeline seeking, playback speed control, and status tracking.
 
-2. **Independent Fullscreen Mode**:
-   - Each player card has an isolated top header with its own **Fullscreen** toggle button so expanding the AI Annotated Feed does not disrupt the Original Feed.
+2. **Independent & Full-Screen Modes**:
+   - Each player card has its own **Fullscreen** toggle so expanding the AI Annotated Feed does not disrupt the Original Feed.
+   - Video review has a full-screen layout that hides the dashboard menus (side by side when sideways, stacked when upright).
 
 3. **Zoomed-in AI Distress Crop Snippets (Exact Annotated Video Frames)**:
    - Detection cards display crop snippets extracted directly from the AI annotated video stream (*Potholes*, *Alligator Cracks*, *Rutting*, *Edge Breaks*).
    - Includes **`Play Clip (00:04)`** buttons that seek the video directly to that distress timestamp.
 
 4. **PDF & Excel Report Downloads**:
-   - Prominent **PDF Report** and **Excel Report** buttons generate dynamic safety audit files via FastAPI and trigger direct native JS Blob file downloads on mobile and desktop devices.
+   - **PDF Report** and **Excel Report** buttons generate dynamic safety-audit files via FastAPI and trigger native downloads / sharing on mobile and desktop.
+   - Reports include IRC repair strategies (bituminous or concrete pavement) and, for live sessions, the surveyor's field notes.
 
-5. **Android APK (Native Mobile App)**:
-   - A compiled Android APK is served directly via the `/download-apk` backend endpoint.
-   - Can be shared via the public tunnel URL (`https://*.loca.lt/download-apk`) for instant installation on any Android device — no app store required.
+5. **Android App**:
+   - Google sign-in, projects / surveys / assets / audits, upload, live detection, maps, maintenance and reports in one app (also built for iOS and web).
+   - Release builds use the hosted server; an APK can also be sideloaded or served via the backend's `/download-apk` endpoint.
 
 6. **Real-Time Live Detection — USB Camera or Phone Camera**:
    - The Live Monitoring screen runs the same dual YOLOX (road + signage) pipeline against a live camera instead of an uploaded video.
    - **USB Camera** mode: a camera physically attached to whatever machine runs the backend (`app/services/live/live_camera_service.py`).
-   - **This Device's Camera** mode: any phone running the app streams its own camera to the backend over WebSocket (`/api/v1/live/phone-stream`) — the right choice once the backend runs on a remote/dedicated server rather than being co-located with the camera. Detection boxes are drawn live on the phone's own camera preview as results arrive.
-   - Both modes need Terminal 2 (the proxy) running, since it also proxies the WebSocket connections this feature depends on — see "Verifying Everything Is Running" above if live detection connects but shows no results.
-   - **All AI processing runs on the backend machine (the laptop/server), never on the phone.** In phone-camera mode, the phone only captures frames, JPEG-encodes them, sends them over the network, and draws the returned bounding boxes on its own live preview — it never runs a model. The phone's hardware only needs to handle its camera and network I/O; all inference compute (and therefore the GPU/CPU sizing discussion elsewhere in this README) is about the backend machine, regardless of how many phones/cameras are feeding it.
-   - **Live pipeline resolution differs from the video-upload pipeline**: to stay fast enough for real-time use, live detection runs both models at **256×256** (`LIVE_TEST_SIZE` in `app/services/live/live_config.py`), versus **640×640** for the offline video-upload pipeline (`app/services/ai/model_loader.py`). This is a deliberate accuracy/speed tradeoff specific to the real-time path, not a bug or inconsistency.
-   - **Measured inference time at the live pipeline's actual 256×256 resolution** (same trained checkpoints, same hardware as the video-pipeline benchmarks above):
+   - **This Device's Camera** mode: any phone running the app streams its own camera to the backend over WebSocket (`/api/v1/live/phone-stream`) — the right choice once the backend runs on a remote/dedicated server rather than being co-located with the camera. Detection boxes are drawn live on the phone's own camera preview as results arrive. A **Camera** drop-down lets you pick which camera to use.
+   - Both modes need Terminal 2 (the proxy) running when you host locally, since it also proxies the WebSocket connections this feature depends on — see "Verifying Everything Is Running" above if live detection connects but shows no results.
+   - **All AI processing runs on the backend machine (the laptop/server), never on the phone.** In phone-camera mode, the phone only captures frames, JPEG-encodes them, sends them over the network, and draws the returned bounding boxes on its own live preview — it never runs a model.
+   - **Phone-mode flow control**: the app sends frames as fast as the connection carries them (about 10 captures a second at most), the server runs detection on every frame it receives (`LIVE_REMOTE_PROCESS_EVERY_N_FRAMES`, default 1) and acknowledges each one, and the app never keeps more than 2 frames un-acknowledged — a slow connection lowers the frame rate instead of building a queue of stale pictures.
+   - **Real GPS**: the phone's position is sent over the same WebSocket (`{"type":"location",...}` messages, roughly every 2 s) and used to stamp detections while it is fresher than `LIVE_DEVICE_FIX_MAX_AGE` (default 15 s); otherwise the configured default point is used. `/live/status` reports `gps_source` (`device` or `default`).
+   - **Field notes**: snapshot and voice notes for a live session (`/observations/...`), shown in the session's reports and under History.
+   - **Live pipeline resolution**: live detection now runs at **640×640** by default (`LIVE_TEST_SIZE` in `app/services/live/live_config.py`), the same as the video-upload pipeline, because 256 px missed too many distresses (recall roughly 22% vs 45-50% at 640 on dashcam footage). On a CPU-only host set `LIVE_TEST_SIZE=256` (or 416) to trade accuracy for speed — 640 costs several times the inference time of 256.
+   - **Measured inference time at 256×256** (the earlier default; expect several times more at 640), same trained checkpoints, same hardware as the video-pipeline benchmarks:
 
      | Model | CPU | GPU (RTX 3050, 6GB) |
      |---|---|---|
@@ -316,7 +373,15 @@ the running app is simpler than rebuilding whenever the URL changes.
 
      The signage model only runs on every 3rd inference cycle (`RUN_SIGNAGE_EVERY_N_INFERENCES`), so the typical cycle cost is closer to the road-only number. These are pure model-forward times; actual detection-to-display latency also includes network transfer and JPEG encode/decode on top.
 
-7. **GPU / Server Sizing Benchmarks** (`Road-Distress-Management-System/backend/scripts/`):
+7. **Field Notes (snapshots & voice notes)**: add evidence for what the AI missed during a live session. Notes are stored with the session, included in its PDF ("Surveyor Field Notes") and Excel ("Field Notes" sheet) reports, and listed under **History > Live detection sessions**. Voice notes are validated (type, content, 25 MB limit) and transcribed in the background when speech-to-text is installed; reports never fail because of a notes problem.
+
+8. **Repair Strategies in Reports**: PDF *Recommended Repair Strategies* section and Excel *Repair Strategies* sheet per distress type and severity, following IRC:82-2015 (bituminous, default) or IRC:SP:83-2018 (concrete). Details in `docs/REPAIR_STRATEGIES.md`.
+
+9. **Access Control & Security**: Google sign-in with a Firestore allow-list, role-based access, hashed expiring sessions, rate limits, signed download links, and an in-app *Delete account*. Run the safeguards with `python -m pytest tests/security` (from the backend folder) and `python scripts/security_check.py`; see `SECURITY.md`.
+
+10. **Hosted Deployment**: the backend runs on Railway (settings template: `backend/railway.env.example`) with PostgreSQL; a self-hosted Docker + nginx option is described in `DEPLOYMENT.md`.
+
+11. **GPU / Server Sizing Benchmarks** (`Road-Distress-Management-System/backend/scripts/`):
    - `benchmark_inference.py` — pure model inference timing (CPU vs GPU), using the real trained checkpoints.
    - `pipeline_profile_report.py` — full report: video specs, preprocessing details, per-model timing, and live CPU/RAM/GPU utilization, useful for sizing a dedicated server before renting/buying one.
    ```powershell
@@ -324,3 +389,18 @@ the running app is simpler than rebuilding whenever the URL changes.
    .\.venv\Scripts\python.exe scripts\pipeline_profile_report.py --frames 30 --json report.json
    ```
 
+---
+
+##  Tests
+
+```powershell
+# Flutter app
+cd <path-to-repo>\mobile
+flutter analyze --no-fatal-infos
+flutter test
+
+# Backend (runs against a temporary SQLite database)
+cd <path-to-repo>\Road-Distress-Management-System\backend
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest tests
+```
