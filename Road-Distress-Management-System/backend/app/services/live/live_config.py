@@ -38,6 +38,9 @@ DEFAULT_CAMERA_INDEX = _env("LIVE_CAMERA_INDEX", 1)   # 1 = external Lenovo webc
 CAPTURE_WIDTH  = _env("LIVE_CAPTURE_WIDTH", 640)
 CAPTURE_HEIGHT = _env("LIVE_CAPTURE_HEIGHT", 480)
 PROCESS_EVERY_N_FRAMES = _env("LIVE_PROCESS_EVERY_N_FRAMES", 5)
+# A phone sends only a few frames a second (not 30 like a webcam), so skipping frames
+# would leave it with about one detection every couple of seconds. Look at every frame it sends.
+REMOTE_PROCESS_EVERY_N_FRAMES = _env("LIVE_REMOTE_PROCESS_EVERY_N_FRAMES", 1)
 RUN_SIGNAGE_EVERY_N_INFERENCES = _env("LIVE_SIGNAGE_EVERY_N", 3)
 
 # ---- Persistence policy (prevents flooding road_distresses at ~10 inf/sec) ----

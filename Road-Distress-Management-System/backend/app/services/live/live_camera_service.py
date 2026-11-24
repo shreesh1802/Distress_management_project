@@ -94,6 +94,8 @@ class LiveCameraManager:
         self._raw_frame_count = 0
         self._latest_road_detections: List[Dict[str, Any]] = []
         self._latest_sign_detections: List[Dict[str, Any]] = []
+        # Run detection on every Nth received frame (a webcam: 5; a phone stream: 1 -- see live_config).
+        self._process_every = cfg.PROCESS_EVERY_N_FRAMES
 
     @classmethod
     def instance(cls) -> "LiveCameraManager":
@@ -174,6 +176,7 @@ class LiveCameraManager:
         self._ensure_models_loaded()
         self._reset_session_state("remote_stream", latitude, longitude)
         self.stats["camera_index"] = None
+        self._process_every = max(1, cfg.REMOTE_PROCESS_EVERY_N_FRAMES)
 
         self._running.set()
         self._inference_thread = threading.Thread(
@@ -227,6 +230,7 @@ class LiveCameraManager:
         self._error = None
         self.stats = self._blank_stats()
         self.stats["camera_index"] = camera_index
+        self._process_every = max(1, cfg.PROCESS_EVERY_N_FRAMES)
         self._last_persist.clear()
 
         # Reset capture/detections buffer states
@@ -376,7 +380,7 @@ class LiveCameraManager:
                     # Only grab a new frame if it's newer than the last processed frame AND
                     # respects the configured frame skip cadence
                     if self._latest_raw_frame is not None and self._raw_frame_count > last_processed_frame_idx:
-                        if self._raw_frame_count - last_processed_frame_idx >= cfg.PROCESS_EVERY_N_FRAMES:
+                        if self._raw_frame_count - last_processed_frame_idx >= self._process_every:
                             frame_to_process = self._latest_raw_frame.copy()
                             current_frame_idx = self._raw_frame_count
 

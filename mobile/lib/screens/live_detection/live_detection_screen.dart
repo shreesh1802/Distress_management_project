@@ -53,6 +53,15 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   List<CameraDescription> _availableCameras = [];
   WebSocketChannel? _phoneStreamChannel;
   Timer? _captureTimer;
+  bool _captureBusy = false;
+  // Flow control: the server acknowledges every frame it receives. Once it has done so at
+  // least once, never keep more than _maxFramesInFlight unacknowledged, so a slow connection
+  // lowers the frame rate instead of building a queue of stale pictures. (An older server
+  // never acknowledges, so nothing is held back until the first acknowledgement arrives.)
+  static const int _maxFramesInFlight = 2;
+  int _framesInFlight = 0;
+  bool _serverAcks = false;
+  DateTime _lastAckAt = DateTime.now();
   LiveEvent? _overlayEvent;
   Timer? _overlayClearTimer;
 
@@ -123,6 +132,17 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         enableAudio: false,
       );
       await controller.initialize();
+      // No flash, and keep refocusing on the road as the vehicle moves. Each call is
+      // best-effort: not every phone supports every mode.
+      try {
+        await controller.setFlashMode(FlashMode.off);
+      } catch (_) {}
+      try {
+        await controller.setFocusMode(FocusMode.auto);
+      } catch (_) {}
+      try {
+        await controller.setExposureMode(ExposureMode.auto);
+      } catch (_) {}
       if (!mounted) {
         await controller.dispose();
         return;
@@ -134,8 +154,17 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       // Surface a connection failure the same way the USB path does — this
       // channel is send-only otherwise, so errors are the only thing worth
       // listening for.
+      _framesInFlight = 0;
+      _serverAcks = false;
       channel.stream.listen(
-        (_) {},
+        (dynamic message) {
+          // 0x01 = "frame received"; 0x00 is the periodic keepalive.
+          if (message is List<int> && message.isNotEmpty && message[0] == 1) {
+            _serverAcks = true;
+            _lastAckAt = DateTime.now();
+            if (_framesInFlight > 0) _framesInFlight--;
+          }
+        },
         onError: (Object e) {
           if (mounted) setState(() => _error = 'Camera stream connection lost: $e');
         },
@@ -146,8 +175,10 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         _streamKey++;
       });
       _connectWs();
+      // Check often, but only start a new capture once the previous frame has been
+      // sent (see _captureBusy), so frames go out as fast as the phone can take them.
       _captureTimer = Timer.periodic(
-        const Duration(milliseconds: 400),
+        const Duration(milliseconds: 100),
         (_) => _captureAndSendFrame(),
       );
     } catch (e) {
@@ -164,14 +195,23 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     final controller = _cameraController;
     final channel = _phoneStreamChannel;
     if (controller == null || !controller.value.isInitialized) return;
-    if (controller.value.isTakingPicture || channel == null) return;
+    if (_captureBusy || controller.value.isTakingPicture || channel == null) return;
+    if (_serverAcks && _framesInFlight >= _maxFramesInFlight) {
+      // Wait for the server to catch up. If acknowledgements stop for a while, carry on anyway.
+      if (DateTime.now().difference(_lastAckAt) < const Duration(seconds: 5)) return;
+      _framesInFlight = 0;
+    }
+    _captureBusy = true;
     try {
       final file = await controller.takePicture();
       final bytes = await file.readAsBytes();
       channel.sink.add(bytes);
+      _framesInFlight++;
     } catch (_) {
       // Transient capture failure (e.g. controller mid-disposal on stop) —
       // skip this tick, the next timer fire tries again.
+    } finally {
+      _captureBusy = false;
     }
   }
 

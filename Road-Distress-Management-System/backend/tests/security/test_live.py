@@ -156,6 +156,18 @@ def test_garbage_frames_are_skipped_not_decoded(client, fake_manager, make_user,
     assert calls["frames"] == 0
 
 
+def test_every_received_frame_is_acknowledged_so_the_phone_can_pace_itself(client, fake_manager, make_user):
+    calls, _ = fake_manager
+    _, _, headers = make_user()
+    token = headers["Authorization"].split()[1]
+    with client.websocket_connect("/api/v1/live/phone-stream") as ws:
+        ws.send_text(auth_msg(token))
+        ws.send_bytes(b"not an image at all")          # skipped frames are acknowledged too, or the phone would stall
+        assert ws.receive_bytes() == live_routes.FRAME_ACK
+        ws.send_bytes(jpeg_header(64, 64))
+        assert ws.receive_bytes() == live_routes.FRAME_ACK
+
+
 def test_image_dimensions_parser():
     assert live_routes.image_dimensions(jpeg_header(640, 480)) == (640, 480)
     png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">II", 320, 200) + b"\x00" * 10

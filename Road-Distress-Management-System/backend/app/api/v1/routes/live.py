@@ -47,6 +47,7 @@ MJPEG_BOUNDARY = "frame"
 # Limits for frames pushed by remote clients (override with env vars if a camera needs more).
 MAX_FRAME_BYTES = int(os.getenv("LIVE_MAX_FRAME_BYTES", str(4 * 1024 * 1024)))   # 4 MB per JPEG
 MAX_FRAME_DIMENSION = int(os.getenv("LIVE_MAX_FRAME_DIMENSION", "4096"))          # px, width and height
+FRAME_ACK = b"\x01"   # sent back for every frame the server has received
 WS_MESSAGE_TOO_BIG = 1009
 WS_POLICY_VIOLATION = 1008
 
@@ -180,10 +181,15 @@ async def phone_stream(websocket: WebSocket) -> None:
                 return
             dims = image_dimensions(data)
             if dims is None or dims[0] <= 0 or dims[1] <= 0:
+                await websocket.send_bytes(FRAME_ACK)
                 continue  # not a JPEG/PNG we can vet: skip it, never feed it to the decoder
             if dims[0] > MAX_FRAME_DIMENSION or dims[1] > MAX_FRAME_DIMENSION:
                 await websocket.close(code=WS_POLICY_VIOLATION, reason="Frame dimensions too large")
                 return
+            # Tell the client this frame has arrived. It uses these acknowledgements to avoid sending
+            # faster than the connection can carry (otherwise frames queue up and detection runs on
+            # pictures that are seconds old). The keepalive above sends a zero byte; an ack is a one byte.
+            await websocket.send_bytes(FRAME_ACK)
             frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
             if frame is not None:
                 manager.push_frame(frame)
