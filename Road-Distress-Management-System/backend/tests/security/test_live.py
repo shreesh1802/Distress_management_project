@@ -168,6 +168,40 @@ def test_every_received_frame_is_acknowledged_so_the_phone_can_pace_itself(clien
         assert ws.receive_bytes() == live_routes.FRAME_ACK
 
 
+def test_phone_location_messages_set_the_detection_position(client, fake_manager, make_user, monkeypatch):
+    manager = LiveCameraManager.instance()
+    monkeypatch.setattr(manager, "_device_fix", None)
+    _, _, headers = make_user()
+    token = headers["Authorization"].split()[1]
+    with client.websocket_connect("/api/v1/live/phone-stream") as ws:
+        ws.send_text(auth_msg(token))
+        for bad in ("not json", '{"type":"location","lat":999,"lon":1}', '{"type":"location","lat":true,"lon":1}',
+                    '{"type":"other","lat":1,"lon":1}', '{"type":"location","lat":"28.6","lon":"77.2"}'):
+            ws.send_text(bad)
+        ws.send_text(json.dumps({"type": "location", "lat": 28.6139, "lon": 77.2090, "accuracy": 5}))
+        ws.send_bytes(jpeg_header(64, 64))                # location messages get no ack; the frame does
+        assert ws.receive_bytes() == live_routes.FRAME_ACK
+    assert manager._device_fix[:3] == (28.6139, 77.2090, 5.0)
+    assert manager._detection_position() == (28.6139, 77.209)
+    assert manager.stats["gps_source"] == "device"
+
+
+def test_stale_or_missing_phone_location_falls_back_to_the_default_position(monkeypatch):
+    from app.services.live import live_camera_service as svc
+    manager = LiveCameraManager.instance()
+    monkeypatch.setattr(manager, "base_lat", 30.0)
+    monkeypatch.setattr(manager, "base_lon", 76.0)
+    monkeypatch.setattr(manager, "_device_fix", None)
+    lat, lon = manager._detection_position()
+    assert abs(lat - 30.0) <= 0.0005 and abs(lon - 76.0) <= 0.0005
+    assert manager.stats["gps_source"] == "default"
+
+    old = svc.time.monotonic() - (svc.cfg.DEVICE_FIX_MAX_AGE_SEC + 1)
+    monkeypatch.setattr(manager, "_device_fix", (28.6, 77.2, 5.0, old))
+    lat, lon = manager._detection_position()
+    assert abs(lat - 30.0) <= 0.0005, "a fix older than the max age must not be used"
+
+
 def test_image_dimensions_parser():
     assert live_routes.image_dimensions(jpeg_header(640, 480)) == (640, 480)
     png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + struct.pack(">II", 320, 200) + b"\x00" * 10
