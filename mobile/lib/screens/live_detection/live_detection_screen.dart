@@ -2,15 +2,22 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../../data/field_notes_api.dart';
 import '../../data/live_detection_api.dart';
 import '../../data/reports_api.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/landscape_fullscreen.dart';
+import '../../utils/screen_awake.dart';
+import '../../utils/voice_note_player.dart';
+import '../../utils/voice_recorder.dart';
 import '../reports/widgets/pavement_type_selector.dart';
 import '../reports/widgets/report_ready_sheet.dart';
+import 'widgets/field_note_tile.dart';
 import 'widgets/mjpeg_view.dart';
 import 'widgets/real_time_detection_feed.dart';
 
@@ -50,9 +57,39 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   StreamSubscription<dynamic>? _wsSubscription;
 
   CameraController? _cameraController;
+  // The camera picture keeps this key in both the normal card and the full-screen view, so
+  // expanding moves the same picture instead of building a second one (on the web that would
+  // mean a second video view for the one camera).
+  final GlobalKey _previewKey = GlobalKey(debugLabel: 'live-camera-preview');
+
+  // Field notes: snapshots and voice notes the surveyor adds by hand to this session's report.
+  static const int _maxVoiceSeconds = 120;
+  final _notesApi = FieldNotesApi();
+  final _voice = VoiceRecorder();
+  late final VoiceNotePlayer _player = VoiceNotePlayer(
+    onFinished: () {
+      if (mounted) setState(() => _playingNoteId = null);
+    },
+  );
+  List<FieldNote> _notes = [];
+  int? _notesVideoId;
+  bool _recordingVoice = false;
+  bool _savingNote = false;
+  int _voiceSeconds = 0;
+  Timer? _voiceTicker;
+  int? _playingNoteId;
   List<CameraDescription> _availableCameras = [];
   WebSocketChannel? _phoneStreamChannel;
   Timer? _captureTimer;
+  bool _captureBusy = false;
+  // Flow control: the server acknowledges every frame it receives. Once it has done so at
+  // least once, never keep more than _maxFramesInFlight unacknowledged, so a slow connection
+  // lowers the frame rate instead of building a queue of stale pictures. (An older server
+  // never acknowledges, so nothing is held back until the first acknowledgement arrives.)
+  static const int _maxFramesInFlight = 2;
+  int _framesInFlight = 0;
+  bool _serverAcks = false;
+  DateTime _lastAckAt = DateTime.now();
   LiveEvent? _overlayEvent;
   Timer? _overlayClearTimer;
 
@@ -73,6 +110,140 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         _status = status;
       });
       _connectWs();
+      _loadNotes(status.sessionVideoId);
+    }
+  }
+
+  void _toast(String message, {bool error = false}) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: error ? const Color(0xFFB91C1C) : null,
+        duration: const Duration(seconds: 3),
+      ));
+  }
+
+  Future<void> _loadNotes([int? videoId]) async {
+    final id = videoId ?? _notesVideoId ?? _status?.sessionVideoId;
+    if (id == null) return;
+    try {
+      final list = await _notesApi.list(id);
+      if (!mounted) return;
+      setState(() {
+        _notesVideoId = id;
+        _notes = list;
+      });
+    } catch (_) {
+      // The list is a convenience; a failed refresh must not disturb detection.
+    }
+  }
+
+  /// Saves the newest camera picture to this session's report.
+  Future<void> _addSnapshot() async {
+    if (!_running || _savingNote) return;
+    setState(() => _savingNote = true);
+    try {
+      final note = await _notesApi.addToLiveSession(snapshot: true);
+      await _loadNotes(note.videoId);
+      _toast('Snapshot added to the report');
+    } on FieldNotesException catch (e) {
+      _toast(e.message, error: true);
+    } finally {
+      if (mounted) setState(() => _savingNote = false);
+    }
+  }
+
+  /// Starts a voice note, or (when one is being recorded) stops it and saves it to the report.
+  Future<void> _toggleVoiceNote() async {
+    if (_recordingVoice) {
+      await _finishVoiceNote();
+      return;
+    }
+    if (!_running || _savingNote) return;
+    try {
+      if (!await _voice.start()) {
+        _toast('Allow the microphone to record a voice note.', error: true);
+        return;
+      }
+    } catch (_) {
+      _toast('Could not start the microphone.', error: true);
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _recordingVoice = true;
+      _voiceSeconds = 0;
+    });
+    _voiceTicker?.cancel();
+    _voiceTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _voiceSeconds++);
+      if (_voiceSeconds >= _maxVoiceSeconds) _finishVoiceNote();
+    });
+  }
+
+  Future<void> _finishVoiceNote() async {
+    _voiceTicker?.cancel();
+    _voiceTicker = null;
+    if (!_recordingVoice) return;
+    setState(() {
+      _recordingVoice = false;
+      _savingNote = true;
+    });
+    try {
+      final clip = await _voice.stop();
+      if (clip == null) {
+        _toast('Nothing was recorded.', error: true);
+        return;
+      }
+      final note = await _notesApi.addToLiveSession(
+        audio: clip.bytes,
+        audioFilename: clip.filename,
+        audioSeconds: clip.seconds,
+      );
+      await _loadNotes(note.videoId);
+      _toast('Voice note added to the report');
+    } on FieldNotesException catch (e) {
+      _toast(e.message, error: true);
+    } catch (_) {
+      _toast('Could not save the voice note.', error: true);
+    } finally {
+      if (mounted) setState(() => _savingNote = false);
+    }
+  }
+
+  Future<void> _deleteNote(FieldNote note) async {
+    try {
+      await _notesApi.delete(note.id);
+      if (!mounted) return;
+      if (_playingNoteId == note.id) _player.stop();
+      setState(() {
+        _notes = _notes.where((n) => n.id != note.id).toList();
+        if (_playingNoteId == note.id) _playingNoteId = null;
+      });
+    } on FieldNotesException catch (e) {
+      _toast(e.message, error: true);
+    }
+  }
+
+  Future<void> _togglePlayNote(FieldNote note) async {
+    final url = note.audioUrl;
+    if (url == null) return;
+    if (_playingNoteId == note.id) {
+      _player.stop();
+      setState(() => _playingNoteId = null);
+      return;
+    }
+    // No `await` before the player starts: browsers only allow sound that starts straight from the tap.
+    setState(() => _playingNoteId = note.id);
+    try {
+      await _player.play(url);
+    } on VoicePlaybackException catch (e) {
+      if (mounted) setState(() => _playingNoteId = null);
+      _toast(e.message, error: true);
     }
   }
 
@@ -80,6 +251,8 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     setState(() {
       _starting = true;
       _error = null;
+      _notes = [];
+      _notesVideoId = null;
     });
     try {
       await _api.start(cameraIndex: _cameraIndex);
@@ -105,6 +278,8 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     setState(() {
       _starting = true;
       _error = null;
+      _notes = [];
+      _notesVideoId = null;
     });
     try {
       if (_availableCameras.isEmpty) {
@@ -123,6 +298,17 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         enableAudio: false,
       );
       await controller.initialize();
+      // No flash, and keep refocusing on the road as the vehicle moves. Each call is
+      // best-effort: not every phone supports every mode.
+      try {
+        await controller.setFlashMode(FlashMode.off);
+      } catch (_) {}
+      try {
+        await controller.setFocusMode(FocusMode.auto);
+      } catch (_) {}
+      try {
+        await controller.setExposureMode(ExposureMode.auto);
+      } catch (_) {}
       if (!mounted) {
         await controller.dispose();
         return;
@@ -134,8 +320,17 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       // Surface a connection failure the same way the USB path does — this
       // channel is send-only otherwise, so errors are the only thing worth
       // listening for.
+      _framesInFlight = 0;
+      _serverAcks = false;
       channel.stream.listen(
-        (_) {},
+        (dynamic message) {
+          // 0x01 = "frame received"; 0x00 is the periodic keepalive.
+          if (message is List<int> && message.isNotEmpty && message[0] == 1) {
+            _serverAcks = true;
+            _lastAckAt = DateTime.now();
+            if (_framesInFlight > 0) _framesInFlight--;
+          }
+        },
         onError: (Object e) {
           if (mounted) setState(() => _error = 'Camera stream connection lost: $e');
         },
@@ -145,9 +340,12 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         _running = true;
         _streamKey++;
       });
+      keepScreenAwake(true);
       _connectWs();
+      // Check often, but only start a new capture once the previous frame has been
+      // sent (see _captureBusy), so frames go out as fast as the phone can take them.
       _captureTimer = Timer.periodic(
-        const Duration(milliseconds: 400),
+        const Duration(milliseconds: 100),
         (_) => _captureAndSendFrame(),
       );
     } catch (e) {
@@ -164,18 +362,28 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     final controller = _cameraController;
     final channel = _phoneStreamChannel;
     if (controller == null || !controller.value.isInitialized) return;
-    if (controller.value.isTakingPicture || channel == null) return;
+    if (_captureBusy || controller.value.isTakingPicture || channel == null) return;
+    if (_serverAcks && _framesInFlight >= _maxFramesInFlight) {
+      // Wait for the server to catch up. If acknowledgements stop for a while, carry on anyway.
+      if (DateTime.now().difference(_lastAckAt) < const Duration(seconds: 5)) return;
+      _framesInFlight = 0;
+    }
+    _captureBusy = true;
     try {
       final file = await controller.takePicture();
       final bytes = await file.readAsBytes();
       channel.sink.add(bytes);
+      _framesInFlight++;
     } catch (_) {
       // Transient capture failure (e.g. controller mid-disposal on stop) —
       // skip this tick, the next timer fire tries again.
+    } finally {
+      _captureBusy = false;
     }
   }
 
   Future<void> _stopThisDeviceCamera() async {
+    keepScreenAwake(false);
     _captureTimer?.cancel();
     _captureTimer = null;
     _overlayClearTimer?.cancel();
@@ -199,6 +407,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   }
 
   Future<void> _stop() async {
+    if (_recordingVoice) await _finishVoiceNote();
     if (_source == LiveSource.thisDeviceCamera) {
       await _stopThisDeviceCamera();
       return;
@@ -224,7 +433,10 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
           final statusJson = data['status'] as Map<String, dynamic>?;
           if (statusJson != null) {
             _status = LiveStatus.fromJson(statusJson);
-            if (!_status!.running) _running = false;
+            if (!_status!.running) {
+              _running = false;
+              keepScreenAwake(false);
+            }
             if (_status!.error != null) _error = _status!.error;
           }
           final eventsJson = data['events'] as List<dynamic>?;
@@ -256,18 +468,38 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     );
   }
 
+  /// Full screen: landscape, system bars hidden, dashboard menus hidden (see landscape_fullscreen.dart).
+  void _setFullscreen(bool value) {
+    setState(() => _isFullscreen = value);
+    if (value) {
+      enterLandscapeFullscreen();
+    } else {
+      exitLandscapeFullscreen();
+    }
+  }
+
   void _acknowledgeAlert(int seq) {
     setState(() => _events.removeWhere((e) => e.seq == seq));
   }
 
   @override
   void dispose() {
+    keepScreenAwake(false);
+    if (_isFullscreen) {
+      // Leaving this screen while full screen: give the phone its normal rotation and bars back.
+      WidgetsBinding.instance.addPostFrameCallback((_) => exitLandscapeFullscreen());
+    }
     _wsSubscription?.cancel();
     _wsChannel?.sink.close();
     _captureTimer?.cancel();
     _overlayClearTimer?.cancel();
     _phoneStreamChannel?.sink.close();
     _cameraController?.dispose();
+    _voiceTicker?.cancel();
+    _voice.cancel();
+    _voice.dispose();
+    _player.dispose();
+    _notesApi.dispose();
     _api.dispose();
     _cameraIndexController.dispose();
     super.dispose();
@@ -306,12 +538,13 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       onStart: _start,
       onStop: _stop,
       isFullscreen: _isFullscreen,
-      onToggleFullscreen: () => setState(() => _isFullscreen = !_isFullscreen),
+      onToggleFullscreen: () => _setFullscreen(!_isFullscreen),
       source: _source,
       onSourceChange: _running
           ? null
           : (s) => setState(() => _source = s),
       cameraController: _cameraController,
+      previewKey: _previewKey,
       overlayEvent: _overlayEvent,
       onStartThisDeviceCamera: _startThisDeviceCamera,
     );
@@ -327,7 +560,34 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     // collapsing the page down to just the feed card rather than trying to
     // visually escape above the dashboard shell/sidebar.
     if (_isFullscreen) {
-      return feedCard;
+      // True full screen: just the camera picture with a few floating controls. The phone's
+      // Back button leaves full screen first instead of leaving this screen.
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _setFullscreen(false);
+        },
+        child: _LiveFullscreenView(
+          source: _source,
+          running: _running,
+          starting: _starting,
+          status: _status,
+          error: _error,
+          streamUrl: _api.streamUrlFor(_streamKey),
+          cameraController: _cameraController,
+          previewKey: _previewKey,
+          overlayEvent: _overlayEvent,
+          latestEvent: _events.isEmpty ? null : _events.first,
+          onStart: _source == LiveSource.usbCamera ? _start : _startThisDeviceCamera,
+          onStop: _stop,
+          onExit: () => _setFullscreen(false),
+          recordingVoice: _recordingVoice,
+          voiceSeconds: _voiceSeconds,
+          savingNote: _savingNote,
+          onSnapshot: _addSnapshot,
+          onVoice: _toggleVoiceNote,
+        ),
+      );
     }
 
     return Column(
@@ -336,8 +596,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         _Header(
           running: _running,
           isFullscreen: _isFullscreen,
-          onToggleFullscreen: () =>
-              setState(() => _isFullscreen = !_isFullscreen),
+          onToggleFullscreen: () => _setFullscreen(!_isFullscreen),
         ),
         const SizedBox(height: 32),
         LayoutBuilder(
@@ -373,6 +632,21 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
           },
         ),
         const SizedBox(height: 32),
+        if (_running || _notes.isNotEmpty) ...[
+          _FieldNotesCard(
+            notes: _notes,
+            running: _running,
+            recording: _recordingVoice,
+            voiceSeconds: _voiceSeconds,
+            saving: _savingNote,
+            playingNoteId: _playingNoteId,
+            onSnapshot: _addSnapshot,
+            onVoice: _toggleVoiceNote,
+            onDelete: _deleteNote,
+            onPlay: _togglePlayNote,
+          ),
+          const SizedBox(height: 32),
+        ],
         RealTimeDetectionFeed(detections: _feedDetections),
         const SizedBox(height: 32),
         _DetectionHistoryCard(events: _events),
@@ -558,6 +832,7 @@ class _CameraFeedCard extends StatelessWidget {
     required this.source,
     required this.onSourceChange,
     required this.cameraController,
+    required this.previewKey,
     required this.overlayEvent,
     required this.onStartThisDeviceCamera,
   });
@@ -575,6 +850,7 @@ class _CameraFeedCard extends StatelessWidget {
   final LiveSource source;
   final ValueChanged<LiveSource>? onSourceChange;
   final CameraController? cameraController;
+  final GlobalKey previewKey;
   final LiveEvent? overlayEvent;
   final VoidCallback onStartThisDeviceCamera;
 
@@ -636,7 +912,22 @@ class _CameraFeedCard extends StatelessWidget {
             aspectRatio: isFullscreen ? 16 / 7 : 16 / 9,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: _buildPreview(),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildPreview(),
+                  if (source == LiveSource.thisDeviceCamera && running)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: _OverlayIconButton(
+                        icon: LucideIcons.maximize2,
+                        tooltip: 'Full screen',
+                        onTap: onToggleFullscreen,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 20),
@@ -714,27 +1005,59 @@ class _CameraFeedCard extends StatelessWidget {
     );
   }
 
-  Widget _buildPreview() {
-    if (source == LiveSource.usbCamera) {
-      return running
-          ? MjpegView(url: streamUrl, onError: (_) {})
-          : const _StreamOfflineState(sourceLabel: 'USB camera');
-    }
-    final controller = cameraController;
-    if (!running || controller == null || !controller.value.isInitialized) {
-      return const _StreamOfflineState(sourceLabel: 'this device\'s camera');
-    }
-    return AspectRatio(
-      aspectRatio: controller.value.aspectRatio,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          CameraPreview(controller),
-          CustomPaint(painter: _BoxOverlayPainter(event: overlayEvent)),
-        ],
-      ),
-    );
+  Widget _buildPreview() => _buildLivePreview(
+        source: source,
+        running: running,
+        streamUrl: streamUrl,
+        cameraController: cameraController,
+        previewKey: previewKey,
+        overlayEvent: overlayEvent,
+      );
+}
+
+/// Width / height of the camera picture, or a sensible default when the camera has not reported a
+/// size yet (some browsers report 0 x 0 for a moment, which would otherwise give a ratio that is
+/// not a number and break the layout).
+@visibleForTesting
+double safeAspectRatio(double raw) => raw.isFinite && raw > 0 ? raw : 16 / 9;
+
+double _previewAspectRatio(CameraController controller) {
+  try {
+    return safeAspectRatio(controller.value.aspectRatio);
+  } catch (_) {
+    return 16 / 9;
   }
+}
+
+/// The live picture (the server's stream for a USB camera, or this device's own camera with the
+/// latest detection box on top). Shared by the normal card and the full-screen view.
+Widget _buildLivePreview({
+  required LiveSource source,
+  required bool running,
+  required String streamUrl,
+  required CameraController? cameraController,
+  required GlobalKey previewKey,
+  required LiveEvent? overlayEvent,
+}) {
+  if (source == LiveSource.usbCamera) {
+    return running
+        ? MjpegView(url: streamUrl, onError: (_) {})
+        : const _StreamOfflineState(sourceLabel: 'USB camera');
+  }
+  final controller = cameraController;
+  if (!running || controller == null || !controller.value.isInitialized) {
+    return const _StreamOfflineState(sourceLabel: 'this device\'s camera');
+  }
+  return AspectRatio(
+    aspectRatio: _previewAspectRatio(controller),
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        KeyedSubtree(key: previewKey, child: CameraPreview(controller)),
+        CustomPaint(painter: _BoxOverlayPainter(event: overlayEvent)),
+      ],
+    ),
+  );
 }
 
 class _SourceToggle extends StatelessWidget {
@@ -819,8 +1142,12 @@ class _SourceChip extends StatelessWidget {
 /// the backend (event.frameWidth/frameHeight), not this widget's on-screen
 /// size, so they're scaled proportionally here.
 class _BoxOverlayPainter extends CustomPainter {
-  _BoxOverlayPainter({required this.event});
+  _BoxOverlayPainter({required this.event, this.cover = false});
   final LiveEvent? event;
+
+  /// The picture under this overlay fills its box and crops the overflow (like a video call),
+  /// instead of being stretched to fit it exactly.
+  final bool cover;
 
   static const _severityColors = {
     'critical': Color(0xFFEF4444),
@@ -839,13 +1166,23 @@ class _BoxOverlayPainter extends CustomPainter {
       return;
     }
     final color = _severityColors[ev.severity.toLowerCase()] ?? AppColors.accentBlue;
-    final scaleX = size.width / fw;
-    final scaleY = size.height / fh;
+    var scaleX = size.width / fw;
+    var scaleY = size.height / fh;
+    var offsetX = 0.0;
+    var offsetY = 0.0;
+    if (cover) {
+      // One scale for both directions (the larger one fills the box); centre the cropped picture.
+      final scale = scaleX > scaleY ? scaleX : scaleY;
+      scaleX = scale;
+      scaleY = scale;
+      offsetX = (size.width - fw * scale) / 2;
+      offsetY = (size.height - fh * scale) / 2;
+    }
     final rect = Rect.fromLTRB(
-      box[0] * scaleX,
-      box[1] * scaleY,
-      box[2] * scaleX,
-      box[3] * scaleY,
+      box[0] * scaleX + offsetX,
+      box[1] * scaleY + offsetY,
+      box[2] * scaleX + offsetX,
+      box[3] * scaleY + offsetY,
     );
 
     canvas.drawRect(
@@ -869,7 +1206,8 @@ class _BoxOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _BoxOverlayPainter oldDelegate) => oldDelegate.event != event;
+  bool shouldRepaint(covariant _BoxOverlayPainter oldDelegate) =>
+      oldDelegate.event != event || oldDelegate.cover != cover;
 }
 
 class _StreamOfflineState extends StatelessWidget {
@@ -1712,6 +2050,457 @@ class _PremiumCard extends StatelessWidget {
         ],
       ),
       child: child,
+    );
+  }
+}
+
+/// A small round button that sits on top of the camera picture.
+class _OverlayIconButton extends StatelessWidget {
+  const _OverlayIconButton({required this.icon, required this.tooltip, required this.onTap, this.color});
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: color ?? const Color(0x99000000),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(icon, size: 18, color: Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small dark label that sits on top of the camera picture.
+class _OverlayChip extends StatelessWidget {
+  const _OverlayChip(this.text, {this.color = Colors.white});
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0x99000000),
+        borderRadius: BorderRadius.circular(9999),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+      ),
+    );
+  }
+}
+
+/// Live detection in full screen, like a video call: the camera picture covers the whole screen
+/// (with the detection box and its label drawn on it) and nothing else shows until you tap the
+/// picture. A tap brings up the exit button, the live status and the start / stop button for a few
+/// seconds.
+class _LiveFullscreenView extends StatefulWidget {
+  const _LiveFullscreenView({
+    required this.source,
+    required this.running,
+    required this.starting,
+    required this.status,
+    required this.error,
+    required this.streamUrl,
+    required this.cameraController,
+    required this.previewKey,
+    required this.overlayEvent,
+    required this.latestEvent,
+    required this.onStart,
+    required this.onStop,
+    required this.onExit,
+    required this.recordingVoice,
+    required this.voiceSeconds,
+    required this.savingNote,
+    required this.onSnapshot,
+    required this.onVoice,
+  });
+
+  final LiveSource source;
+  final bool running;
+  final bool starting;
+  final LiveStatus? status;
+  final String? error;
+  final String streamUrl;
+  final CameraController? cameraController;
+  final GlobalKey previewKey;
+  final LiveEvent? overlayEvent;
+  final LiveEvent? latestEvent;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
+  final VoidCallback onExit;
+  final bool recordingVoice;
+  final int voiceSeconds;
+  final bool savingNote;
+  final VoidCallback onSnapshot;
+  final VoidCallback onVoice;
+
+  @override
+  State<_LiveFullscreenView> createState() => _LiveFullscreenViewState();
+}
+
+class _LiveFullscreenViewState extends State<_LiveFullscreenView> {
+  static const _hideAfter = Duration(seconds: 4);
+  bool _showControls = true;
+  Timer? _hideTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleHide();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LiveFullscreenView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Just started: show the controls for a moment, then get out of the way.
+    if (!oldWidget.running && widget.running) _reveal();
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(_hideAfter, () {
+      if (mounted) setState(() => _showControls = false);
+    });
+  }
+
+  void _reveal() {
+    setState(() => _showControls = true);
+    _scheduleHide();
+  }
+
+  void _toggleControls() {
+    if (_showControls) {
+      _hideTimer?.cancel();
+      setState(() => _showControls = false);
+    } else {
+      _reveal();
+    }
+  }
+
+  bool get _cameraReady {
+    final c = widget.cameraController;
+    return widget.source == LiveSource.thisDeviceCamera &&
+        widget.running &&
+        c != null &&
+        c.value.isInitialized;
+  }
+
+  Widget _picture() {
+    final controller = widget.cameraController;
+    if (_cameraReady && controller != null && kIsWeb) {
+      // In a browser the video element already crops itself to fill whatever box it is given
+      // (object-fit: cover), so give it the whole screen and add no scaling around it. The
+      // detection box is mapped onto the cropped picture by the painter (cover: true).
+      return SizedBox.expand(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            KeyedSubtree(key: widget.previewKey, child: CameraPreview(controller)),
+            CustomPaint(painter: _BoxOverlayPainter(event: widget.overlayEvent, cover: true)),
+          ],
+        ),
+      );
+    }
+    if (_cameraReady && controller != null) {
+      // Installed app: cover the whole screen (crop the edges if the shapes differ). The detection
+      // box is drawn inside the same scaled box, so it stays exactly on what it marks.
+      return SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: _previewAspectRatio(controller) * 1000,
+            height: 1000,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                KeyedSubtree(key: widget.previewKey, child: CameraPreview(controller)),
+                CustomPaint(painter: _BoxOverlayPainter(event: widget.overlayEvent)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    final preview = _buildLivePreview(
+      source: widget.source,
+      running: widget.running,
+      streamUrl: widget.streamUrl,
+      cameraController: controller,
+      previewKey: widget.previewKey,
+      overlayEvent: widget.overlayEvent,
+    );
+    if (widget.source == LiveSource.usbCamera && widget.running) {
+      return Center(child: AspectRatio(aspectRatio: 16 / 9, child: preview));
+    }
+    return SizedBox.expand(child: preview);
+  }
+
+  Widget _controls() {
+    final s = widget.status;
+    final detection =
+        widget.overlayEvent ?? (widget.source == LiveSource.usbCamera ? widget.latestEvent : null);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned(
+          top: 8,
+          left: 8,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _OverlayIconButton(
+                icon: LucideIcons.minimize2,
+                tooltip: 'Exit full screen',
+                onTap: widget.onExit,
+              ),
+              const SizedBox(width: 8),
+              _OverlayChip(
+                widget.running ? 'LIVE' : 'IDLE',
+                color: widget.running ? const Color(0xFFF87171) : Colors.white70,
+              ),
+            ],
+          ),
+        ),
+        if (widget.running && s != null)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: _OverlayChip(
+              '${(s.inferenceFps ?? 0).toStringAsFixed(1)} detections/s  ·  ${s.inferences} checked',
+            ),
+          ),
+        if (widget.running && detection != null)
+          Positioned(
+            left: 8,
+            bottom: 8,
+            child: _OverlayChip(
+              '${detection.className}  ·  ${detection.severity}  ·  ${(detection.confidence * 100).round()}%',
+              color: const Color(0xFFFBBF24),
+            ),
+          ),
+        if (widget.running)
+          Positioned(
+            right: 8,
+            bottom: 56,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _OverlayIconButton(
+                  icon: LucideIcons.camera,
+                  tooltip: 'Add a snapshot to the report',
+                  onTap: widget.savingNote ? () {} : widget.onSnapshot,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.recordingVoice) ...[
+                      _OverlayChip(
+                        'REC  ${_clock(widget.voiceSeconds)}',
+                        color: const Color(0xFFF87171),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    _OverlayIconButton(
+                      icon: widget.recordingVoice ? LucideIcons.square : LucideIcons.mic,
+                      tooltip: widget.recordingVoice
+                          ? 'Stop and add the voice note to the report'
+                          : 'Record a voice note for the report',
+                      onTap: widget.savingNote ? () {} : widget.onVoice,
+                      color: widget.recordingVoice ? const Color(0xCCDC2626) : null,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        Positioned(
+          right: 8,
+          bottom: 8,
+          child: widget.running
+              ? _SolidButton(
+                  label: 'Stop',
+                  icon: LucideIcons.square,
+                  color: AppColors.danger,
+                  onTap: widget.onStop,
+                )
+              : _SolidButton(
+                  label: widget.starting ? 'Starting...' : 'Start',
+                  icon: widget.starting ? null : LucideIcons.play,
+                  loading: widget.starting,
+                  color: AppColors.success,
+                  onTap: widget.starting ? null : widget.onStart,
+                ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Until it is running there is nothing to look at, so the controls stay (you need Start).
+    // (and keep them while a voice note is being recorded, so it can be stopped)
+    final visible = !widget.running || _showControls || widget.recordingVoice;
+    return ColoredBox(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _toggleControls,
+            child: _picture(),
+          ),
+          IgnorePointer(
+            ignoring: !visible,
+            child: AnimatedOpacity(
+              opacity: visible ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: _controls(),
+            ),
+          ),
+          if (widget.error != null)
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: 56,
+              child: IgnorePointer(
+                child: Text(
+                  widget.error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: Color(0xFFF87171)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+String _clock(int totalSeconds) {
+  final m = totalSeconds ~/ 60;
+  final sec = totalSeconds % 60;
+  return '$m:${sec.toString().padLeft(2, '0')}';
+}
+
+/// Snapshots and voice notes the surveyor adds by hand, for places the camera detection missed. They are
+/// saved to this session's report (PDF and Excel).
+class _FieldNotesCard extends StatelessWidget {
+  const _FieldNotesCard({
+    required this.notes,
+    required this.running,
+    required this.recording,
+    required this.voiceSeconds,
+    required this.saving,
+    required this.playingNoteId,
+    required this.onSnapshot,
+    required this.onVoice,
+    required this.onDelete,
+    required this.onPlay,
+  });
+
+  final List<FieldNote> notes;
+  final bool running;
+  final bool recording;
+  final int voiceSeconds;
+  final bool saving;
+  final int? playingNoteId;
+  final VoidCallback onSnapshot;
+  final VoidCallback onVoice;
+  final ValueChanged<FieldNote> onDelete;
+  final ValueChanged<FieldNote> onPlay;
+
+  @override
+  Widget build(BuildContext context) {
+    return _PremiumCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(LucideIcons.clipboardList, size: 16, color: AppColors.accentBlue),
+              const SizedBox(width: 12),
+              Text(
+                notes.isEmpty ? 'Field Notes' : 'Field Notes (${notes.length})',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryText),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Something the camera missed? Add a snapshot or a voice note. They are saved to this '
+            'session\'s report.',
+            style: TextStyle(fontSize: 12.5, color: AppColors.secondaryText),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _SolidButton(
+                label: 'Add snapshot',
+                icon: LucideIcons.camera,
+                color: AppColors.accentBlue,
+                onTap: running && !saving && !recording ? onSnapshot : null,
+              ),
+              _SolidButton(
+                label: recording ? 'Stop  ${_clock(voiceSeconds)}' : 'Record voice note',
+                icon: recording ? LucideIcons.square : LucideIcons.mic,
+                color: recording ? AppColors.danger : AppColors.success,
+                onTap: running && !saving ? onVoice : null,
+              ),
+              if (saving)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              if (!running && notes.isNotEmpty)
+                const Text(
+                  'Start live detection to add more notes.',
+                  style: TextStyle(fontSize: 12, color: AppColors.secondaryText),
+                ),
+            ],
+          ),
+          if (notes.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(height: 1, color: AppColors.cardBorder),
+            for (final note in notes.reversed)
+              FieldNoteTile(
+                note: note,
+                playing: playingNoteId == note.id,
+                onDelete: () => onDelete(note),
+                onPlay: () => onPlay(note),
+              ),
+          ],
+        ],
+      ),
     );
   }
 }

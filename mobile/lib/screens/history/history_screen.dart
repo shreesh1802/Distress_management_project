@@ -14,6 +14,7 @@ import 'widgets/history_filters_bar.dart';
 import 'widgets/history_kpi_row.dart';
 import 'widgets/history_sidebar_widgets.dart';
 import 'widgets/inference_run_logs.dart';
+import 'widgets/live_sessions_card.dart';
 import 'widgets/reports_archive_table.dart';
 
 const _kShortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -191,6 +192,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
           failedOps: _videos.where((v) => v.processingStatus.toLowerCase() == 'failed').length,
         ),
         const SizedBox(height: 20),
+        const LiveSessionsCard(),
+        const SizedBox(height: 20),
         HistoryFiltersBar(
           filters: _filters,
           onChanged: (f) => setState(() => _filters = f),
@@ -249,7 +252,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ),
         const SizedBox(height: 20),
         InferenceRunLogs(
-          videos: _videos,
+          // Live sessions have their own section above; this one is for uploaded videos.
+          videos: _videos.where((v) => !isLiveSessionVideo(v)).toList(),
           reports: _reports,
           isLoading: _isLoading,
           onRetry: (v) => _handleRetryVideo(v.id),

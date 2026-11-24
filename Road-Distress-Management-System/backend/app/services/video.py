@@ -168,7 +168,9 @@ def remove_video(db: Session, video_id: int) -> UploadedVideo:
     # 1. Retrieve the metadata first to know the filepath
     video = retrieve_video_metadata(db, video_id=video_id)
     
-    # 2. Delete database record
+    # 2. Delete database record (a live session's field notes go with it, files included)
+    from app.services.observation_service import delete_observations_for_video
+    delete_observations_for_video(db, video_id)
     crud_delete_video(db, video_id=video_id)
 
     # 3. Delete files from disk -- only paths that resolve inside uploads/ are ever touched.

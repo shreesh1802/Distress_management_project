@@ -19,6 +19,7 @@ from app.models.video import UploadedVideo
 from app.models.distress import RoadDistress
 from app.models.maintenance import MaintenanceTask
 from app.services.repair_report_sections import repair_strategy_flowables, row_recommendation
+from app.services.field_notes_report import field_notes_flowables
 from app.services.repair_strategies import BITUMINOUS
 
 logger = logging.getLogger(__name__)
@@ -284,6 +285,9 @@ def generate_video_pdf_report(db: Session, video_id: int, pavement: str = BITUMI
 
     # 7b. Repair strategies per distress type and severity (IRC:82-2015 / IRC:SP:83-2018)
     story.extend(repair_strategy_flowables(distresses, pavement))
+
+    # 7c. Snapshots and voice notes the surveyor added by hand (live sessions)
+    story.extend(field_notes_flowables(db, video_id))
 
     # 8. Detailed Detections Table
     story.append(Paragraph("Detailed Distress & Maintenance Log", h1_style))

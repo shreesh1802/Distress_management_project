@@ -21,7 +21,7 @@ from typing import Optional
 from app.core.config import settings
 
 LINK_TTL_SECONDS = 300
-PURPOSES = ("pdf", "excel", "preview")
+PURPOSES = ("pdf", "excel", "preview", "obs-image", "obs-audio")
 
 _dev_secret = secrets.token_bytes(32)
 

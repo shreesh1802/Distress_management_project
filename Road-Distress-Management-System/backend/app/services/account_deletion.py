@@ -18,6 +18,7 @@ from app.models.asset import ProjectAsset
 from app.models.audit import SafetyAudit
 from app.models.auth import AuthToken
 from app.models.maintenance import MaintenanceTask
+from app.models.observation import SessionObservation
 from app.models.project import Project, ProjectMember
 from app.models.report import Report
 from app.models.user import User
@@ -82,6 +83,7 @@ def delete_account(db: Session, user: User) -> None:
             (UploadedVideo, UploadedVideo.uploader_id),
             (MaintenanceTask, MaintenanceTask.assigned_to),
             (Report, Report.generated_by),
+            (SessionObservation, SessionObservation.created_by_id),
         ):
             db.execute(update(model).where(column == user_id).values({column.key: None}))
 

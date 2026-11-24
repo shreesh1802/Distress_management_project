@@ -27,15 +27,22 @@ import logging
 import os
 import struct
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import case, func
+from sqlalchemy.orm import Session
 
 from app.core.ws_auth import authenticate_websocket
+from app.db.session import get_db
+from app.models.distress import RoadDistress
+from app.models.observation import SessionObservation
+from app.models.video import UploadedVideo
+from app.schemas.live_session import LiveSessionSummary
 from app.services.live.live_camera_service import LiveCameraManager
 
 logger = logging.getLogger(__name__)
@@ -47,6 +54,7 @@ MJPEG_BOUNDARY = "frame"
 # Limits for frames pushed by remote clients (override with env vars if a camera needs more).
 MAX_FRAME_BYTES = int(os.getenv("LIVE_MAX_FRAME_BYTES", str(4 * 1024 * 1024)))   # 4 MB per JPEG
 MAX_FRAME_DIMENSION = int(os.getenv("LIVE_MAX_FRAME_DIMENSION", "4096"))          # px, width and height
+FRAME_ACK = b"\x01"   # sent back for every frame the server has received
 WS_MESSAGE_TOO_BIG = 1009
 WS_POLICY_VIOLATION = 1008
 
@@ -180,10 +188,15 @@ async def phone_stream(websocket: WebSocket) -> None:
                 return
             dims = image_dimensions(data)
             if dims is None or dims[0] <= 0 or dims[1] <= 0:
+                await websocket.send_bytes(FRAME_ACK)
                 continue  # not a JPEG/PNG we can vet: skip it, never feed it to the decoder
             if dims[0] > MAX_FRAME_DIMENSION or dims[1] > MAX_FRAME_DIMENSION:
                 await websocket.close(code=WS_POLICY_VIOLATION, reason="Frame dimensions too large")
                 return
+            # Tell the client this frame has arrived. It uses these acknowledgements to avoid sending
+            # faster than the connection can carry (otherwise frames queue up and detection runs on
+            # pictures that are seconds old). The keepalive above sends a zero byte; an ack is a one byte.
+            await websocket.send_bytes(FRAME_ACK)
             frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
             if frame is not None:
                 manager.push_frame(frame)
@@ -206,6 +219,50 @@ async def phone_stream(websocket: WebSocket) -> None:
             keepalive_task.cancel()
         if owns_session:
             manager.stop()
+
+
+@router.get("/sessions", response_model=List[LiveSessionSummary])
+def list_live_sessions(
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> List[LiveSessionSummary]:
+    """Past live detection sessions, newest first, with what each one found and the notes added to it."""
+    videos = (
+        db.query(UploadedVideo)
+        .filter(UploadedVideo.processing_stage == "Live session")
+        .order_by(UploadedVideo.id.desc())
+        .limit(limit)
+        .all()
+    )
+    ids = [v.id for v in videos]
+    detections: Dict[int, Tuple[int, int]] = {}
+    notes: Dict[int, int] = {}
+    if ids:
+        serious = case((func.lower(RoadDistress.severity).in_(("high", "critical")), 1), else_=0)
+        for video_id, total, serious_total in (
+            db.query(RoadDistress.video_id, func.count(RoadDistress.id), func.sum(serious))
+            .filter(RoadDistress.video_id.in_(ids))
+            .group_by(RoadDistress.video_id)
+        ):
+            detections[video_id] = (int(total or 0), int(serious_total or 0))
+        for video_id, total in (
+            db.query(SessionObservation.video_id, func.count(SessionObservation.id))
+            .filter(SessionObservation.video_id.in_(ids))
+            .group_by(SessionObservation.video_id)
+        ):
+            notes[video_id] = int(total or 0)
+    return [
+        LiveSessionSummary(
+            id=v.id,
+            name=v.filename,
+            started_at=v.upload_timestamp,
+            duration_seconds=v.processing_duration,
+            detection_count=detections.get(v.id, (0, 0))[0],
+            serious_count=detections.get(v.id, (0, 0))[1],
+            field_note_count=notes.get(v.id, 0),
+        )
+        for v in videos
+    ]
 
 
 @router.get("/status")

@@ -17,6 +17,7 @@ class WebVideoCard extends StatefulWidget {
     required this.onTap,
     this.onToggleFullscreen,
     this.isFullscreen = false,
+    this.expand = false,
     this.onPositionUpdate,
   });
 
@@ -30,6 +31,9 @@ class WebVideoCard extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback? onToggleFullscreen;
   final bool isFullscreen;
+
+  /// Fill whatever height the parent gives (full-screen landscape viewing) instead of a fixed height.
+  final bool expand;
   final ValueChanged<Duration>? onPositionUpdate;
 
   @override
@@ -48,7 +52,7 @@ class _WebVideoCardState extends State<WebVideoCard> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: widget.isFullscreen ? 460 : 260,
+      height: widget.expand ? null : (widget.isFullscreen ? 460 : 260),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: const Color(0xFF111827),
