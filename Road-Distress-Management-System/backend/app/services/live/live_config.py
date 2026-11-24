@@ -31,7 +31,7 @@ SIGNAGE_CKPT      = _env("LIVE_SIGNAGE_CKPT", os.path.join(PROJECT_ROOT, "live_t
 # ---- Inference settings (validated in webcam_test_combined.py) ----
 CONF_THRESH = _env("LIVE_CONF_THRESH", 0.3)     # display threshold
 NMS_THRESH  = _env("LIVE_NMS_THRESH", 0.45)
-TEST_SIZE   = _env("LIVE_TEST_SIZE", 640)
+TEST_SIZE   = _env("LIVE_TEST_SIZE", 256)
 
 # ---- Camera / cadence ----
 DEFAULT_CAMERA_INDEX = _env("LIVE_CAMERA_INDEX", 1)   # 1 = external Lenovo webcam
