@@ -10,6 +10,7 @@ import desktop_drop
 import file_picker
 import firebase_auth
 import firebase_core
+import geolocator_apple
 import google_sign_in_ios
 import package_info_plus
 import record_macos
@@ -25,6 +26,7 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   FilePickerPlugin.register(with: registry.registrar(forPlugin: "FilePickerPlugin"))
   FLTFirebaseAuthPlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseAuthPlugin"))
   FLTFirebaseCorePlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseCorePlugin"))
+  GeolocatorPlugin.register(with: registry.registrar(forPlugin: "GeolocatorPlugin"))
   GoogleSignInPlugin.register(with: registry.registrar(forPlugin: "GoogleSignInPlugin"))
   FPPPackageInfoPlusPlugin.register(with: registry.registrar(forPlugin: "FPPPackageInfoPlusPlugin"))
   RecordMacOsPlugin.register(with: registry.registrar(forPlugin: "RecordMacOsPlugin"))
