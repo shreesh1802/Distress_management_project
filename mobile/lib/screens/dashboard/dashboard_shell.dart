@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../data/live_detection_api.dart' show kApiBaseUrl, setCustomServerUrl;
 import '../../router/app_router.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/landscape_fullscreen.dart';
 import 'widgets/mobile_bottom_nav.dart';
 import 'widgets/mobile_drawer.dart';
 import 'widgets/sidebar.dart';
@@ -75,13 +76,44 @@ void _showServerConfigDialog(BuildContext context) {
 
 /// Direct port of Road-Distress-Management-System/frontend/src/layouts/
 /// DashboardLayout.tsx with adaptive mobile-first navigation.
-class DashboardShell extends StatelessWidget {
+class DashboardShell extends StatefulWidget {
   const DashboardShell({super.key, this.child});
 
   final Widget? child;
 
   @override
+  State<DashboardShell> createState() => _DashboardShellState();
+}
+
+class _DashboardShellState extends State<DashboardShell> {
+  // The screen inside the shell keeps this key whichever layout surrounds it. Without it, switching
+  // to full screen (which swaps the whole layout) would throw the screen away and rebuild it from
+  // scratch -- closing the camera and its connection to the server.
+  final GlobalKey _childKey = GlobalKey(debugLabel: 'dashboard-shell-child');
+
+  Widget _content() => KeyedSubtree(
+        key: _childKey,
+        child: widget.child ?? const _DashboardContentPlaceholder(),
+      );
+
+  @override
   Widget build(BuildContext context) {
+    // Full-screen viewing (see landscape_fullscreen.dart): show only the screen's own content.
+    return ValueListenableBuilder<bool>(
+      valueListenable: gHideDashboardChrome,
+      builder: (context, hideChrome, _) {
+        if (hideChrome) {
+          return Scaffold(
+            backgroundColor: Colors.black,
+            body: SafeArea(child: _content()),
+          );
+        }
+        return _buildWithChrome(context);
+      },
+    );
+  }
+
+  Widget _buildWithChrome(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 700;
@@ -165,7 +197,7 @@ class DashboardShell extends StatelessWidget {
                     child: Center(
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 1600),
-                        child: child ?? const _DashboardContentPlaceholder(),
+                        child: _content(),
                       ),
                     ),
                   ),
@@ -186,7 +218,7 @@ class DashboardShell extends StatelessWidget {
                               child: Center(
                                 child: ConstrainedBox(
                                   constraints: const BoxConstraints(maxWidth: 1600),
-                                  child: child ?? const _DashboardContentPlaceholder(),
+                                  child: _content(),
                                 ),
                               ),
                             ),

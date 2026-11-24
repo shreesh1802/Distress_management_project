@@ -14,6 +14,8 @@ import '../../data/road_distress_api.dart';
 import '../../data/video_api.dart';
 import '../../router/app_router.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/landscape_fullscreen.dart';
+import '../../utils/screen_awake.dart';
 import '../reports/widgets/report_ready_sheet.dart';
 import 'widgets/detections_sidebar.dart';
 import 'widgets/dual_player_panel.dart';
@@ -93,6 +95,11 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
 
   @override
   void dispose() {
+    if (_isFullscreenReview) {
+      // Leaving this screen while full screen: give the phone its normal rotation and bars back.
+      WidgetsBinding.instance.addPostFrameCallback((_) => exitLandscapeFullscreen());
+      keepScreenAwake(false);
+    }
     _syncTimer?.cancel();
     _originalController?.dispose();
     _annotatedController?.dispose();
@@ -417,6 +424,17 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
     }
   }
 
+  /// Full-screen review: landscape, system bars hidden, dashboard menus hidden.
+  void _setFullscreenReview(bool value) {
+    setState(() => _isFullscreenReview = value);
+    keepScreenAwake(value);
+    if (value) {
+      enterLandscapeFullscreen();
+    } else {
+      exitLandscapeFullscreen();
+    }
+  }
+
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (event.logicalKey == LogicalKeyboardKey.space) {
@@ -429,7 +447,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
       _navigateDetection('next');
       return KeyEventResult.handled;
     } else if (event.logicalKey == LogicalKeyboardKey.escape && _isFullscreenReview) {
-      setState(() => _isFullscreenReview = false);
+      _setFullscreenReview(false);
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -437,17 +455,22 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Focus(
+    return PopScope(
+      // The phone's Back button leaves full screen first instead of leaving the screen.
+      canPop: !_isFullscreenReview,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _isFullscreenReview) _setFullscreenReview(false);
+      },
+      child: Focus(
       autofocus: true,
       onKeyEvent: _handleKey,
-      child: Column(
+      child: _isFullscreenReview
+          ? _fullscreenPlayer()
+          : Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _header(),
           const SizedBox(height: 16),
-          if (_isFullscreenReview)
-            _fullscreenPlayer()
-          else
             LayoutBuilder(
               builder: (context, constraints) {
                 final playerPanel = _playerPanel();
@@ -478,6 +501,7 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
             ),
         ],
       ),
+      ),
     );
   }
 
@@ -489,7 +513,12 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
         border: Border.all(color: AppColors.cardBorder),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: DualPlayerPanel(
+      child: _dualPlayer(),
+    );
+  }
+
+  Widget _dualPlayer() {
+    return DualPlayerPanel(
         selectedVideo: _selectedVideo,
         originalController: _originalController,
         annotatedController: _annotatedController,
@@ -516,33 +545,17 @@ class _VideoReviewScreenState extends State<VideoReviewScreen> {
         onVolumeChange: _handleVolumeChange,
         onToggleMute: _handleToggleMute,
         onFocusDetection: _focusDetection,
-        onToggleFullscreen: () => setState(() => _isFullscreenReview = !_isFullscreenReview),
+        onToggleFullscreen: () => _setFullscreenReview(!_isFullscreenReview),
         onOriginalPositionUpdate: _onOriginalWebPosition,
         onAnnotatedPositionUpdate: _onAnnotatedWebPosition,
-      ),
+        immersive: _isFullscreenReview,
     );
   }
 
   Widget _fullscreenPlayer() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: const Color(0xFF090D16), borderRadius: BorderRadius.circular(16)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: ElevatedButton.icon(
-              onPressed: () => setState(() => _isFullscreenReview = false),
-              icon: const Icon(LucideIcons.minimize2, size: 14),
-              label: const Text('Exit Fullscreen Mode', style: TextStyle(fontSize: 11)),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _playerPanel(),
-        ],
-      ),
+    return Padding(
+      padding: const EdgeInsets.all(8),
+      child: _dualPlayer(),
     );
   }
 

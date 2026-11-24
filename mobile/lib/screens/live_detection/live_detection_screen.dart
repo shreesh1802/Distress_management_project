@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -9,6 +10,8 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../data/live_detection_api.dart';
 import '../../data/reports_api.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/landscape_fullscreen.dart';
+import '../../utils/screen_awake.dart';
 import '../reports/widgets/pavement_type_selector.dart';
 import '../reports/widgets/report_ready_sheet.dart';
 import 'widgets/mjpeg_view.dart';
@@ -50,6 +53,10 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   StreamSubscription<dynamic>? _wsSubscription;
 
   CameraController? _cameraController;
+  // The camera picture keeps this key in both the normal card and the full-screen view, so
+  // expanding moves the same picture instead of building a second one (on the web that would
+  // mean a second video view for the one camera).
+  final GlobalKey _previewKey = GlobalKey(debugLabel: 'live-camera-preview');
   List<CameraDescription> _availableCameras = [];
   WebSocketChannel? _phoneStreamChannel;
   Timer? _captureTimer;
@@ -174,6 +181,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         _running = true;
         _streamKey++;
       });
+      keepScreenAwake(true);
       _connectWs();
       // Check often, but only start a new capture once the previous frame has been
       // sent (see _captureBusy), so frames go out as fast as the phone can take them.
@@ -216,6 +224,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   }
 
   Future<void> _stopThisDeviceCamera() async {
+    keepScreenAwake(false);
     _captureTimer?.cancel();
     _captureTimer = null;
     _overlayClearTimer?.cancel();
@@ -264,7 +273,10 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
           final statusJson = data['status'] as Map<String, dynamic>?;
           if (statusJson != null) {
             _status = LiveStatus.fromJson(statusJson);
-            if (!_status!.running) _running = false;
+            if (!_status!.running) {
+              _running = false;
+              keepScreenAwake(false);
+            }
             if (_status!.error != null) _error = _status!.error;
           }
           final eventsJson = data['events'] as List<dynamic>?;
@@ -296,12 +308,27 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     );
   }
 
+  /// Full screen: landscape, system bars hidden, dashboard menus hidden (see landscape_fullscreen.dart).
+  void _setFullscreen(bool value) {
+    setState(() => _isFullscreen = value);
+    if (value) {
+      enterLandscapeFullscreen();
+    } else {
+      exitLandscapeFullscreen();
+    }
+  }
+
   void _acknowledgeAlert(int seq) {
     setState(() => _events.removeWhere((e) => e.seq == seq));
   }
 
   @override
   void dispose() {
+    keepScreenAwake(false);
+    if (_isFullscreen) {
+      // Leaving this screen while full screen: give the phone its normal rotation and bars back.
+      WidgetsBinding.instance.addPostFrameCallback((_) => exitLandscapeFullscreen());
+    }
     _wsSubscription?.cancel();
     _wsChannel?.sink.close();
     _captureTimer?.cancel();
@@ -346,12 +373,13 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       onStart: _start,
       onStop: _stop,
       isFullscreen: _isFullscreen,
-      onToggleFullscreen: () => setState(() => _isFullscreen = !_isFullscreen),
+      onToggleFullscreen: () => _setFullscreen(!_isFullscreen),
       source: _source,
       onSourceChange: _running
           ? null
           : (s) => setState(() => _source = s),
       cameraController: _cameraController,
+      previewKey: _previewKey,
       overlayEvent: _overlayEvent,
       onStartThisDeviceCamera: _startThisDeviceCamera,
     );
@@ -367,7 +395,29 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     // collapsing the page down to just the feed card rather than trying to
     // visually escape above the dashboard shell/sidebar.
     if (_isFullscreen) {
-      return feedCard;
+      // True full screen: just the camera picture with a few floating controls. The phone's
+      // Back button leaves full screen first instead of leaving this screen.
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _setFullscreen(false);
+        },
+        child: _LiveFullscreenView(
+          source: _source,
+          running: _running,
+          starting: _starting,
+          status: _status,
+          error: _error,
+          streamUrl: _api.streamUrlFor(_streamKey),
+          cameraController: _cameraController,
+          previewKey: _previewKey,
+          overlayEvent: _overlayEvent,
+          latestEvent: _events.isEmpty ? null : _events.first,
+          onStart: _source == LiveSource.usbCamera ? _start : _startThisDeviceCamera,
+          onStop: _stop,
+          onExit: () => _setFullscreen(false),
+        ),
+      );
     }
 
     return Column(
@@ -376,8 +426,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         _Header(
           running: _running,
           isFullscreen: _isFullscreen,
-          onToggleFullscreen: () =>
-              setState(() => _isFullscreen = !_isFullscreen),
+          onToggleFullscreen: () => _setFullscreen(!_isFullscreen),
         ),
         const SizedBox(height: 32),
         LayoutBuilder(
@@ -598,6 +647,7 @@ class _CameraFeedCard extends StatelessWidget {
     required this.source,
     required this.onSourceChange,
     required this.cameraController,
+    required this.previewKey,
     required this.overlayEvent,
     required this.onStartThisDeviceCamera,
   });
@@ -615,6 +665,7 @@ class _CameraFeedCard extends StatelessWidget {
   final LiveSource source;
   final ValueChanged<LiveSource>? onSourceChange;
   final CameraController? cameraController;
+  final GlobalKey previewKey;
   final LiveEvent? overlayEvent;
   final VoidCallback onStartThisDeviceCamera;
 
@@ -676,7 +727,22 @@ class _CameraFeedCard extends StatelessWidget {
             aspectRatio: isFullscreen ? 16 / 7 : 16 / 9,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: _buildPreview(),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildPreview(),
+                  if (source == LiveSource.thisDeviceCamera && running)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: _OverlayIconButton(
+                        icon: LucideIcons.maximize2,
+                        tooltip: 'Full screen',
+                        onTap: onToggleFullscreen,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 20),
@@ -754,27 +820,59 @@ class _CameraFeedCard extends StatelessWidget {
     );
   }
 
-  Widget _buildPreview() {
-    if (source == LiveSource.usbCamera) {
-      return running
-          ? MjpegView(url: streamUrl, onError: (_) {})
-          : const _StreamOfflineState(sourceLabel: 'USB camera');
-    }
-    final controller = cameraController;
-    if (!running || controller == null || !controller.value.isInitialized) {
-      return const _StreamOfflineState(sourceLabel: 'this device\'s camera');
-    }
-    return AspectRatio(
-      aspectRatio: controller.value.aspectRatio,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          CameraPreview(controller),
-          CustomPaint(painter: _BoxOverlayPainter(event: overlayEvent)),
-        ],
-      ),
-    );
+  Widget _buildPreview() => _buildLivePreview(
+        source: source,
+        running: running,
+        streamUrl: streamUrl,
+        cameraController: cameraController,
+        previewKey: previewKey,
+        overlayEvent: overlayEvent,
+      );
+}
+
+/// Width / height of the camera picture, or a sensible default when the camera has not reported a
+/// size yet (some browsers report 0 x 0 for a moment, which would otherwise give a ratio that is
+/// not a number and break the layout).
+@visibleForTesting
+double safeAspectRatio(double raw) => raw.isFinite && raw > 0 ? raw : 16 / 9;
+
+double _previewAspectRatio(CameraController controller) {
+  try {
+    return safeAspectRatio(controller.value.aspectRatio);
+  } catch (_) {
+    return 16 / 9;
   }
+}
+
+/// The live picture (the server's stream for a USB camera, or this device's own camera with the
+/// latest detection box on top). Shared by the normal card and the full-screen view.
+Widget _buildLivePreview({
+  required LiveSource source,
+  required bool running,
+  required String streamUrl,
+  required CameraController? cameraController,
+  required GlobalKey previewKey,
+  required LiveEvent? overlayEvent,
+}) {
+  if (source == LiveSource.usbCamera) {
+    return running
+        ? MjpegView(url: streamUrl, onError: (_) {})
+        : const _StreamOfflineState(sourceLabel: 'USB camera');
+  }
+  final controller = cameraController;
+  if (!running || controller == null || !controller.value.isInitialized) {
+    return const _StreamOfflineState(sourceLabel: 'this device\'s camera');
+  }
+  return AspectRatio(
+    aspectRatio: _previewAspectRatio(controller),
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        KeyedSubtree(key: previewKey, child: CameraPreview(controller)),
+        CustomPaint(painter: _BoxOverlayPainter(event: overlayEvent)),
+      ],
+    ),
+  );
 }
 
 class _SourceToggle extends StatelessWidget {
@@ -859,8 +957,12 @@ class _SourceChip extends StatelessWidget {
 /// the backend (event.frameWidth/frameHeight), not this widget's on-screen
 /// size, so they're scaled proportionally here.
 class _BoxOverlayPainter extends CustomPainter {
-  _BoxOverlayPainter({required this.event});
+  _BoxOverlayPainter({required this.event, this.cover = false});
   final LiveEvent? event;
+
+  /// The picture under this overlay fills its box and crops the overflow (like a video call),
+  /// instead of being stretched to fit it exactly.
+  final bool cover;
 
   static const _severityColors = {
     'critical': Color(0xFFEF4444),
@@ -879,13 +981,23 @@ class _BoxOverlayPainter extends CustomPainter {
       return;
     }
     final color = _severityColors[ev.severity.toLowerCase()] ?? AppColors.accentBlue;
-    final scaleX = size.width / fw;
-    final scaleY = size.height / fh;
+    var scaleX = size.width / fw;
+    var scaleY = size.height / fh;
+    var offsetX = 0.0;
+    var offsetY = 0.0;
+    if (cover) {
+      // One scale for both directions (the larger one fills the box); centre the cropped picture.
+      final scale = scaleX > scaleY ? scaleX : scaleY;
+      scaleX = scale;
+      scaleY = scale;
+      offsetX = (size.width - fw * scale) / 2;
+      offsetY = (size.height - fh * scale) / 2;
+    }
     final rect = Rect.fromLTRB(
-      box[0] * scaleX,
-      box[1] * scaleY,
-      box[2] * scaleX,
-      box[3] * scaleY,
+      box[0] * scaleX + offsetX,
+      box[1] * scaleY + offsetY,
+      box[2] * scaleX + offsetX,
+      box[3] * scaleY + offsetY,
     );
 
     canvas.drawRect(
@@ -909,7 +1021,8 @@ class _BoxOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _BoxOverlayPainter oldDelegate) => oldDelegate.event != event;
+  bool shouldRepaint(covariant _BoxOverlayPainter oldDelegate) =>
+      oldDelegate.event != event || oldDelegate.cover != cover;
 }
 
 class _StreamOfflineState extends StatelessWidget {
@@ -1752,6 +1865,305 @@ class _PremiumCard extends StatelessWidget {
         ],
       ),
       child: child,
+    );
+  }
+}
+
+/// A small round button that sits on top of the camera picture.
+class _OverlayIconButton extends StatelessWidget {
+  const _OverlayIconButton({required this.icon, required this.tooltip, required this.onTap});
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: const Color(0x99000000),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(icon, size: 18, color: Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small dark label that sits on top of the camera picture.
+class _OverlayChip extends StatelessWidget {
+  const _OverlayChip(this.text, {this.color = Colors.white});
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0x99000000),
+        borderRadius: BorderRadius.circular(9999),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+      ),
+    );
+  }
+}
+
+/// Live detection in full screen, like a video call: the camera picture covers the whole screen
+/// (with the detection box and its label drawn on it) and nothing else shows until you tap the
+/// picture. A tap brings up the exit button, the live status and the start / stop button for a few
+/// seconds.
+class _LiveFullscreenView extends StatefulWidget {
+  const _LiveFullscreenView({
+    required this.source,
+    required this.running,
+    required this.starting,
+    required this.status,
+    required this.error,
+    required this.streamUrl,
+    required this.cameraController,
+    required this.previewKey,
+    required this.overlayEvent,
+    required this.latestEvent,
+    required this.onStart,
+    required this.onStop,
+    required this.onExit,
+  });
+
+  final LiveSource source;
+  final bool running;
+  final bool starting;
+  final LiveStatus? status;
+  final String? error;
+  final String streamUrl;
+  final CameraController? cameraController;
+  final GlobalKey previewKey;
+  final LiveEvent? overlayEvent;
+  final LiveEvent? latestEvent;
+  final VoidCallback onStart;
+  final VoidCallback onStop;
+  final VoidCallback onExit;
+
+  @override
+  State<_LiveFullscreenView> createState() => _LiveFullscreenViewState();
+}
+
+class _LiveFullscreenViewState extends State<_LiveFullscreenView> {
+  static const _hideAfter = Duration(seconds: 4);
+  bool _showControls = true;
+  Timer? _hideTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleHide();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LiveFullscreenView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Just started: show the controls for a moment, then get out of the way.
+    if (!oldWidget.running && widget.running) _reveal();
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(_hideAfter, () {
+      if (mounted) setState(() => _showControls = false);
+    });
+  }
+
+  void _reveal() {
+    setState(() => _showControls = true);
+    _scheduleHide();
+  }
+
+  void _toggleControls() {
+    if (_showControls) {
+      _hideTimer?.cancel();
+      setState(() => _showControls = false);
+    } else {
+      _reveal();
+    }
+  }
+
+  bool get _cameraReady {
+    final c = widget.cameraController;
+    return widget.source == LiveSource.thisDeviceCamera &&
+        widget.running &&
+        c != null &&
+        c.value.isInitialized;
+  }
+
+  Widget _picture() {
+    final controller = widget.cameraController;
+    if (_cameraReady && controller != null && kIsWeb) {
+      // In a browser the video element already crops itself to fill whatever box it is given
+      // (object-fit: cover), so give it the whole screen and add no scaling around it. The
+      // detection box is mapped onto the cropped picture by the painter (cover: true).
+      return SizedBox.expand(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            KeyedSubtree(key: widget.previewKey, child: CameraPreview(controller)),
+            CustomPaint(painter: _BoxOverlayPainter(event: widget.overlayEvent, cover: true)),
+          ],
+        ),
+      );
+    }
+    if (_cameraReady && controller != null) {
+      // Installed app: cover the whole screen (crop the edges if the shapes differ). The detection
+      // box is drawn inside the same scaled box, so it stays exactly on what it marks.
+      return SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: _previewAspectRatio(controller) * 1000,
+            height: 1000,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                KeyedSubtree(key: widget.previewKey, child: CameraPreview(controller)),
+                CustomPaint(painter: _BoxOverlayPainter(event: widget.overlayEvent)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    final preview = _buildLivePreview(
+      source: widget.source,
+      running: widget.running,
+      streamUrl: widget.streamUrl,
+      cameraController: controller,
+      previewKey: widget.previewKey,
+      overlayEvent: widget.overlayEvent,
+    );
+    if (widget.source == LiveSource.usbCamera && widget.running) {
+      return Center(child: AspectRatio(aspectRatio: 16 / 9, child: preview));
+    }
+    return SizedBox.expand(child: preview);
+  }
+
+  Widget _controls() {
+    final s = widget.status;
+    final detection =
+        widget.overlayEvent ?? (widget.source == LiveSource.usbCamera ? widget.latestEvent : null);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned(
+          top: 8,
+          left: 8,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _OverlayIconButton(
+                icon: LucideIcons.minimize2,
+                tooltip: 'Exit full screen',
+                onTap: widget.onExit,
+              ),
+              const SizedBox(width: 8),
+              _OverlayChip(
+                widget.running ? 'LIVE' : 'IDLE',
+                color: widget.running ? const Color(0xFFF87171) : Colors.white70,
+              ),
+            ],
+          ),
+        ),
+        if (widget.running && s != null)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: _OverlayChip(
+              '${(s.inferenceFps ?? 0).toStringAsFixed(1)} detections/s  ·  ${s.inferences} checked',
+            ),
+          ),
+        if (widget.running && detection != null)
+          Positioned(
+            left: 8,
+            bottom: 8,
+            child: _OverlayChip(
+              '${detection.className}  ·  ${detection.severity}  ·  ${(detection.confidence * 100).round()}%',
+              color: const Color(0xFFFBBF24),
+            ),
+          ),
+        Positioned(
+          right: 8,
+          bottom: 8,
+          child: widget.running
+              ? _SolidButton(
+                  label: 'Stop',
+                  icon: LucideIcons.square,
+                  color: AppColors.danger,
+                  onTap: widget.onStop,
+                )
+              : _SolidButton(
+                  label: widget.starting ? 'Starting...' : 'Start',
+                  icon: widget.starting ? null : LucideIcons.play,
+                  loading: widget.starting,
+                  color: AppColors.success,
+                  onTap: widget.starting ? null : widget.onStart,
+                ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Until it is running there is nothing to look at, so the controls stay (you need Start).
+    final visible = !widget.running || _showControls;
+    return ColoredBox(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _toggleControls,
+            child: _picture(),
+          ),
+          IgnorePointer(
+            ignoring: !visible,
+            child: AnimatedOpacity(
+              opacity: visible ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: _controls(),
+            ),
+          ),
+          if (widget.error != null)
+            Positioned(
+              left: 8,
+              right: 8,
+              bottom: 56,
+              child: IgnorePointer(
+                child: Text(
+                  widget.error!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: Color(0xFFF87171)),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

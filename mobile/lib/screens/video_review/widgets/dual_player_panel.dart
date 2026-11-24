@@ -30,6 +30,7 @@ class DualPlayerPanel extends StatefulWidget {
     required this.detections,
     required this.selectedDetection,
     required this.isFullscreen,
+    this.immersive = false,
     required this.onPlayPause,
     required this.onStop,
     required this.onReplay,
@@ -62,6 +63,10 @@ class DualPlayerPanel extends StatefulWidget {
   final DistressRecord? selectedDetection;
   final bool isFullscreen;
 
+  /// Full-screen landscape viewing: the players fill the whole screen height, side by side
+  /// (stacked when the screen is held upright), with the timeline and controls underneath.
+  final bool immersive;
+
   final VoidCallback onPlayPause;
   final VoidCallback onStop;
   final VoidCallback onReplay;
@@ -82,51 +87,56 @@ class _DualPlayerPanelState extends State<DualPlayerPanel> {
   bool _isOriginalFullscreen = false;
   bool _isAnnotatedFullscreen = false;
 
+  Widget _immersiveLayout() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final original = _original(expand: true);
+              final annotated = _annotated(expand: true);
+              // Held sideways: the two feeds sit side by side. Held upright: one above the other.
+              if (constraints.maxWidth >= constraints.maxHeight) {
+                return Row(
+                  children: [
+                    Expanded(child: original),
+                    const SizedBox(width: 8),
+                    Expanded(child: annotated),
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  Expanded(child: original),
+                  const SizedBox(height: 8),
+                  Expanded(child: annotated),
+                ],
+              );
+            },
+          ),
+        ),
+        if (widget.duration > Duration.zero) ...[
+          const SizedBox(height: 4),
+          _timeline(context),
+        ],
+        const SizedBox(height: 4),
+        _controlsBar(),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.immersive) return _immersiveLayout();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         LayoutBuilder(
           builder: (context, constraints) {
             final narrow = constraints.maxWidth < 700;
-            final Widget original = kIsWeb && widget.originalUrl != null
-                ? WebVideoCard(
-                    label: 'Original Surveillance Feed',
-                    videoUrl: widget.originalUrl!,
-                    isPlaying: widget.isPlaying,
-                    currentTime: widget.currentTime,
-                    playbackSpeed: widget.playbackSpeed,
-                    volume: widget.volume,
-                    isMuted: widget.isMuted,
-                    onTap: widget.onPlayPause,
-                    isFullscreen: _isOriginalFullscreen,
-                    onToggleFullscreen: () => setState(() {
-                      _isOriginalFullscreen = !_isOriginalFullscreen;
-                      if (_isOriginalFullscreen) _isAnnotatedFullscreen = false;
-                    }),
-                    onPositionUpdate: widget.onOriginalPositionUpdate,
-                  )
-                : _playerCard('Original Surveillance Feed', widget.originalController, widget.selectedVideo != null, false, widget.originalLoadFailed);
-
-            final Widget annotated = kIsWeb && widget.annotatedUrl != null && widget.hasAnnotatedVideo
-                ? WebVideoCard(
-                    label: 'AI Annotated Feed',
-                    videoUrl: widget.annotatedUrl!,
-                    isPlaying: widget.isPlaying,
-                    currentTime: widget.currentTime,
-                    playbackSpeed: widget.playbackSpeed,
-                    volume: widget.volume,
-                    isMuted: widget.isMuted,
-                    onTap: widget.onPlayPause,
-                    isFullscreen: _isAnnotatedFullscreen,
-                    onToggleFullscreen: () => setState(() {
-                      _isAnnotatedFullscreen = !_isAnnotatedFullscreen;
-                      if (_isAnnotatedFullscreen) _isOriginalFullscreen = false;
-                    }),
-                    onPositionUpdate: widget.onAnnotatedPositionUpdate,
-                  )
-                : _playerCard('AI Annotated Feed', widget.annotatedController, widget.hasAnnotatedVideo, true, widget.annotatedLoadFailed);
+            final Widget original = _original();
+            final Widget annotated = _annotated();
 
             if (_isOriginalFullscreen) {
               return Column(children: [original, const SizedBox(height: 12), OutlinedButton.icon(onPressed: () => setState(() => _isOriginalFullscreen = false), icon: const Icon(LucideIcons.minimize2, size: 14), label: const Text('Exit Original Feed Fullscreen', style: TextStyle(fontSize: 12)))]);
@@ -159,15 +169,60 @@ class _DualPlayerPanelState extends State<DualPlayerPanel> {
     );
   }
 
+  Widget _original({bool expand = false}) {
+    return kIsWeb && widget.originalUrl != null
+                ? WebVideoCard(
+                    label: 'Original Surveillance Feed',
+                    videoUrl: widget.originalUrl!,
+                    isPlaying: widget.isPlaying,
+                    currentTime: widget.currentTime,
+                    playbackSpeed: widget.playbackSpeed,
+                    volume: widget.volume,
+                    isMuted: widget.isMuted,
+                    onTap: widget.onPlayPause,
+                    expand: expand,
+                    isFullscreen: _isOriginalFullscreen,
+                    onToggleFullscreen: expand ? null : () => setState(() {
+                      _isOriginalFullscreen = !_isOriginalFullscreen;
+                      if (_isOriginalFullscreen) _isAnnotatedFullscreen = false;
+                    }),
+                    onPositionUpdate: widget.onOriginalPositionUpdate,
+                  )
+                : _playerCard('Original Surveillance Feed', widget.originalController, widget.selectedVideo != null, false, widget.originalLoadFailed, expand: expand);
+  }
+
+  Widget _annotated({bool expand = false}) {
+    return kIsWeb && widget.annotatedUrl != null && widget.hasAnnotatedVideo
+                ? WebVideoCard(
+                    label: 'AI Annotated Feed',
+                    videoUrl: widget.annotatedUrl!,
+                    isPlaying: widget.isPlaying,
+                    currentTime: widget.currentTime,
+                    playbackSpeed: widget.playbackSpeed,
+                    volume: widget.volume,
+                    isMuted: widget.isMuted,
+                    onTap: widget.onPlayPause,
+                    expand: expand,
+                    isFullscreen: _isAnnotatedFullscreen,
+                    onToggleFullscreen: expand ? null : () => setState(() {
+                      _isAnnotatedFullscreen = !_isAnnotatedFullscreen;
+                      if (_isAnnotatedFullscreen) _isOriginalFullscreen = false;
+                    }),
+                    onPositionUpdate: widget.onAnnotatedPositionUpdate,
+                  )
+                : _playerCard('AI Annotated Feed', widget.annotatedController, widget.hasAnnotatedVideo, true, widget.annotatedLoadFailed, expand: expand);
+  }
+
   Widget _playerCard(
     String label,
     VideoPlayerController? controller,
     bool shouldHaveContent,
     bool isAnnotated,
-    bool loadFailed,
-  ) {
+    bool loadFailed, {
+    bool expand = false,
+  }) {
     return Container(
-      height: 260,
+      height: expand ? null : 260,
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: const Color(0xFF111827),
