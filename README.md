@@ -14,7 +14,7 @@ the detections into maps, maintenance plans and PDF / Excel reports that follow 
 |---|---|
 | Sign-in | **Google sign-in via Firebase.** Only people on the Firestore `allowedUsers` allow-list (role: `admin`, `inspector`, `employee`, `maintenance`) get in. The old e-mail one-time-code login was removed. |
 | Hosted server | Release builds talk to the hosted backend (Railway) by default - no connection dialog needed. Local servers are still supported (see below). |
-| Live detection quality | Phone live mode looks at **every** frame it receives (no more skipped frames), and the server acknowledges each frame so the app never queues stale pictures on a slow connection. Live inference size raised from 256 to **640**. |
+| Live detection quality | Phone live mode looks at **every** frame it receives (no more skipped frames), and the server acknowledges each frame so the app never queues stale pictures on a slow connection. Live inference runs at 256 px by default (`LIVE_TEST_SIZE` raises it). |
 | Camera picker | In *This Device's Camera* mode the app lists every camera the phone reports (front, back, external USB when the OS exposes it) in a **Camera** drop-down with a refresh button. External > back > front is the default. |
 | Real GPS | Phone live sessions stream the phone's **GPS position**, so detections are stamped with where they really happened (falls back to a default point if location is off). |
 | Full-screen live view | Video-call style full screen with auto-hiding controls, landscape lock and a **screen that stays awake** in the installed app. Video review also has a proper full-screen mode. |
@@ -362,8 +362,8 @@ It is then downloadable at `http://<wifi-ip-or-tunnel-url>/download-apk`.
    - **Phone-mode flow control**: the app sends frames as fast as the connection carries them (about 10 captures a second at most), the server runs detection on every frame it receives (`LIVE_REMOTE_PROCESS_EVERY_N_FRAMES`, default 1) and acknowledges each one, and the app never keeps more than 2 frames un-acknowledged — a slow connection lowers the frame rate instead of building a queue of stale pictures.
    - **Real GPS**: the phone's position is sent over the same WebSocket (`{"type":"location",...}` messages, roughly every 2 s) and used to stamp detections while it is fresher than `LIVE_DEVICE_FIX_MAX_AGE` (default 15 s); otherwise the configured default point is used. `/live/status` reports `gps_source` (`device` or `default`).
    - **Field notes**: snapshot and voice notes for a live session (`/observations/...`), shown in the session's reports and under History.
-   - **Live pipeline resolution**: live detection now runs at **640×640** by default (`LIVE_TEST_SIZE` in `app/services/live/live_config.py`), the same as the video-upload pipeline, because 256 px missed too many distresses (recall roughly 22% vs 45-50% at 640 on dashcam footage). On a CPU-only host set `LIVE_TEST_SIZE=256` (or 416) to trade accuracy for speed — 640 costs several times the inference time of 256.
-   - **Measured inference time at 256×256** (the earlier default; expect several times more at 640), same trained checkpoints, same hardware as the video-pipeline benchmarks:
+   - **Live pipeline resolution**: live detection runs at **256×256** by default (`LIVE_TEST_SIZE` in `app/services/live/live_config.py`) versus **640×640** for the offline video-upload pipeline, to keep detections arriving in real time. Higher sizes catch more (recall was roughly 22% at 256 vs 45-50% at 640 on dashcam footage) but cost several times the inference time on a CPU, so raise it (e.g. `LIVE_TEST_SIZE=416` or `640`) only on a GPU or a fast host.
+   - **Measured inference time at 256×256** (the default; expect several times more at 640), same trained checkpoints, same hardware as the video-pipeline benchmarks:
 
      | Model | CPU | GPU (RTX 3050, 6GB) |
      |---|---|---|
