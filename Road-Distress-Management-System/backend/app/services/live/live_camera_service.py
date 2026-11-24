@@ -89,6 +89,10 @@ class LiveCameraManager:
         self.stats: Dict[str, Any] = self._blank_stats()
         self.base_lat = cfg.DEFAULT_LATITUDE
         self.base_lon = cfg.DEFAULT_LONGITUDE
+        # Latest real position reported by the streaming device (phone GPS):
+        # (lat, lon, accuracy_m, time.monotonic() when received). When fresh,
+        # detections are stamped with it instead of the jittered base point.
+        self._device_fix: Optional[tuple] = None
 
         # Buffers for shared frame and detections
         self._latest_raw_frame: Optional[Any] = None
@@ -149,6 +153,7 @@ class LiveCameraManager:
         if longitude is not None:
             self.base_lon = longitude
         self._error = None
+        self._device_fix = None
         self.stats = self._blank_stats()
         self.stats["source"] = source
         self._last_persist.clear()
@@ -338,7 +343,34 @@ class LiveCameraManager:
             "detections_total": 0, "detections_road": 0, "detections_sign": 0,
             "critical_alerts": 0, "persisted": 0, "session_video_id": None,
             "avg_confidence": 0.0, "fps": 0.0, "inference_fps": 0.0, "started_at": None,
+            # "device" while a fresh GPS fix from the streaming phone is in use,
+            # "default" when detections fall back to the configured base point.
+            "gps_source": "default", "gps_accuracy_m": None,
         }
+
+    def update_location(self, latitude: float, longitude: float, accuracy_m: Optional[float] = None) -> None:
+        """Records the streaming device's current GPS fix (called per location message on the phone stream)."""
+        with self._lock:
+            self._device_fix = (latitude, longitude, accuracy_m, time.monotonic())
+
+    def _detection_position(self) -> tuple:
+        """
+        Where to stamp a detection: the phone's latest GPS fix if it's fresh,
+        otherwise the configured base point with small jitter (laptop/USB
+        cameras have no GPS, and a phone may not have a fix yet).
+        """
+        with self._lock:
+            fix = self._device_fix
+        if fix is not None and time.monotonic() - fix[3] <= cfg.DEVICE_FIX_MAX_AGE_SEC:
+            with self._lock:
+                self.stats["gps_source"] = "device"
+                self.stats["gps_accuracy_m"] = fix[2]
+            return round(fix[0], 6), round(fix[1], 6)
+        with self._lock:
+            self.stats["gps_source"] = "default"
+            self.stats["gps_accuracy_m"] = None
+        return (round(self.base_lat + random.uniform(-0.0005, 0.0005), 6),
+                round(self.base_lon + random.uniform(-0.0005, 0.0005), 6))
 
     def _capture_loop(self, camera_index: int) -> None:
         backend_flag = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
@@ -456,8 +488,7 @@ class LiveCameraManager:
                     severity = _severity_for(det)
                     conf_sum += det["confidence"]
                     conf_n += 1
-                    lat = round(self.base_lat + random.uniform(-0.0005, 0.0005), 6)
-                    lon = round(self.base_lon + random.uniform(-0.0005, 0.0005), 6)
+                    lat, lon = self._detection_position()
                     with self._lock:
                         self.stats["detections_total"] += 1
                         if det["model_source"] == "road":

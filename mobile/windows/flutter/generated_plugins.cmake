@@ -7,6 +7,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
   firebase_auth
   firebase_core
+  geolocator_windows
   record_windows
   share_plus
   url_launcher_windows

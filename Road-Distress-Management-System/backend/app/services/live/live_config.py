@@ -51,6 +51,9 @@ SNAPSHOT_DIR = os.path.join(BACKEND_ROOT, "uploads", "detections", "live")
 # ---- Default GPS base (laptop webcams have no GPS); jittered per detection ----
 DEFAULT_LATITUDE  = _env("LIVE_DEFAULT_LAT", 30.3398)   # Patiala fallback
 DEFAULT_LONGITUDE = _env("LIVE_DEFAULT_LON", 76.3869)
+# A phone's GPS fix older than this is ignored (fall back to the base point):
+# a stale position is worse than an obviously-default one.
+DEVICE_FIX_MAX_AGE_SEC = _env("LIVE_DEVICE_FIX_MAX_AGE", 15.0)
 
 # ---- Annotation palettes (BGR), copied from webcam_test_combined.py ----
 PAVEMENT_COLORS = {

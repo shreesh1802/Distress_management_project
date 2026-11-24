@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -92,6 +93,13 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   DateTime _lastAckAt = DateTime.now();
   LiveEvent? _overlayEvent;
   Timer? _overlayClearTimer;
+
+  // The phone's GPS while streaming its camera: each fix is sent over the
+  // phone-stream socket so detections are stamped with where they really are.
+  StreamSubscription<Position>? _positionSub;
+  Timer? _locationResendTimer;
+  Position? _lastFix;
+  String? _gpsNote;
 
   int get _cameraIndex => int.tryParse(_cameraIndexController.text) ?? 1;
 
@@ -342,6 +350,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       });
       keepScreenAwake(true);
       _connectWs();
+      unawaited(_startLocationUpdates());
       // Check often, but only start a new capture once the previous frame has been
       // sent (see _captureBusy), so frames go out as fast as the phone can take them.
       _captureTimer = Timer.periodic(
@@ -382,8 +391,77 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     }
   }
 
+  /// Streams this device's GPS position to the backend while the phone camera
+  /// is live. Location is optional: if it's off or denied, streaming carries on
+  /// and the backend falls back to its default position (shown in the banner).
+  Future<void> _startLocationUpdates() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (mounted) setState(() => _gpsNote = 'Location is turned off on this device');
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) setState(() => _gpsNote = 'Location permission denied');
+        return;
+      }
+      if (!mounted || !_running) return;
+      setState(() => _gpsNote = 'Waiting for GPS fix…');
+
+      final settings = !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+          ? AndroidSettings(
+              accuracy: LocationAccuracy.high,
+              distanceFilter: 0,
+              intervalDuration: const Duration(seconds: 2),
+            )
+          : const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 0);
+      _positionSub = Geolocator.getPositionStream(locationSettings: settings).listen(
+        _sendFix,
+        onError: (Object e) {
+          if (mounted) setState(() => _gpsNote = 'GPS unavailable: $e');
+        },
+      );
+      // A phone standing still may not report new positions, but the backend
+      // ignores fixes older than ~15s -- resend the last one so it stays fresh.
+      _locationResendTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+        final fix = _lastFix;
+        if (fix != null) _sendFix(fix);
+      });
+    } catch (e) {
+      if (mounted) setState(() => _gpsNote = 'GPS unavailable: $e');
+    }
+  }
+
+  void _sendFix(Position fix) {
+    _phoneStreamChannel?.sink.add(jsonEncode({
+      'type': 'location',
+      'lat': fix.latitude,
+      'lon': fix.longitude,
+      'accuracy': fix.accuracy,
+    }));
+    if (!mounted) return;
+    setState(() {
+      _lastFix = fix;
+      _gpsNote = null;
+    });
+  }
+
+  void _stopLocationUpdates() {
+    _positionSub?.cancel();
+    _positionSub = null;
+    _locationResendTimer?.cancel();
+    _locationResendTimer = null;
+    _lastFix = null;
+    _gpsNote = null;
+  }
+
   Future<void> _stopThisDeviceCamera() async {
     keepScreenAwake(false);
+    _stopLocationUpdates();
     _captureTimer?.cancel();
     _captureTimer = null;
     _overlayClearTimer?.cancel();
@@ -493,6 +571,8 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     _wsChannel?.sink.close();
     _captureTimer?.cancel();
     _overlayClearTimer?.cancel();
+    _positionSub?.cancel();
+    _locationResendTimer?.cancel();
     _phoneStreamChannel?.sink.close();
     _cameraController?.dispose();
     _voiceTicker?.cancel();
@@ -590,6 +670,17 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       );
     }
 
+    final feedWithGps = _running && _source == LiveSource.thisDeviceCamera
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              feedCard,
+              const SizedBox(height: 12),
+              _GpsBanner(fix: _lastFix, note: _gpsNote),
+            ],
+          )
+        : feedCard;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -618,13 +709,13 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
 
             if (narrow) {
               return Column(
-                children: [feedCard, const SizedBox(height: 32), sidebar],
+                children: [feedWithGps, const SizedBox(height: 32), sidebar],
               );
             }
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(flex: 7, child: feedCard),
+                Expanded(flex: 7, child: feedWithGps),
                 const SizedBox(width: 32),
                 Expanded(flex: 3, child: sidebar),
               ],
@@ -657,6 +748,42 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         ],
         _KpiFooter(status: _status, running: _running),
       ],
+    );
+  }
+}
+
+/// Shows whether live detections are being stamped with this phone's real GPS
+/// position, or (no fix / permission denied) the backend's default location.
+class _GpsBanner extends StatelessWidget {
+  const _GpsBanner({required this.fix, required this.note});
+
+  final Position? fix;
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    final live = fix != null;
+    final color = live ? AppColors.success : AppColors.warning;
+    final text = live
+        ? 'GPS ${fix!.latitude.toStringAsFixed(6)}, ${fix!.longitude.toStringAsFixed(6)} '
+            '(±${fix!.accuracy.round()} m) — detections use this location'
+        : '${note ?? 'Waiting for GPS fix…'} — detections use the default location';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(live ? LucideIcons.mapPin : LucideIcons.mapPinOff, size: 16, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontSize: 12.5, color: Color(0xFFCBD5E1))),
+          ),
+        ],
+      ),
     );
   }
 }

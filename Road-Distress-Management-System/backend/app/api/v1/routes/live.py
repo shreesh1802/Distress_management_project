@@ -23,7 +23,9 @@ Security:
 """
 
 import asyncio
+import json
 import logging
+import math
 import os
 import struct
 import time
@@ -121,6 +123,23 @@ def stop_live() -> Dict[str, Any]:
     return LiveCameraManager.instance().stop()
 
 
+def _apply_location_message(manager: LiveCameraManager, text: str) -> None:
+    """Validates a location text message from the phone and records it; anything malformed is ignored."""
+    try:
+        msg = json.loads(text)
+    except ValueError:
+        return
+    if not isinstance(msg, dict) or msg.get("type") != "location":
+        return
+    lat, lon, acc = msg.get("lat"), msg.get("lon"), msg.get("accuracy")
+    if isinstance(lat, bool) or isinstance(lon, bool) or not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+        return
+    if not (math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180):
+        return
+    accuracy = float(acc) if isinstance(acc, (int, float)) and not isinstance(acc, bool) and math.isfinite(acc) and acc >= 0 else None
+    manager.update_location(float(lat), float(lon), accuracy)
+
+
 @ws_router.websocket("/phone-stream")
 async def phone_stream(websocket: WebSocket) -> None:
     """
@@ -131,7 +150,10 @@ async def phone_stream(websocket: WebSocket) -> None:
     {"type":"auth","token":"..."} as a text frame, then one binary message per frame --
     each message is a single JPEG-encoded image (whatever size/quality the
     client captures at, up to MAX_FRAME_BYTES / MAX_FRAME_DIMENSION; typical use is
-    ~5-10fps to match the detection cadence). The connection itself starts and
+    ~5-10fps to match the detection cadence). The client may also send text
+    messages {"type":"location","lat":..,"lon":..,"accuracy":..} with the
+    device's GPS fix; while a fix is fresh, detections are stamped with it
+    instead of the configured default position. The connection itself starts and
     stops the session -- closing it stops detection and releases the models'
     session state, same as POST /live/stop would -- but ONLY if this connection
     is the one that started the session.
@@ -181,7 +203,17 @@ async def phone_stream(websocket: WebSocket) -> None:
         keepalive_task = asyncio.create_task(_keepalive())
 
         while True:
-            data = await websocket.receive_bytes()
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                raise WebSocketDisconnect(message.get("code", 1000), message.get("reason"))
+            text = message.get("text")
+            if text is not None:
+                # The phone's GPS, sent whenever it moves: {"type":"location","lat":..,"lon":..,"accuracy":..}
+                _apply_location_message(manager, text)
+                continue
+            data = message.get("bytes")
+            if not data:
+                continue
             frames_received += 1
             if len(data) > MAX_FRAME_BYTES:
                 await websocket.close(code=WS_MESSAGE_TOO_BIG, reason="Frame too large")
