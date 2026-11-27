@@ -38,13 +38,16 @@ enum LiveSource { usbCamera, thisDeviceCamera }
 /// The newest picture from a USB webcam plugged into this phone, and the shape of its picture.
 class UsbPicture {
   final ValueNotifier<Uint8List?> frame = ValueNotifier<Uint8List?>(null);
+  // What the webcam is doing, shown while no picture has arrived yet (helps tell what is wrong).
+  final ValueNotifier<String> note = ValueNotifier<String>('');
   double aspectRatio = 16 / 9;
 }
 
 /// Shows the newest USB webcam picture, replacing it in place (no flicker between pictures).
 class _UsbFrameImage extends StatelessWidget {
-  const _UsbFrameImage(this.frame);
+  const _UsbFrameImage(this.frame, this.note);
   final ValueListenable<Uint8List?> frame;
+  final ValueListenable<String> note;
 
   @override
   Widget build(BuildContext context) {
@@ -52,9 +55,38 @@ class _UsbFrameImage extends StatelessWidget {
       valueListenable: frame,
       builder: (context, bytes, _) {
         if (bytes == null) {
-          return const ColoredBox(
+          return ColoredBox(
             color: Colors.black,
-            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Waiting for pictures from the USB webcam...',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    ValueListenableBuilder<String>(
+                      valueListenable: note,
+                      builder: (context, text, _) => text.isEmpty
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                text,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           );
         }
         return Image.memory(
@@ -413,6 +445,16 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   }
 
   void _onUsbStatus(UsbWebcamStatus status) {
+    if (status.state == 'diag') {
+      _usbPicture.note.value = status.message;
+      if (status.width > 0 && status.height > 0) {
+        final ratio = status.width / status.height;
+        if ((ratio - _usbPicture.aspectRatio).abs() > 0.01 && mounted) {
+          setState(() => _usbPicture.aspectRatio = ratio);
+        }
+      }
+      return;
+    }
     // Unplugged (or lost) while detecting: say so and stop cleanly.
     if (status.isError && _usbActive && _running && mounted) {
       setState(() => _error = status.message);
@@ -630,6 +672,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       _usbActive = false;
       await UsbWebcam.stop();
       _usbPicture.frame.value = null;
+      _usbPicture.note.value = '';
     }
     await _cameraController?.dispose();
     _cameraController = null;
@@ -743,6 +786,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       UsbWebcam.stop();
     }
     _usbPicture.frame.dispose();
+    _usbPicture.note.dispose();
     _voiceTicker?.cancel();
     _voice.cancel();
     _voice.dispose();
@@ -1443,7 +1487,7 @@ Widget _buildLivePreview({
       child: Stack(
         fit: StackFit.expand,
         children: [
-          _UsbFrameImage(usb.frame),
+          _UsbFrameImage(usb.frame, usb.note),
           CustomPaint(painter: _BoxOverlayPainter(event: overlayEvent)),
         ],
       ),
@@ -2630,7 +2674,7 @@ class _LiveFullscreenViewState extends State<_LiveFullscreenView> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _UsbFrameImage(usb.frame),
+                _UsbFrameImage(usb.frame, usb.note),
                 CustomPaint(painter: _BoxOverlayPainter(event: widget.overlayEvent)),
               ],
             ),
