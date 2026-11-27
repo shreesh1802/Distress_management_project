@@ -150,6 +150,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   // does not list most of them). It appears in the camera picker as one extra entry.
   final UsbPicture _usbPicture = UsbPicture();
   bool _usbActive = false;
+  String _usbNote = '';
   List<CameraDescription> _availableCameras = [];
   CameraDescription? _selectedCamera;
   bool _loadingCameras = false;
@@ -385,6 +386,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
         // A phone with no camera of its own can still have a USB webcam.
       }
       final usbWebcams = await UsbWebcam.devices();
+      final usbNote = usbWebcams.isEmpty ? await UsbWebcam.describeAttached() : '';
       final cameras = <CameraDescription>[
         if (usbWebcams.isNotEmpty)
           const CameraDescription(
@@ -397,6 +399,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       if (!mounted) return;
       setState(() {
         _availableCameras = cameras;
+        _usbNote = usbNote;
         final previous = _selectedCamera?.name;
         _selectedCamera = cameras.where((c) => c.name == previous).firstOrNull ??
             _preferredCamera(cameras);
@@ -845,6 +848,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       loadingCameras: _loadingCameras,
       onSelectCamera: (c) => setState(() => _selectedCamera = c),
       onRefreshCameras: _loadCameras,
+      usbNote: _usbNote,
       cameraController: _cameraController,
       usbPicture: _usbActive ? _usbPicture : null,
       previewKey: _previewKey,
@@ -1192,6 +1196,7 @@ class _CameraFeedCard extends StatelessWidget {
     required this.loadingCameras,
     required this.onSelectCamera,
     required this.onRefreshCameras,
+    this.usbNote = '',
   });
 
   final bool running;
@@ -1216,6 +1221,7 @@ class _CameraFeedCard extends StatelessWidget {
   final bool loadingCameras;
   final ValueChanged<CameraDescription> onSelectCamera;
   final VoidCallback onRefreshCameras;
+  final String usbNote;
 
   static String _directionLabel(CameraLensDirection d) {
     switch (d) {
@@ -1236,7 +1242,7 @@ class _CameraFeedCard extends StatelessWidget {
 
   Widget _cameraPicker() {
     final selected = selectedCamera;
-    return Row(
+    final row = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
@@ -1281,6 +1287,22 @@ class _CameraFeedCard extends StatelessWidget {
           tooltip: 'Look for cameras again (e.g. after plugging in a USB camera)',
         ),
       ],
+    );
+    if (usbNote.isEmpty) return row;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          row,
+          const SizedBox(height: 6),
+          Text(
+            'No USB webcam recognised. $usbNote',
+            style: const TextStyle(fontSize: 11, color: AppColors.secondaryText),
+          ),
+        ],
+      ),
     );
   }
 

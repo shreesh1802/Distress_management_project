@@ -53,6 +53,16 @@ class UsbWebcam {
     }
   }
 
+  /// A plain-text list of everything Android sees on the USB port (for working out why a webcam is missing).
+  static Future<String> describeAttached() async {
+    if (!supported) return '';
+    try {
+      return await _methods.invokeMethod<String>('attached') ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   /// Opens the webcam. Pictures and status changes arrive through [onFrame] and [onStatus].
   /// Completes with the first `running` or `error` status (a permission dialog may be shown meanwhile).
   static Future<UsbWebcamStatus> start({

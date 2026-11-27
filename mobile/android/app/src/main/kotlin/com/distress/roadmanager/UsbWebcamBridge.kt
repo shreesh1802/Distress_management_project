@@ -97,6 +97,7 @@ class UsbWebcamBridge(
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "devices" -> result.success(listVideoDevices())
+            "attached" -> result.success(describeAttached())
             "start" -> startRequested(result)
             "stop" -> {
                 shutDown()
@@ -136,6 +137,19 @@ class UsbWebcamBridge(
                 "vendorId" to it.vendorId,
                 "productId" to it.productId,
             )
+        }
+    }
+
+    /** Every USB device Android reports right now, so a missing webcam can be told apart from an unrecognised one. */
+    private fun describeAttached(): String {
+        val usb = activity.getSystemService(Context.USB_SERVICE) as? UsbManager
+            ?: return "This phone has no USB host service."
+        val all = usb.deviceList.values
+        if (all.isEmpty()) return "Android sees no USB device on the port."
+        return "Android sees " + all.size + " USB device(s): " + all.joinToString("; ") { d ->
+            val classes = (0 until d.interfaceCount).map { d.getInterface(it).interfaceClass }.distinct()
+            (d.productName ?: "unnamed") + " (id " + Integer.toHexString(d.vendorId) + ":" +
+                Integer.toHexString(d.productId) + ", class " + d.deviceClass + ", interfaces " + classes + ")"
         }
     }
 
