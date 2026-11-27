@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiBaseUrl, kApiV1;
+import '../utils/local_time.dart';
 
 const List<String> kAssetCategories = ['report', 'drawing', 'photo', 'survey_data', 'other'];
 
@@ -43,7 +44,7 @@ class ProjectAsset {
       fileSize: (json['file_size'] as num?)?.toInt() ?? 0,
       category: (json['category'] as String?) ?? 'other',
       description: json['description'] as String?,
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ?? DateTime.now(),
+      createdAt: parseServerTime(json['created_at'] as String?) ?? DateTime.now(),
     );
   }
 

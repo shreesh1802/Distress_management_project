@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiV1;
+import '../utils/local_time.dart';
 
 /// One past live detection session: what it found and how many notes were added to it.
 /// [id] is also the id of the session's report (generate it with `ReportsApi`).
@@ -30,7 +31,7 @@ class LiveSessionSummary {
     return LiveSessionSummary(
       id: (json['id'] as num).toInt(),
       name: (json['name'] as String?) ?? 'Live session',
-      startedAt: DateTime.tryParse(json['started_at']?.toString() ?? '')?.toLocal(),
+      startedAt: parseServerTime(json['started_at']?.toString()),
       durationSeconds: (json['duration_seconds'] as num?)?.toDouble(),
       detectionCount: (json['detection_count'] as num?)?.toInt() ?? 0,
       seriousCount: (json['serious_count'] as num?)?.toInt() ?? 0,

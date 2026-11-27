@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'custom_http_client.dart';
+import '../utils/local_time.dart';
 
 /// Global override for dynamic server URL changes inside the app
 String? gCustomServerUrl;
@@ -165,7 +166,7 @@ class LiveEvent {
     final boxJson = json['box'] as List<dynamic>?;
     return LiveEvent(
       seq: (json['seq'] as num).toInt(),
-      time: json['time'] as String,
+      time: localIsoTime(json['time'] as String),
       className: json['class_name'] as String,
       confidence: (json['confidence'] as num).toDouble(),
       severity: json['severity'] as String,

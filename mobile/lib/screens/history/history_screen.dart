@@ -16,6 +16,7 @@ import 'widgets/history_sidebar_widgets.dart';
 import 'widgets/inference_run_logs.dart';
 import 'widgets/live_sessions_card.dart';
 import 'widgets/reports_archive_table.dart';
+import '../../utils/local_time.dart';
 
 const _kShortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 String _shortDate(DateTime d) => '${_kShortMonths[d.month - 1]} ${d.day}';
@@ -383,8 +384,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
         case ReportSortKey.format:
           cmp = a.reportType.compareTo(b.reportType);
         case ReportSortKey.generatedAt:
-          final aT = DateTime.tryParse(a.generatedAt ?? a.createdAt) ?? DateTime(1970);
-          final bT = DateTime.tryParse(b.generatedAt ?? b.createdAt) ?? DateTime(1970);
+          final aT = parseServerTime(a.generatedAt ?? a.createdAt) ?? DateTime(1970);
+          final bT = parseServerTime(b.generatedAt ?? b.createdAt) ?? DateTime(1970);
           cmp = aT.compareTo(bT);
         case ReportSortKey.size:
           final aSize = double.tryParse(reportSizeFor(a.id).split(' ').first) ?? 0;

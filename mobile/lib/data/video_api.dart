@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiV1;
+import '../utils/local_time.dart';
 
 /// Direct Dart port of `UploadedVideoResponse` in apiService.ts.
 class UploadedVideo {
@@ -46,8 +47,7 @@ class UploadedVideo {
       id: json['id'] as int,
       filename: json['filename'] as String,
       processingStatus: json['processing_status'] as String? ?? 'queued',
-      uploadTimestamp: DateTime.tryParse(json['upload_timestamp'] as String? ?? '') ??
-          DateTime.now(),
+      uploadTimestamp: parseServerTime(json['upload_timestamp'] as String?) ?? DateTime.now(),
       filepath: json['filepath'] as String?,
       processedFilepath: json['processed_filepath'] as String?,
       processedVideoPath: json['processed_video_path'] as String?,
@@ -55,7 +55,7 @@ class UploadedVideo {
       processingStage: json['processing_stage'] as String?,
       processingDuration: (json['processing_duration'] as num?)?.toDouble(),
       processingStartedAt: json['processing_started_at'] != null
-          ? DateTime.tryParse(json['processing_started_at'] as String)
+          ? parseServerTime(json['processing_started_at'] as String)
           : null,
     );
   }

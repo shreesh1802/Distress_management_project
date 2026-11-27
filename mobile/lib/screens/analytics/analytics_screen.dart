@@ -21,6 +21,7 @@ import 'widgets/road_health_gauge.dart';
 import 'widgets/severity_stacked_card.dart';
 import 'widgets/summary_section.dart';
 import 'widgets/timeline_scatter_row.dart';
+import '../../utils/local_time.dart';
 
 const _kShortMonths = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
@@ -625,7 +626,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final excel = hasReports ? _reports.where((r) => r.reportType.toLowerCase() == 'excel').length : 8;
     final json = hasReports ? _reports.where((r) => r.reportType.toLowerCase() == 'json').length : 5;
     final latest = _reports.isNotEmpty
-        ? _dateIN(DateTime.parse(_reports.first.generatedAt ?? _reports.first.createdAt))
+        ? _dateIN(parseServerTime(_reports.first.generatedAt ?? _reports.first.createdAt) ?? DateTime.now())
         : '02/07/2026';
     return (pdf: pdf, excel: excel, json: json, latest: latest);
   }
