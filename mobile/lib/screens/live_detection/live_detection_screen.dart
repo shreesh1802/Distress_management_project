@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart' show ValueListenable, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -14,6 +15,7 @@ import '../../data/reports_api.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/landscape_fullscreen.dart';
 import '../../utils/screen_awake.dart';
+import '../../utils/usb_webcam.dart';
 import '../../utils/voice_note_player.dart';
 import '../../utils/voice_recorder.dart';
 import '../reports/widgets/pavement_type_selector.dart';
@@ -32,6 +34,72 @@ import 'widgets/real_time_detection_feed.dart';
 /// Both paths feed the exact same detection loop server-side; only where
 /// the frames come from differs.
 enum LiveSource { usbCamera, thisDeviceCamera }
+
+/// The newest picture from a USB webcam plugged into this phone, and the shape of its picture.
+class UsbPicture {
+  final ValueNotifier<Uint8List?> frame = ValueNotifier<Uint8List?>(null);
+  // What the webcam is doing, shown while no picture has arrived yet (helps tell what is wrong).
+  final ValueNotifier<String> note = ValueNotifier<String>('');
+  double aspectRatio = 16 / 9;
+}
+
+/// Shows the newest USB webcam picture, replacing it in place (no flicker between pictures).
+class _UsbFrameImage extends StatelessWidget {
+  const _UsbFrameImage(this.frame, this.note);
+  final ValueListenable<Uint8List?> frame;
+  final ValueListenable<String> note;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<Uint8List?>(
+      valueListenable: frame,
+      builder: (context, bytes, _) {
+        if (bytes == null) {
+          return ColoredBox(
+            color: Colors.black,
+            child: Center(
+              // Scrollable: the status can include several lines of the phone log.
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Waiting for pictures from the USB webcam...',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    ValueListenableBuilder<String>(
+                      valueListenable: note,
+                      builder: (context, text, _) => text.isEmpty
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                text,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(color: Colors.white70, fontSize: 11),
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
+        return Image.memory(
+          bytes,
+          gaplessPlayback: true,
+          fit: BoxFit.fill,
+          filterQuality: FilterQuality.low,
+        );
+      },
+    );
+  }
+}
 
 class LiveDetectionScreen extends StatefulWidget {
   const LiveDetectionScreen({super.key});
@@ -79,6 +147,18 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   int _voiceSeconds = 0;
   Timer? _voiceTicker;
   int? _playingNoteId;
+  // A USB webcam plugged into the phone is read straight over USB (the phone's normal camera system
+  // does not list most of them). It appears in the camera picker as one extra entry.
+  final UsbPicture _usbPicture = UsbPicture();
+  bool _usbActive = false;
+  String _usbNote = '';
+  // While the USB webcam is unplugged / hung mid-session: wait for it and reopen it (same session).
+  bool _usbReconnecting = false;
+  bool _usbRetryBusy = false;
+  Timer? _usbReconnectTimer;
+  static const Duration _usbReconnectLimit = Duration(minutes: 3);
+  // The server reported this session as running at least once (so a later "not running" means it ended).
+  bool _serverSawRunning = false;
   List<CameraDescription> _availableCameras = [];
   CameraDescription? _selectedCamera;
   bool _loadingCameras = false;
@@ -307,10 +387,27 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       _error = null;
     });
     try {
-      final cameras = await availableCameras();
+      var phoneCameras = <CameraDescription>[];
+      try {
+        phoneCameras = await availableCameras();
+      } catch (_) {
+        // A phone with no camera of its own can still have a USB webcam.
+      }
+      final usbWebcams = await UsbWebcam.devices();
+      final usbNote = usbWebcams.isEmpty ? await UsbWebcam.describeAttached() : '';
+      final cameras = <CameraDescription>[
+        if (usbWebcams.isNotEmpty)
+          const CameraDescription(
+            name: kUsbWebcamCameraName,
+            lensDirection: CameraLensDirection.external,
+            sensorOrientation: 0,
+          ),
+        ...phoneCameras,
+      ];
       if (!mounted) return;
       setState(() {
         _availableCameras = cameras;
+        _usbNote = usbNote;
         final previous = _selectedCamera?.name;
         _selectedCamera = cameras.where((c) => c.name == previous).firstOrNull ??
             _preferredCamera(cameras);
@@ -323,7 +420,152 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     }
   }
 
+  /// Opens the stream to the server and handles its "frame received" replies.
+  void _openPhoneStream() {
+    final channel = _api.connectPhoneStreamWs();
+    _phoneStreamChannel = channel;
+    _framesInFlight = 0;
+    _serverAcks = false;
+    channel.stream.listen(
+      (dynamic message) {
+        // 0x01 = "frame received"; 0x00 is the periodic keepalive.
+        if (message is List<int> && message.isNotEmpty && message[0] == 1) {
+          _serverAcks = true;
+          _lastAckAt = DateTime.now();
+          if (_framesInFlight > 0) _framesInFlight--;
+        }
+      },
+      onError: (Object e) {
+        if (mounted) setState(() => _error = 'Camera stream connection lost: $e');
+      },
+    );
+  }
+
+  /// A picture arrived from the USB webcam: show it, and send it to the server unless it is behind.
+  void _onUsbFrame(Uint8List jpeg) {
+    _usbPicture.frame.value = jpeg;
+    final channel = _phoneStreamChannel;
+    if (channel == null || !_usbActive) return;
+    if (_serverAcks && _framesInFlight >= _maxFramesInFlight) {
+      // Skip this picture so the server works on fresh ones; if replies stop for a while, carry on anyway.
+      if (DateTime.now().difference(_lastAckAt) < const Duration(seconds: 5)) return;
+      _framesInFlight = 0;
+    }
+    channel.sink.add(jpeg);
+    _framesInFlight++;
+  }
+
+  void _onUsbStatus(UsbWebcamStatus status) {
+    if (status.state == 'diag') {
+      _usbPicture.note.value = status.message;
+      if (status.width > 0 && status.height > 0) {
+        final ratio = status.width / status.height;
+        if ((ratio - _usbPicture.aspectRatio).abs() > 0.01 && mounted) {
+          setState(() => _usbPicture.aspectRatio = ratio);
+        }
+      }
+      return;
+    }
+    if (!_usbActive || !_running || !mounted) return;
+    // Disconnected (loose cable, power dip) or hung: keep the session and wait for the webcam to return.
+    if (status.state == 'detached' || status.state == 'stalled') {
+      _waitForUsbWebcam(status.message);
+      return;
+    }
+    // Any other failure while detecting: say so and stop cleanly.
+    if (status.isError && !_usbReconnecting) {
+      setState(() => _error = status.message);
+      _stop();
+    }
+  }
+
+  /// Keeps the live session (and its report) going while the USB webcam is away: checks every two seconds
+  /// whether Android sees it again and reopens it. Gives up after [_usbReconnectLimit].
+  void _waitForUsbWebcam(String why) {
+    if (_usbReconnecting) return;
+    _usbReconnecting = true;
+    final since = DateTime.now();
+    _usbPicture.frame.value = null;
+    _usbPicture.note.value = '$why Waiting for it to come back -- check the cable and OTG adapter. '
+        'Allow USB access again if the phone asks.';
+    _usbReconnectTimer?.cancel();
+    _usbReconnectTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (!_running || !_usbActive || !mounted) {
+        _endUsbWait();
+        return;
+      }
+      if (DateTime.now().difference(since) > _usbReconnectLimit) {
+        _endUsbWait();
+        setState(() => _error = 'The USB webcam did not come back within '
+            '${_usbReconnectLimit.inMinutes} minutes, so live detection was stopped. '
+            'What was detected so far is in the session report.');
+        await _stop();
+        return;
+      }
+      if (_usbRetryBusy) return;
+      _usbRetryBusy = true;
+      try {
+        if ((await UsbWebcam.devices()).isEmpty) return;
+        _usbPicture.note.value = 'The USB webcam is back -- reconnecting...';
+        final status = await UsbWebcam.start(onFrame: _onUsbFrame, onStatus: _onUsbStatus);
+        if (status.isRunning && _running && mounted) {
+          _endUsbWait();
+          _toast('USB webcam reconnected -- detection continues in the same session');
+        }
+      } finally {
+        _usbRetryBusy = false;
+      }
+    });
+  }
+
+  void _endUsbWait() {
+    _usbReconnectTimer?.cancel();
+    _usbReconnectTimer = null;
+    _usbReconnecting = false;
+  }
+
+  Future<void> _startUsbWebcam() async {
+    setState(() {
+      _starting = true;
+      _error = null;
+      _notes = [];
+      _notesVideoId = null;
+    });
+    try {
+      final status = await UsbWebcam.start(onFrame: _onUsbFrame, onStatus: _onUsbStatus);
+      if (!mounted) {
+        await UsbWebcam.stop();
+        return;
+      }
+      if (!status.isRunning) {
+        setState(() => _error = status.message);
+        return;
+      }
+      if (status.width > 0 && status.height > 0) {
+        _usbPicture.aspectRatio = status.width / status.height;
+      }
+      _usbActive = true;
+      _openPhoneStream();
+      setState(() {
+        _running = true;
+        _streamKey++;
+      });
+      keepScreenAwake(true);
+      _connectWs();
+    } catch (e) {
+      _usbActive = false;
+      await UsbWebcam.stop();
+      if (mounted) setState(() => _error = 'Failed to start the USB webcam: $e');
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
   Future<void> _startThisDeviceCamera() async {
+    if (_selectedCamera?.name == kUsbWebcamCameraName) {
+      await _startUsbWebcam();
+      return;
+    }
     setState(() {
       _starting = true;
       _error = null;
@@ -362,26 +604,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       }
       _cameraController = controller;
 
-      final channel = _api.connectPhoneStreamWs();
-      _phoneStreamChannel = channel;
-      // Surface a connection failure the same way the USB path does — this
-      // channel is send-only otherwise, so errors are the only thing worth
-      // listening for.
-      _framesInFlight = 0;
-      _serverAcks = false;
-      channel.stream.listen(
-        (dynamic message) {
-          // 0x01 = "frame received"; 0x00 is the periodic keepalive.
-          if (message is List<int> && message.isNotEmpty && message[0] == 1) {
-            _serverAcks = true;
-            _lastAckAt = DateTime.now();
-            if (_framesInFlight > 0) _framesInFlight--;
-          }
-        },
-        onError: (Object e) {
-          if (mounted) setState(() => _error = 'Camera stream connection lost: $e');
-        },
-      );
+      _openPhoneStream();
 
       setState(() {
         _running = true;
@@ -499,6 +722,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   }
 
   Future<void> _stopThisDeviceCamera() async {
+    _endUsbWait();
     keepScreenAwake(false);
     _stopLocationUpdates();
     _captureTimer?.cancel();
@@ -507,6 +731,12 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     _overlayClearTimer = null;
     await _phoneStreamChannel?.sink.close();
     _phoneStreamChannel = null;
+    if (_usbActive) {
+      _usbActive = false;
+      await UsbWebcam.stop();
+      _usbPicture.frame.value = null;
+      _usbPicture.note.value = '';
+    }
     await _cameraController?.dispose();
     _cameraController = null;
     _wsSubscription?.cancel();
@@ -540,17 +770,22 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   void _connectWs() {
     _wsSubscription?.cancel();
     _wsChannel?.sink.close();
+    _serverSawRunning = false;
     final channel = _api.connectWs();
     _wsChannel = channel;
     _wsSubscription = channel.stream.listen(
       (dynamic message) {
         final data = jsonDecode(message as String) as Map<String, dynamic>;
         if (!mounted) return;
+        var endedOnServer = false;
         setState(() {
           final statusJson = data['status'] as Map<String, dynamic>?;
           if (statusJson != null) {
             _status = LiveStatus.fromJson(statusJson);
-            if (!_status!.running) {
+            if (_status!.running) {
+              _serverSawRunning = true;
+            } else {
+              endedOnServer = _running && _serverSawRunning;
               _running = false;
               keepScreenAwake(false);
             }
@@ -578,6 +813,11 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
             if (_events.length > 30) _events.removeRange(30, _events.length);
           }
         });
+        // The server ended this session (e.g. it restarted): release this phone's camera / USB webcam
+        // too, so the next Start begins cleanly instead of finding the webcam still held open.
+        if (endedOnServer && _source == LiveSource.thisDeviceCamera) {
+          _stopThisDeviceCamera();
+        }
       },
       onError: (Object _) {
         if (mounted) setState(() => _error = 'WebSocket connection lost');
@@ -601,6 +841,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
 
   @override
   void dispose() {
+    _usbReconnectTimer?.cancel();
     keepScreenAwake(false);
     if (_isFullscreen) {
       // Leaving this screen while full screen: give the phone its normal rotation and bars back.
@@ -614,6 +855,12 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
     _locationResendTimer?.cancel();
     _phoneStreamChannel?.sink.close();
     _cameraController?.dispose();
+    if (_usbActive) {
+      _usbActive = false;
+      UsbWebcam.stop();
+    }
+    _usbPicture.frame.dispose();
+    _usbPicture.note.dispose();
     _voiceTicker?.cancel();
     _voice.cancel();
     _voice.dispose();
@@ -672,7 +919,9 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       loadingCameras: _loadingCameras,
       onSelectCamera: (c) => setState(() => _selectedCamera = c),
       onRefreshCameras: _loadCameras,
+      usbNote: _usbNote,
       cameraController: _cameraController,
+      usbPicture: _usbActive ? _usbPicture : null,
       previewKey: _previewKey,
       overlayEvent: _overlayEvent,
       onStartThisDeviceCamera: _startThisDeviceCamera,
@@ -704,6 +953,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
           error: _error,
           streamUrl: _api.streamUrlFor(_streamKey),
           cameraController: _cameraController,
+          usbPicture: _usbActive ? _usbPicture : null,
           previewKey: _previewKey,
           overlayEvent: _overlayEvent,
           latestEvent: _events.isEmpty ? null : _events.first,
@@ -1008,6 +1258,7 @@ class _CameraFeedCard extends StatelessWidget {
     required this.source,
     required this.onSourceChange,
     required this.cameraController,
+    required this.usbPicture,
     required this.previewKey,
     required this.overlayEvent,
     required this.onStartThisDeviceCamera,
@@ -1016,6 +1267,7 @@ class _CameraFeedCard extends StatelessWidget {
     required this.loadingCameras,
     required this.onSelectCamera,
     required this.onRefreshCameras,
+    this.usbNote = '',
   });
 
   final bool running;
@@ -1031,6 +1283,7 @@ class _CameraFeedCard extends StatelessWidget {
   final LiveSource source;
   final ValueChanged<LiveSource>? onSourceChange;
   final CameraController? cameraController;
+  final UsbPicture? usbPicture;
   final GlobalKey previewKey;
   final LiveEvent? overlayEvent;
   final VoidCallback onStartThisDeviceCamera;
@@ -1039,6 +1292,7 @@ class _CameraFeedCard extends StatelessWidget {
   final bool loadingCameras;
   final ValueChanged<CameraDescription> onSelectCamera;
   final VoidCallback onRefreshCameras;
+  final String usbNote;
 
   static String _directionLabel(CameraLensDirection d) {
     switch (d) {
@@ -1052,13 +1306,14 @@ class _CameraFeedCard extends StatelessWidget {
   }
 
   static String _cameraLabel(CameraDescription c, int index) {
+    if (c.name == kUsbWebcamCameraName) return 'USB webcam (plugged into this phone)';
     final name = c.name.trim().isEmpty ? 'Camera ${index + 1}' : c.name.trim();
     return '$name (${_directionLabel(c.lensDirection)})';
   }
 
   Widget _cameraPicker() {
     final selected = selectedCamera;
-    return Row(
+    final row = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         const Text(
@@ -1103,6 +1358,22 @@ class _CameraFeedCard extends StatelessWidget {
           tooltip: 'Look for cameras again (e.g. after plugging in a USB camera)',
         ),
       ],
+    );
+    if (usbNote.isEmpty) return row;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          row,
+          const SizedBox(height: 6),
+          Text(
+            'No USB webcam recognised. $usbNote',
+            style: const TextStyle(fontSize: 11, color: AppColors.secondaryText),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1266,6 +1537,7 @@ class _CameraFeedCard extends StatelessWidget {
         running: running,
         streamUrl: streamUrl,
         cameraController: cameraController,
+        usbPicture: usbPicture,
         previewKey: previewKey,
         overlayEvent: overlayEvent,
       );
@@ -1294,11 +1566,25 @@ Widget _buildLivePreview({
   required CameraController? cameraController,
   required GlobalKey previewKey,
   required LiveEvent? overlayEvent,
+  UsbPicture? usbPicture,
 }) {
   if (source == LiveSource.usbCamera) {
     return running
         ? MjpegView(url: streamUrl, onError: (_) {})
         : const _StreamOfflineState(sourceLabel: 'USB camera');
+  }
+  final usb = usbPicture;
+  if (usb != null && running) {
+    return AspectRatio(
+      aspectRatio: safeAspectRatio(usb.aspectRatio),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          _UsbFrameImage(usb.frame, usb.note),
+          CustomPaint(painter: _BoxOverlayPainter(event: overlayEvent)),
+        ],
+      ),
+    );
   }
   final controller = cameraController;
   if (!running || controller == null || !controller.value.isInitialized) {
@@ -2374,6 +2660,7 @@ class _LiveFullscreenView extends StatefulWidget {
     required this.error,
     required this.streamUrl,
     required this.cameraController,
+    this.usbPicture,
     required this.previewKey,
     required this.overlayEvent,
     required this.latestEvent,
@@ -2394,6 +2681,7 @@ class _LiveFullscreenView extends StatefulWidget {
   final String? error;
   final String streamUrl;
   final CameraController? cameraController;
+  final UsbPicture? usbPicture;
   final GlobalKey previewKey;
   final LiveEvent? overlayEvent;
   final LiveEvent? latestEvent;
@@ -2465,6 +2753,31 @@ class _LiveFullscreenViewState extends State<_LiveFullscreenView> {
 
   Widget _picture() {
     final controller = widget.cameraController;
+    final usb = widget.usbPicture;
+    if (usb != null && widget.running) {
+      // USB webcam: cover the whole screen; the detection box is drawn inside the same scaled box so it
+      // stays exactly on what it marks. A wide picture on an upright phone (auto-rotate on) is shown
+      // whole instead, with black bars, rather than cropped to a narrow strip.
+      final size = MediaQuery.sizeOf(context);
+      final upright = size.height > size.width;
+      return SizedBox.expand(
+        child: FittedBox(
+          fit: upright && usb.aspectRatio > 1 ? BoxFit.contain : BoxFit.cover,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: safeAspectRatio(usb.aspectRatio) * 1000,
+            height: 1000,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _UsbFrameImage(usb.frame, usb.note),
+                CustomPaint(painter: _BoxOverlayPainter(event: widget.overlayEvent)),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     if (_cameraReady && controller != null && kIsWeb) {
       // In a browser the video element already crops itself to fill whatever box it is given
       // (object-fit: cover), so give it the whole screen and add no scaling around it. The
@@ -2507,6 +2820,7 @@ class _LiveFullscreenViewState extends State<_LiveFullscreenView> {
       cameraController: controller,
       previewKey: widget.previewKey,
       overlayEvent: widget.overlayEvent,
+      usbPicture: usb,
     );
     if (widget.source == LiveSource.usbCamera && widget.running) {
       return Center(child: AspectRatio(aspectRatio: 16 / 9, child: preview));
