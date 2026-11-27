@@ -86,6 +86,7 @@ class UsbWebcamBridge(
     @Volatile private var lastNote = ""
     @Volatile private var lastLog = ""
     private var diagTicking = false
+    private var stallReported = false
 
     init {
         MethodChannel(messenger, METHODS).setMethodCallHandler(this)
@@ -180,8 +181,8 @@ class UsbWebcamBridge(
 
     private fun startRequested(result: MethodChannel.Result) {
         if (starting || running) {
-            result.success(null)
-            return
+            // A previous session still holds the webcam (e.g. the screen lost track of it): start afresh.
+            shutDown()
         }
         if (firstVideoDevice() == null) {
             status("error", "No USB webcam found. Plug it in through the OTG adapter and try again.")
@@ -205,7 +206,8 @@ class UsbWebcamBridge(
         override fun onDetach(device: UsbDevice) {
             if (device == selected && (running || starting)) {
                 shutDown()
-                status("error", "The USB webcam was unplugged.")
+                // Not an error: the screen waits for the webcam to come back and carries on.
+                status("detached", "The USB webcam was disconnected.")
             }
         }
 
@@ -510,6 +512,14 @@ class UsbWebcamBridge(
                     return
                 }
                 val waiting = picturesSoFar() == 0
+                // Pictures were arriving and then stopped (the webcam hung without being unplugged).
+                val silentFor = SystemClock.elapsedRealtime() - lastFrameAt
+                if (!waiting && lastFrameAt > 0 && silentFor > STALL_MS && !stallReported) {
+                    stallReported = true
+                    sink?.success(mapOf("state" to "stalled", "message" to "The USB webcam stopped sending pictures."))
+                } else if (silentFor <= STALL_MS) {
+                    stallReported = false
+                }
                 if (waiting && ticks++ % 2 == 0) logHandler.post { lastLog = recentLog(6, "\n") }
                 val message = "webcam opened ${frameWidth}x$frameHeight; direct " +
                     "${directCallbacks.get()} received/${directPictures.get()} sent; second path " +
@@ -590,5 +600,6 @@ class UsbWebcamBridge(
         private const val JPEG_QUALITY = 75
         private const val MIN_FRAME_GAP_MS = 100L
         private const val WATCHDOG_MS = 4000L
+        private const val STALL_MS = 6000L
     }
 }

@@ -152,6 +152,13 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   final UsbPicture _usbPicture = UsbPicture();
   bool _usbActive = false;
   String _usbNote = '';
+  // While the USB webcam is unplugged / hung mid-session: wait for it and reopen it (same session).
+  bool _usbReconnecting = false;
+  bool _usbRetryBusy = false;
+  Timer? _usbReconnectTimer;
+  static const Duration _usbReconnectLimit = Duration(minutes: 3);
+  // The server reported this session as running at least once (so a later "not running" means it ended).
+  bool _serverSawRunning = false;
   List<CameraDescription> _availableCameras = [];
   CameraDescription? _selectedCamera;
   bool _loadingCameras = false;
@@ -459,11 +466,62 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
       }
       return;
     }
-    // Unplugged (or lost) while detecting: say so and stop cleanly.
-    if (status.isError && _usbActive && _running && mounted) {
+    if (!_usbActive || !_running || !mounted) return;
+    // Disconnected (loose cable, power dip) or hung: keep the session and wait for the webcam to return.
+    if (status.state == 'detached' || status.state == 'stalled') {
+      _waitForUsbWebcam(status.message);
+      return;
+    }
+    // Any other failure while detecting: say so and stop cleanly.
+    if (status.isError && !_usbReconnecting) {
       setState(() => _error = status.message);
       _stop();
     }
+  }
+
+  /// Keeps the live session (and its report) going while the USB webcam is away: checks every two seconds
+  /// whether Android sees it again and reopens it. Gives up after [_usbReconnectLimit].
+  void _waitForUsbWebcam(String why) {
+    if (_usbReconnecting) return;
+    _usbReconnecting = true;
+    final since = DateTime.now();
+    _usbPicture.frame.value = null;
+    _usbPicture.note.value = '$why Waiting for it to come back -- check the cable and OTG adapter. '
+        'Allow USB access again if the phone asks.';
+    _usbReconnectTimer?.cancel();
+    _usbReconnectTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (!_running || !_usbActive || !mounted) {
+        _endUsbWait();
+        return;
+      }
+      if (DateTime.now().difference(since) > _usbReconnectLimit) {
+        _endUsbWait();
+        setState(() => _error = 'The USB webcam did not come back within '
+            '${_usbReconnectLimit.inMinutes} minutes, so live detection was stopped. '
+            'What was detected so far is in the session report.');
+        await _stop();
+        return;
+      }
+      if (_usbRetryBusy) return;
+      _usbRetryBusy = true;
+      try {
+        if ((await UsbWebcam.devices()).isEmpty) return;
+        _usbPicture.note.value = 'The USB webcam is back -- reconnecting...';
+        final status = await UsbWebcam.start(onFrame: _onUsbFrame, onStatus: _onUsbStatus);
+        if (status.isRunning && _running && mounted) {
+          _endUsbWait();
+          _toast('USB webcam reconnected -- detection continues in the same session');
+        }
+      } finally {
+        _usbRetryBusy = false;
+      }
+    });
+  }
+
+  void _endUsbWait() {
+    _usbReconnectTimer?.cancel();
+    _usbReconnectTimer = null;
+    _usbReconnecting = false;
   }
 
   Future<void> _startUsbWebcam() async {
@@ -664,6 +722,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   }
 
   Future<void> _stopThisDeviceCamera() async {
+    _endUsbWait();
     keepScreenAwake(false);
     _stopLocationUpdates();
     _captureTimer?.cancel();
@@ -711,17 +770,22 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
   void _connectWs() {
     _wsSubscription?.cancel();
     _wsChannel?.sink.close();
+    _serverSawRunning = false;
     final channel = _api.connectWs();
     _wsChannel = channel;
     _wsSubscription = channel.stream.listen(
       (dynamic message) {
         final data = jsonDecode(message as String) as Map<String, dynamic>;
         if (!mounted) return;
+        var endedOnServer = false;
         setState(() {
           final statusJson = data['status'] as Map<String, dynamic>?;
           if (statusJson != null) {
             _status = LiveStatus.fromJson(statusJson);
-            if (!_status!.running) {
+            if (_status!.running) {
+              _serverSawRunning = true;
+            } else {
+              endedOnServer = _running && _serverSawRunning;
               _running = false;
               keepScreenAwake(false);
             }
@@ -749,6 +813,11 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
             if (_events.length > 30) _events.removeRange(30, _events.length);
           }
         });
+        // The server ended this session (e.g. it restarted): release this phone's camera / USB webcam
+        // too, so the next Start begins cleanly instead of finding the webcam still held open.
+        if (endedOnServer && _source == LiveSource.thisDeviceCamera) {
+          _stopThisDeviceCamera();
+        }
       },
       onError: (Object _) {
         if (mounted) setState(() => _error = 'WebSocket connection lost');
@@ -772,6 +841,7 @@ class _LiveDetectionScreenState extends State<LiveDetectionScreen> {
 
   @override
   void dispose() {
+    _usbReconnectTimer?.cancel();
     keepScreenAwake(false);
     if (_isFullscreen) {
       // Leaving this screen while full screen: give the phone its normal rotation and bars back.
@@ -2686,10 +2756,13 @@ class _LiveFullscreenViewState extends State<_LiveFullscreenView> {
     final usb = widget.usbPicture;
     if (usb != null && widget.running) {
       // USB webcam: cover the whole screen; the detection box is drawn inside the same scaled box so it
-      // stays exactly on what it marks.
+      // stays exactly on what it marks. A wide picture on an upright phone (auto-rotate on) is shown
+      // whole instead, with black bars, rather than cropped to a narrow strip.
+      final size = MediaQuery.sizeOf(context);
+      final upright = size.height > size.width;
       return SizedBox.expand(
         child: FittedBox(
-          fit: BoxFit.cover,
+          fit: upright && usb.aspectRatio > 1 ? BoxFit.contain : BoxFit.cover,
           clipBehavior: Clip.hardEdge,
           child: SizedBox(
             width: safeAspectRatio(usb.aspectRatio) * 1000,
