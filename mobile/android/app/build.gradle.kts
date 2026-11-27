@@ -75,6 +75,12 @@ kotlin {
     }
 }
 
+dependencies {
+    // Opens a UVC (USB webcam) directly through the phone's USB port. Android's normal camera system does not
+    // list most USB webcams, so the live screen's "USB webcam" option goes through this instead.
+    implementation("com.herohan:UVCAndroid:1.0.13")
+}
+
 flutter {
     source = "../.."
 }
