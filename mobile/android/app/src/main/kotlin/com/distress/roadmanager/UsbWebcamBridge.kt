@@ -63,7 +63,6 @@ class UsbWebcamBridge(
     private var lastFrameAt = 0L
     private var frameWidth = 0
     private var frameHeight = 0
-    private var chosenSize: Size? = null
     private var knownSizes: List<Size> = emptyList()
 
     // A second way to get pictures: the library draws every picture onto this reader's surface. Used when the
@@ -182,21 +181,29 @@ class UsbWebcamBridge(
             }
 
             override fun onDeviceOpen(device: UsbDevice, isFirstOpen: Boolean) {
-                openWithBestSize(device)
+                attempts = emptyList()
+                attemptIndex = 0
+                helper?.openCamera()
             }
 
             override fun onCameraOpen(device: UsbDevice) {
                 val hh = helper ?: return
-                val size = hh.previewSize ?: chosenSize
+                openGeneration++
+                val generation = openGeneration
+                val size = hh.previewSize
                 frameWidth = size?.width ?: 0
                 frameHeight = size?.height ?: 0
-                knownSizes = (try { hh.supportedSizeList } catch (e: Exception) { null } ?: emptyList()) +
-                    listOfNotNull(size)
+                val supported = try { hh.supportedSizeList } catch (e: Exception) { null } ?: emptyList()
+                knownSizes = supported + listOfNotNull(size)
+                if (attempts.isEmpty()) {
+                    attempts = buildAttempts(supported)
+                    supportSummary = summarise(supported)
+                }
                 directCallbacks.set(0)
                 directPictures.set(0)
                 readerPictures.set(0)
                 lastDirectAt = 0L
-                lastNote = ""
+                detachReader(hh)
                 attachReader(hh)
                 hh.setFrameCallback(frameCallback, UVCCamera.PIXEL_FORMAT_NV21)
                 hh.startPreview()
@@ -213,6 +220,8 @@ class UsbWebcamBridge(
                         ),
                     )
                 }
+                // Some webcams refuse some size / format combinations and then simply send nothing.
+                main.postDelayed({ checkPicturesArrive(generation) }, WATCHDOG_MS)
             }
 
             override fun onCameraClose(device: UsbDevice) {}
@@ -275,30 +284,75 @@ class UsbWebcamBridge(
         helper?.selectDevice(device)
     }
 
-    private fun openWithBestSize(device: UsbDevice) {
-        val h = helper ?: return
-        val sizes = try {
-            h.supportedSizeList
-        } catch (e: Exception) {
-            null
-        }
-        val best = chooseSize(sizes)
-        chosenSize = best
-        if (best != null) h.openCamera(UVCParam(best, 0)) else h.openCamera()
+    /** One way of opening the webcam: a size / format (null = the library's own default) and USB quirks. */
+    private class Attempt(val size: Size?, val quirks: Int, val label: String)
+
+    private var attempts: List<Attempt> = emptyList()
+    private var attemptIndex = 0
+    private var openGeneration = 0
+    private var supportSummary = ""
+
+    private fun describe(s: Size): String {
+        val kind = if (s.type == UVCCamera.UVC_VS_FRAME_MJPEG) "MJPEG" else "uncompressed"
+        return "$kind ${s.width}x${s.height}"
+    }
+
+    private fun summarise(sizes: List<Size>): String {
+        if (sizes.isEmpty()) return "no sizes reported"
+        return sizes.take(8).joinToString(", ") { describe(it) } + if (sizes.size > 8) ", ..." else ""
     }
 
     /**
-     * About 1280 px wide: the server shrinks every picture to at most 640 px anyway, so more detail than this
-     * only costs upload time, and less loses small cracks. Compressed (MJPEG) sizes are preferred: they allow a
-     * higher frame rate over a USB 2 cable.
+     * The library's default first, then moderate sizes (compressed first), then small ones, and finally the
+     * "fix bandwidth" workaround that some webcams need for uncompressed video.
      */
-    private fun chooseSize(sizes: List<Size>?): Size? {
-        if (sizes.isNullOrEmpty()) return null
-        return sizes.minByOrNull { s ->
-            val compressedPenalty = if (s.type == UVCCamera.UVC_VS_FRAME_MJPEG) 0 else 100_000
-            val tooSmall = if (s.width < 640) 50_000 else 0
-            abs(s.width - TARGET_WIDTH) + compressedPenalty + tooSmall
+    private fun buildAttempts(sizes: List<Size>): List<Attempt> {
+        val out = mutableListOf(Attempt(null, 0, "the library default"))
+        val compressed = sizes.filter { it.type == UVCCamera.UVC_VS_FRAME_MJPEG }
+        val raw = sizes.filter { it.type != UVCCamera.UVC_VS_FRAME_MJPEG }
+        fun nearest(list: List<Size>, width: Int) = list.minByOrNull { abs(it.width - width) }
+        fun smallest(list: List<Size>) = list.minByOrNull { it.width * it.height }
+        fun add(size: Size?, quirks: Int, note: String) {
+            if (size == null) return
+            if (out.any { it.size?.width == size.width && it.size?.height == size.height &&
+                    it.size?.type == size.type && it.quirks == quirks }) return
+            out.add(Attempt(size, quirks, describe(size) + note))
         }
+        add(nearest(compressed, 640), 0, "")
+        add(nearest(raw, 640), 0, "")
+        add(nearest(raw, 640), UVCCamera.UVC_QUIRK_FIX_BANDWIDTH, " (fixed bandwidth)")
+        add(smallest(compressed), 0, "")
+        add(smallest(raw), 0, "")
+        add(smallest(raw), UVCCamera.UVC_QUIRK_FIX_BANDWIDTH, " (fixed bandwidth)")
+        add(nearest(compressed, 1280), 0, "")
+        return out
+    }
+
+    private fun picturesSoFar() = directCallbacks.get() + readerPictures.get()
+
+    private fun checkPicturesArrive(generation: Int) {
+        if (generation != openGeneration || !running) return
+        if (picturesSoFar() > 0) return
+        val h = helper ?: return
+        attemptIndex++
+        if (attemptIndex >= attempts.size) {
+            val tried = attempts.joinToString("; ") { it.label }
+            shutDown()
+            status(
+                "error",
+                "The USB webcam opened but sent no pictures with any setting tried ($tried). " +
+                    "The webcam reports: $supportSummary.",
+            )
+            return
+        }
+        val next = attempts[attemptIndex]
+        lastNote = "no pictures yet; trying ${next.label} (${attemptIndex + 1}/${attempts.size})"
+        try {
+            h.stopPreview()
+        } catch (_: Exception) {
+        }
+        h.closeCamera()
+        h.openCamera(UVCParam(next.size, next.quirks))
     }
 
     // -------------------------------------------------------------------------------- the pictures
@@ -378,6 +432,19 @@ class UsbWebcamBridge(
         }
     }
 
+    private fun detachReader(h: ICameraHelper) {
+        val r = reader ?: return
+        reader = null
+        try {
+            h.removeSurface(r.surface)
+        } catch (_: Exception) {
+        }
+        try {
+            r.close()
+        } catch (_: Exception) {
+        }
+    }
+
     /** Once a second, tell the screen what is arriving (shown while the preview is still empty). */
     private fun startDiagnostics() {
         if (diagTicking) return
@@ -390,7 +457,8 @@ class UsbWebcamBridge(
                 }
                 val message = "webcam opened ${frameWidth}x$frameHeight; direct " +
                     "${directCallbacks.get()} received/${directPictures.get()} sent; second path " +
-                    "${readerPictures.get()}" + if (lastNote.isNotEmpty()) "; $lastNote" else ""
+                    "${readerPictures.get()}" + (if (lastNote.isNotEmpty()) "; $lastNote" else "") +
+                    (if (picturesSoFar() == 0 && supportSummary.isNotEmpty()) "; webcam supports: $supportSummary" else "")
                 sink?.success(
                     mapOf(
                         "state" to "diag",
@@ -458,5 +526,6 @@ class UsbWebcamBridge(
         private const val TARGET_WIDTH = 1280
         private const val JPEG_QUALITY = 75
         private const val MIN_FRAME_GAP_MS = 100L
+        private const val WATCHDOG_MS = 4000L
     }
 }
