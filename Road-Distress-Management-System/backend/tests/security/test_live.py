@@ -15,10 +15,11 @@ from app.services.live.live_camera_service import LiveCameraManager
 
 @pytest.fixture()
 def fake_manager(monkeypatch):
-    """Replaces the singleton's heavy methods with recorders."""
-    manager = LiveCameraManager.instance()
+    """Every user's session is this one manager, whose heavy methods are replaced with recorders."""
+    manager = LiveCameraManager()
+    monkeypatch.setattr(LiveCameraManager, "for_user", classmethod(lambda cls, user_id: manager))
     calls = {"start_remote": 0, "stop": 0, "frames": 0}
-    state = {"start_status": "started"}
+    state = {"start_status": "started", "manager": manager}
 
     def start_remote(*a, **k):
         calls["start_remote"] += 1
@@ -169,7 +170,7 @@ def test_every_received_frame_is_acknowledged_so_the_phone_can_pace_itself(clien
 
 
 def test_phone_location_messages_set_the_detection_position(client, fake_manager, make_user, monkeypatch):
-    manager = LiveCameraManager.instance()
+    manager = fake_manager[1]["manager"]
     monkeypatch.setattr(manager, "_device_fix", None)
     _, _, headers = make_user()
     token = headers["Authorization"].split()[1]
@@ -239,7 +240,8 @@ def test_live_status_has_no_filesystem_paths(client, make_user):
 
 def test_start_failure_message_is_generic(client, make_user, monkeypatch):
     _, _, headers = make_user()
-    manager = LiveCameraManager.instance()
+    manager = LiveCameraManager()
+    monkeypatch.setattr(LiveCameraManager, "for_user", classmethod(lambda cls, user_id: manager))
 
     def explode(**kwargs):
         raise FileNotFoundError("model missing at C:\\very\\secret\\path\\road_best.pth")
@@ -254,3 +256,44 @@ def test_live_start_request_is_validated(client, make_user):
     _, _, headers = make_user()
     for body in ({"camera_index": -1}, {"camera_index": 999}, {"latitude": 200}, {"longitude": -999}):
         assert client.post("/api/v1/live/start", headers=headers, json=body).status_code == 422
+
+
+# ----------------------------------------------------------------------------- one session per user
+@pytest.fixture()
+def separate_sessions(monkeypatch):
+    """Real per-user sessions (a fresh registry), with model loading and the loops stubbed out."""
+    monkeypatch.setattr(LiveCameraManager, "_sessions", {})
+    monkeypatch.setattr(LiveCameraManager, "_ensure_models_loaded", lambda self: None)
+    monkeypatch.setattr(LiveCameraManager, "_inference_loop", lambda self: self._running.wait(5))
+    monkeypatch.setattr(LiveCameraManager, "_capture_loop", lambda self, index: self._running.wait(5))
+    yield
+    for session in list(LiveCameraManager._sessions.values()):
+        session._running.clear()
+
+
+def test_each_user_has_their_own_session(separate_sessions):
+    alice, bob = LiveCameraManager.for_user(1), LiveCameraManager.for_user(2)
+    assert alice is not bob and LiveCameraManager.for_user(1) is alice
+    assert alice.start_remote()["status"] == "started"
+    assert bob.start_remote()["status"] == "started", "another user's running session must not block this one"
+    alice.stop()
+    assert not alice.is_running() and bob.is_running(), "stopping one user's session must leave the other running"
+
+
+def test_stopping_over_http_only_stops_the_callers_session(client, make_user, separate_sessions):
+    alice_id, _, alice = make_user()
+    bob_id, _, bob = make_user()
+    LiveCameraManager.for_user(alice_id).start_remote()
+    LiveCameraManager.for_user(bob_id).start_remote()
+
+    assert client.post("/api/v1/live/stop", headers=bob).status_code == 200
+    assert client.get("/api/v1/live/status", headers=alice).json()["running"] is True
+    assert client.get("/api/v1/live/status", headers=bob).json()["running"] is False
+
+
+def test_the_servers_own_camera_is_used_by_one_session_at_a_time(client, make_user, separate_sessions):
+    _, _, alice = make_user()
+    _, _, bob = make_user()
+    assert client.post("/api/v1/live/start", headers=alice, json={"camera_index": 1}).status_code == 200
+    r = client.post("/api/v1/live/start", headers=bob, json={"camera_index": 1})
+    assert r.status_code == 409 and "someone else" in r.json()["detail"]

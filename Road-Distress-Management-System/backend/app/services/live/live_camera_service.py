@@ -62,12 +62,25 @@ def _draw(frame, detections: List[Dict[str, Any]]):
 
 
 class LiveCameraManager:
-    """Singleton managing the live capture/inference loop."""
+    """
+    One live detection session (capture/inference loop, counters, event feed, report row).
+
+    Every signed-in user has their own session (``for_user``), so one person starting or stopping live
+    detection never touches anybody else's. The two YOLOX models are loaded once and shared by all sessions
+    (detection is stateless, so concurrent sessions can use them at the same time). A USB camera attached to
+    the server itself can only be read by one session at a time.
+    """
 
     _instance: Optional["LiveCameraManager"] = None
     _instance_lock = threading.Lock()
+    _sessions: Dict[Any, "LiveCameraManager"] = {}
+    _sessions_lock = threading.Lock()
+    _models_lock = threading.Lock()
+    _shared_pavement = None
+    _shared_signage = None
 
-    def __init__(self):
+    def __init__(self, owner: Any = None):
+        self.owner = owner
         self._capture_thread: Optional[threading.Thread] = None
         self._inference_thread: Optional[threading.Thread] = None
         self._cap: Optional[cv2.VideoCapture] = None
@@ -104,10 +117,30 @@ class LiveCameraManager:
 
     @classmethod
     def instance(cls) -> "LiveCameraManager":
+        """A session not tied to any user (kept for scripts and tests); routes use ``for_user``."""
         with cls._instance_lock:
             if cls._instance is None:
                 cls._instance = LiveCameraManager()
             return cls._instance
+
+    @classmethod
+    def for_user(cls, user_id: Any) -> "LiveCameraManager":
+        """The live session belonging to this signed-in user (created the first time it is needed)."""
+        with cls._sessions_lock:
+            session = cls._sessions.get(user_id)
+            if session is None:
+                session = LiveCameraManager(owner=user_id)
+                cls._sessions[user_id] = session
+            return session
+
+    @classmethod
+    def local_camera_in_use_by_another(cls, me: "LiveCameraManager") -> bool:
+        """True if a different session is currently reading the USB camera attached to this server."""
+        with cls._sessions_lock:
+            others = [s for s in cls._sessions.values() if s is not me]
+        if cls._instance is not None and cls._instance is not me:
+            others.append(cls._instance)
+        return any(s.is_running() and s.stats.get("source") == "local_camera" for s in others)
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -115,6 +148,23 @@ class LiveCameraManager:
     def _ensure_models_loaded(self) -> None:
         """Lazy-loads both YOLOX models on first start (local or remote)."""
         from app.services.live.yolox_engine import YOLOXDetector
+        cls = LiveCameraManager
+        with cls._models_lock:
+            if self._pavement is None:
+                self._pavement = cls._shared_pavement
+            if self._signage is None:
+                self._signage = cls._shared_signage
+            self._load_missing_models(YOLOXDetector)
+            cls._shared_pavement = self._pavement
+            cls._shared_signage = self._signage
+
+        # Record which model source/architecture loaded, for /live/status and /live/ws.
+        # Filesystem paths (checkpoint / exp file locations) are deliberately NOT included:
+        # these payloads are visible to every signed-in user.
+        self._pavement_info = self._public_model_info(self._pavement)
+        self._signage_info = self._public_model_info(self._signage)
+
+    def _load_missing_models(self, YOLOXDetector) -> None:
         if self._pavement is None:
             self._pavement = YOLOXDetector(
                 cfg.PAVEMENT_EXP_FILE, cfg.PAVEMENT_CKPT, "road",
@@ -131,12 +181,6 @@ class LiveCameraManager:
                 fallback_exp_name=cfg.FALLBACK_SIGNAGE_EXP_NAME,
                 fallback_num_classes=cfg.FALLBACK_SIGNAGE_NUM_CLASSES,
                 fallback_class_names=cfg.FALLBACK_SIGNAGE_CLASS_NAMES)
-
-        # Record which model source/architecture loaded, for /live/status and /live/ws.
-        # Filesystem paths (checkpoint / exp file locations) are deliberately NOT included:
-        # these payloads are visible to every signed-in user.
-        self._pavement_info = self._public_model_info(self._pavement)
-        self._signage_info = self._public_model_info(self._signage)
 
     @staticmethod
     def _public_model_info(detector: Any) -> Dict[str, Any]:
@@ -225,6 +269,9 @@ class LiveCameraManager:
     ) -> Dict[str, Any]:
         if self._running.is_set():
             return {"status": "already_running", **self.status()}
+        if LiveCameraManager.local_camera_in_use_by_another(self):
+            # The server has one physical camera; another user is reading it right now.
+            return {"status": "camera_busy", **self.status()}
 
         self._ensure_models_loaded()
 
@@ -236,6 +283,8 @@ class LiveCameraManager:
         self._error = None
         self.stats = self._blank_stats()
         self.stats["camera_index"] = camera_index
+        self.stats["source"] = "local_camera"
+        self._session_video_id = None
         self._process_every = max(1, cfg.PROCESS_EVERY_N_FRAMES)
         self._last_persist.clear()
 

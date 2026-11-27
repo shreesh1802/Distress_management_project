@@ -20,6 +20,8 @@ Security:
   * Incoming phone frames are size-capped, and decoded image dimensions are checked
     from the image header BEFORE decoding.
   * Only the connection that started a remote session may stop it.
+  * Every signed-in user has their own session: start / stop / status / stream / events only ever
+    touch the caller's session, so two people can run live detection at the same time.
 """
 
 import asyncio
@@ -39,10 +41,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
+from app.core.deps import get_current_user
 from app.core.ws_auth import authenticate_websocket
 from app.db.session import get_db
 from app.models.distress import RoadDistress
 from app.models.observation import SessionObservation
+from app.models.user import User
 from app.models.video import UploadedVideo
 from app.schemas.live_session import LiveSessionSummary
 from app.services.live.live_camera_service import LiveCameraManager
@@ -100,10 +104,10 @@ def image_dimensions(data: bytes) -> Optional[Tuple[int, int]]:
 
 
 @router.post("/start")
-def start_live(req: LiveStartRequest) -> Dict[str, Any]:
-    """Start the live camera detection loop."""
+def start_live(req: LiveStartRequest, user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Start the live camera detection loop (the server's own USB camera) for the signed-in user."""
     try:
-        return LiveCameraManager.instance().start(
+        result = LiveCameraManager.for_user(user.id).start(
             camera_index=req.camera_index,
             latitude=req.latitude,
             longitude=req.longitude,
@@ -115,12 +119,18 @@ def start_live(req: LiveStartRequest) -> Dict[str, Any]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Live detection models are not available on this server.",
         )
+    if result.get("status") == "camera_busy":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The server's camera is being used by someone else right now.",
+        )
+    return result
 
 
 @router.post("/stop")
-def stop_live() -> Dict[str, Any]:
-    """Stop the live camera detection loop and release the camera."""
-    return LiveCameraManager.instance().stop()
+def stop_live(user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Stop the signed-in user's live detection loop (other users' sessions keep running)."""
+    return LiveCameraManager.for_user(user.id).stop()
 
 
 def _apply_location_message(manager: LiveCameraManager, text: str) -> None:
@@ -169,7 +179,7 @@ async def phone_stream(websocket: WebSocket) -> None:
     if user is None:
         return
 
-    manager = LiveCameraManager.instance()
+    manager = LiveCameraManager.for_user(user.id)
     keepalive_task: Optional[asyncio.Task] = None
     owns_session = False
     start_time = time.monotonic()
@@ -179,8 +189,8 @@ async def phone_stream(websocket: WebSocket) -> None:
     try:
         result = manager.start_remote()
         if result.get("status") == "already_running":
-            # Another session (local camera or a different phone) is already
-            # active -- refuse rather than silently interleaving two sources
+            # This user already has a session running (e.g. on another of their
+            # devices) -- refuse rather than silently interleaving two sources
             # into one inference loop. This connection does NOT own the session.
             await websocket.close(code=1013, reason="A live session is already running")
             return
@@ -298,19 +308,19 @@ def list_live_sessions(
 
 
 @router.get("/status")
-def live_status() -> Dict[str, Any]:
-    """Current live session state and counters."""
-    return LiveCameraManager.instance().status()
+def live_status(user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """The signed-in user's live session state and counters."""
+    return LiveCameraManager.for_user(user.id).status()
 
 
 @router.get("/stream")
-async def live_stream() -> StreamingResponse:
+async def live_stream(user: User = Depends(get_current_user)) -> StreamingResponse:
     """
-    MJPEG stream of annotated frames. Point an <img> tag at this URL
+    MJPEG stream of the signed-in user's annotated frames. Point an <img> tag at this URL
     (requires the Authorization header, so use an HTTP client that can send it):
         GET /api/v1/live/stream
     """
-    manager = LiveCameraManager.instance()
+    manager = LiveCameraManager.for_user(user.id)
     if not manager.is_running():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="Live camera is not running. POST /live/start first.")
@@ -344,7 +354,7 @@ async def live_ws(websocket: WebSocket) -> None:
     if user is None:
         return
 
-    manager = LiveCameraManager.instance()
+    manager = LiveCameraManager.for_user(user.id)
     last_seq = 0
     try:
         while True:

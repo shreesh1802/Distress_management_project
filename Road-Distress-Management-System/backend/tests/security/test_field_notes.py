@@ -55,7 +55,7 @@ def notes_env(sandbox_storage, monkeypatch):
     monkeypatch.setattr(svc, "IMAGE_DIR", str(backend / "uploads" / "observations" / "images"))
     monkeypatch.setattr(svc, "AUDIO_DIR", str(backend / "uploads" / "observations" / "audio"))
     manager = FakeManager(None)
-    monkeypatch.setattr(LiveCameraManager, "instance", classmethod(lambda cls: manager))
+    monkeypatch.setattr(LiveCameraManager, "for_user", classmethod(lambda cls, user_id: manager))
     transcribed = []
     monkeypatch.setattr(svc, "run_transcription_job", lambda obs_id: transcribed.append(obs_id))
     manager.transcribed = transcribed
