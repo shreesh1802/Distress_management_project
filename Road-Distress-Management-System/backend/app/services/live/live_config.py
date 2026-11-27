@@ -33,6 +33,13 @@ CONF_THRESH = _env("LIVE_CONF_THRESH", 0.3)     # display threshold
 NMS_THRESH  = _env("LIVE_NMS_THRESH", 0.45)
 TEST_SIZE   = _env("LIVE_TEST_SIZE", 640)
 
+# Where detection runs: "auto" uses an NVIDIA GPU when PyTorch can see one and the CPU otherwise;
+# "cpu" forces the CPU; "cuda" / "cuda:1" picks a GPU (falls back to the CPU, with a warning, if none).
+DEVICE = _env("LIVE_DEVICE", "auto")
+# Half precision (float16) on a GPU: roughly twice as fast with the same detections in practice.
+# "auto" = on for a GPU, off for the CPU (the CPU is slower in float16); "true" / "false" force it.
+HALF_PRECISION = _env("LIVE_HALF_PRECISION", "auto")
+
 # ---- Camera / cadence ----
 DEFAULT_CAMERA_INDEX = _env("LIVE_CAMERA_INDEX", 1)   # 1 = external Lenovo webcam
 CAPTURE_WIDTH  = _env("LIVE_CAPTURE_WIDTH", 640)
