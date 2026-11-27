@@ -79,7 +79,7 @@ class _UsbFrameImage extends StatelessWidget {
                               child: Text(
                                 text,
                                 textAlign: TextAlign.center,
-                                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
                               ),
                             ),
                     ),

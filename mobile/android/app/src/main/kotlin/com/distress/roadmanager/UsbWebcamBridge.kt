@@ -342,7 +342,26 @@ class UsbWebcamBridge(
         return out
     }
 
-    private fun picturesSoFar() = directCallbacks.get() + readerPictures.get()
+    /** The app's own recent log lines about USB / camera work, to show why a webcam stays silent. */
+    private fun recentLog(): String {
+        return try {
+            val process = ProcessBuilder(
+                "logcat", "-d", "-t", "600", "--pid=" + android.os.Process.myPid(), "-v", "brief",
+            ).redirectErrorStream(true).start()
+            val lines = process.inputStream.bufferedReader().readLines()
+            process.destroy()
+            val keep = Regex("uvc|usb|libusb|preview|render|isoc|stream|bandwidth|error|fail|denied|permission", RegexOption.IGNORE_CASE)
+            val picked = lines.filter { keep.containsMatchIn(it) && !it.contains("flutter", ignoreCase = true) }
+                .map { it.take(140) }
+                .distinct()
+                .takeLast(14)
+            if (picked.isEmpty()) "(nothing relevant in the phone log)" else picked.joinToString(" | ")
+        } catch (e: Exception) {
+            "(could not read the phone log: ${e.javaClass.simpleName})"
+        }
+    }
+
+    private fun picturesSoFar() =directCallbacks.get() + readerPictures.get()
 
     private fun checkPicturesArrive(generation: Int) {
         if (generation != openGeneration || !running) return
@@ -351,11 +370,12 @@ class UsbWebcamBridge(
         attemptIndex++
         if (attemptIndex >= attempts.size) {
             val tried = attempts.joinToString("; ") { it.label }
+            val log = recentLog()
             shutDown()
             status(
                 "error",
                 "The USB webcam opened but sent no pictures with any setting tried ($tried). " +
-                    "The webcam reports: $supportSummary.",
+                    "The webcam reports: $supportSummary. Phone log: $log",
             )
             return
         }
