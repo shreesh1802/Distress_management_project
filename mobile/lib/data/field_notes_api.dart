@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiBaseUrl, kApiV1;
+import '../utils/local_time.dart';
 
 /// A snapshot and / or voice note the surveyor added by hand during a live session, for something the
 /// camera detection missed. It belongs to the session's report.
@@ -43,7 +44,7 @@ class FieldNote {
     return FieldNote(
       id: (json['id'] as num).toInt(),
       videoId: (json['video_id'] as num).toInt(),
-      createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '')?.toLocal(),
+      createdAt: parseServerTime(json['created_at']?.toString()),
       note: json['note'] as String?,
       hasImage: json['has_image'] == true,
       hasAudio: json['has_audio'] == true,

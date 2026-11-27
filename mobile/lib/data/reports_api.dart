@@ -7,6 +7,7 @@ import 'live_detection_api.dart' show kApiBaseUrl, kApiV1;
 import 'maintenance_api.dart' show AppUser;
 import 'report_settings.dart';
 import 'video_api.dart' show UploadedVideo;
+import '../utils/local_time.dart';
 
 /// Direct Dart port of `ReportResponse` in apiService.ts.
 class ReportRecord {
@@ -147,7 +148,7 @@ class ReportItem {
       district: district,
       distressType: distressType,
       severity: severity,
-      generatedDate: (rec.generatedAt ?? rec.createdAt).split('T').first,
+      generatedDate: localIsoDay(rec.generatedAt ?? rec.createdAt),
       status: rec.filepath != null ? 'Exported' : 'Approved',
       filepath: rec.filepath,
       reportId: rec.id,
@@ -184,7 +185,7 @@ class ReportItem {
       district: _kDistricts[videoId % _kDistricts.length],
       distressType: _kDistressTypes[videoId % _kDistressTypes.length],
       severity: _kSeverities[videoId % _kSeverities.length],
-      generatedDate: (rec.generatedAt ?? rec.createdAt).split('T').first,
+      generatedDate: localIsoDay(rec.generatedAt ?? rec.createdAt),
       status: rec.filepath != null ? 'Exported' : 'Approved',
       filepath: rec.filepath,
       reportId: rec.id,

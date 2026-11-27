@@ -1,5 +1,6 @@
 import '../../data/reports_api.dart';
 import '../../data/video_api.dart';
+import '../../utils/local_time.dart';
 
 const _kReportUsers = ['Admin John', 'Supervisor Sarah', 'Engineer Prasad', 'Inspector Anita'];
 
@@ -124,7 +125,7 @@ List<TimelineEvent> buildTimeline(List<ReportRecord> reports, List<UploadedVideo
       category: 'Reports',
       title: 'Report Exported',
       description: 'Exported summary list "${rep.reportName}" in ${rep.reportType} format.',
-      timestamp: DateTime.tryParse(rep.generatedAt ?? rep.createdAt) ?? DateTime.now(),
+      timestamp: parseServerTime(rep.generatedAt ?? rep.createdAt) ?? DateTime.now(),
       status: 'Success',
       user: reportUserFor(rep.id),
       reportId: rep.id,

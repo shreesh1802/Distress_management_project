@@ -5,6 +5,7 @@ import '../../../data/reports_api.dart';
 import '../../../theme/app_colors.dart';
 import '../timeline_event.dart';
 import 'activity_timeline.dart' show formatDateTimeIN;
+import '../../../utils/local_time.dart';
 
 enum ReportSortKey { name, format, generatedAt, size }
 
@@ -168,7 +169,7 @@ class ReportsArchiveTable extends StatelessWidget {
         const SizedBox(width: 4),
         Text(reportUserFor(r.id), style: const TextStyle(fontSize: 12)),
       ])),
-      DataCell(Text(formatDateTimeIN(DateTime.tryParse(r.generatedAt ?? r.createdAt) ?? DateTime.now()), style: const TextStyle(fontSize: 11, color: AppColors.secondaryText))),
+      DataCell(Text(formatDateTimeIN(parseServerTime(r.generatedAt ?? r.createdAt) ?? DateTime.now()), style: const TextStyle(fontSize: 11, color: AppColors.secondaryText))),
       DataCell(Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(color: AppColors.successLight, borderRadius: BorderRadius.circular(9999)),

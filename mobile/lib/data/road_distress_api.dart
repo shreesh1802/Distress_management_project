@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'custom_http_client.dart';
 import 'live_detection_api.dart' show kApiBaseUrl, kApiV1;
+import '../utils/local_time.dart';
 
 /// Direct Dart port of the raw `RoadDistressResponse` shape (as used by
 /// RoadDistresses.tsx, which works with the unmapped API record directly --
@@ -56,7 +57,7 @@ class DistressRecord {
       confidenceScore: (json['confidence_score'] as num?)?.toDouble() ?? 0,
       latitude: (json['latitude'] as num).toDouble(),
       longitude: (json['longitude'] as num).toDouble(),
-      detectedAt: DateTime.tryParse(json['detected_at'] as String? ?? '') ?? DateTime.now(),
+      detectedAt: parseServerTime(json['detected_at'] as String?) ?? DateTime.now(),
       status: (json['status'] as String?) ?? 'detected',
       imageUrl: json['image_url'] as String?,
       videoId: (json['video_id'] as num?)?.toInt(),
