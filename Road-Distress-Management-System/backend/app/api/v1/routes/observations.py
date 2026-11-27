@@ -79,7 +79,7 @@ async def add_live_note(
     if not snapshot and not has_audio and not (note or "").strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Add a snapshot, a voice note or some text.")
 
-    manager = LiveCameraManager.instance()
+    manager = LiveCameraManager.for_user(user.id)
     if not manager.is_running():
         raise HTTPException(status.HTTP_409_CONFLICT, "Start live detection first, then add notes to it.")
 
