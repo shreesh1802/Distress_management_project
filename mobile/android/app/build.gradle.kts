@@ -65,6 +65,8 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
+            // Keep rules of the USB webcam library (its native code calls these classes by name).
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }
@@ -78,7 +80,16 @@ kotlin {
 dependencies {
     // Opens a UVC (USB webcam) directly through the phone's USB port. Android's normal camera system does not
     // list most USB webcams, so the live screen's "USB webcam" option goes through this instead.
-    implementation("com.herohan:UVCAndroid:1.0.13")
+    // A copy of com.herohan:UVCAndroid:1.0.13 whose native libuvc was rebuilt with a more tolerant stream
+    // negotiation (some cheap webcams answer the format probe slightly differently and were refused with
+    // "could not negotiate with camera: err=-51"). Its own dependencies are listed by hand because a local
+    // .aar does not bring them along.
+    implementation(files("libs/UVCAndroid-1.0.13-patched.aar"))
+    implementation("androidx.core:core:1.13.1")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.annotation:annotation:1.8.0")
+    implementation("androidx.legacy:legacy-support-v4:1.0.0")
+    implementation("cn.hutool:hutool-core:5.8.35")
 }
 
 flutter {
