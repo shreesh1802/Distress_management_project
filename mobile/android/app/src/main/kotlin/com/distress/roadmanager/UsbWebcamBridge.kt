@@ -10,17 +10,16 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.hardware.usb.UsbDevice
-import android.media.ImageReader
 import android.hardware.usb.UsbManager
+import android.media.ImageReader
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import com.herohan.uvcapp.CameraException
-import com.herohan.uvcapp.CameraHelper
-import com.herohan.uvcapp.ICameraHelper
 import com.serenegiant.usb.IFrameCallback
 import com.serenegiant.usb.Size
+import com.serenegiant.usb.USBMonitor
 import com.serenegiant.usb.UVCCamera
 import com.serenegiant.usb.UVCParam
 import io.flutter.plugin.common.BinaryMessenger
@@ -36,14 +35,14 @@ import kotlin.math.abs
  * Lets the app use a USB webcam plugged into the phone (through an OTG adapter).
  *
  * Android's normal camera system (what the `camera` plugin uses) does not list most USB webcams, so this talks
- * to the webcam directly over USB with a UVC library. It only hands JPEG pictures to the Flutter side; what
- * happens to them afterwards (shown on screen, sent to the server for detection) is the same as for the phone's
- * own camera.
+ * to the webcam directly over USB with a UVC library. It drives the library's low-level camera class itself (no
+ * drawing layer in between) and only hands JPEG pictures to the Flutter side; what happens to them afterwards
+ * (shown on screen, sent to the server for detection) is the same as for the phone's own camera.
  *
  * Channels:
- *  - method channel [METHODS]: `devices`, `start`, `stop`
+ *  - method channel [METHODS]: `devices`, `attached`, `start`, `stop`
  *  - event channel [EVENTS]: a ByteArray is one JPEG picture; a Map is a status change
- *    (`state` = connecting | running | error, plus `message`, `width`, `height`).
+ *    (`state` = connecting | running | diag | error, plus `message`, `width`, `height`).
  */
 class UsbWebcamBridge(
     private val activity: Activity,
@@ -53,23 +52,31 @@ class UsbWebcamBridge(
     private val main = Handler(Looper.getMainLooper())
     private var sink: EventChannel.EventSink? = null
 
-    private var helper: ICameraHelper? = null
-    private var selected: UsbDevice? = null
-    private var starting = false
-    private var running = false
-    private var pendingPermissionResult: MethodChannel.Result? = null
-    private var searchAttempts = 0
+    // Everything that touches the webcam runs on this thread (the library wants a thread with a looper).
+    private val camThread = HandlerThread("usb-webcam-camera").apply { start() }
+    private val cam = Handler(camThread.looper)
 
-    private var lastFrameAt = 0L
-    private var frameWidth = 0
-    private var frameHeight = 0
-    private var knownSizes: List<Size> = emptyList()
-
-    // A second way to get pictures: the library draws every picture onto this reader's surface. Used when the
-    // direct (NV21) callback stays silent on a phone/webcam combination.
-    private var reader: ImageReader? = null
-    private val readerThread = android.os.HandlerThread("usb-webcam-reader").apply { start() }
+    // Pictures drawn onto our own surface (the second way to get pictures) arrive on this thread.
+    private val readerThread = HandlerThread("usb-webcam-reader").apply { start() }
     private val readerHandler = Handler(readerThread.looper)
+
+    // Reading the phone log takes a moment, so it has its own thread.
+    private val logThread = HandlerThread("usb-webcam-log").apply { start() }
+    private val logHandler = Handler(logThread.looper)
+
+    private var monitor: USBMonitor? = null
+    @Volatile private var block: USBMonitor.UsbControlBlock? = null
+    private var camera: UVCCamera? = null // camera thread only
+    private var reader: ImageReader? = null // camera thread only
+    @Volatile private var selected: UsbDevice? = null
+    @Volatile private var starting = false
+    @Volatile private var running = false
+    private var pendingPermissionResult: MethodChannel.Result? = null
+
+    @Volatile private var lastFrameAt = 0L
+    @Volatile private var frameWidth = 0
+    @Volatile private var frameHeight = 0
+    @Volatile private var knownSizes: List<Size> = emptyList()
 
     // What happened so far, shown on the preview while no picture has arrived (so a problem can be told apart).
     private val directCallbacks = AtomicInteger()
@@ -77,6 +84,7 @@ class UsbWebcamBridge(
     private val readerPictures = AtomicInteger()
     @Volatile private var lastDirectAt = 0L
     @Volatile private var lastNote = ""
+    @Volatile private var lastLog = ""
     private var diagTicking = false
 
     init {
@@ -109,6 +117,9 @@ class UsbWebcamBridge(
 
     fun dispose() {
         shutDown()
+        cam.post { camThread.quitSafely() }
+        readerThread.quitSafely()
+        logThread.quitSafely()
     }
 
     fun onPermissionResult(requestCode: Int, grantResults: IntArray) {
@@ -117,13 +128,12 @@ class UsbWebcamBridge(
         pendingPermissionResult = null
         if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             beginOpening()
-            result.success(null)
         } else {
             starting = false
             // Android lets an app use a USB camera only if it may also use the camera.
             status("error", "Allow the Camera permission to use the USB webcam.")
-            result.success(null)
         }
+        result.success(null)
     }
 
     // ---------------------------------------------------------------------------------- listing
@@ -138,6 +148,11 @@ class UsbWebcamBridge(
                 "productId" to it.productId,
             )
         }
+    }
+
+    private fun firstVideoDevice(): UsbDevice? {
+        val usb = activity.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return null
+        return usb.deviceList.values.firstOrNull { isVideo(it) }
     }
 
     /** Every USB device Android reports right now, so a missing webcam can be told apart from an unrecognised one. */
@@ -168,7 +183,7 @@ class UsbWebcamBridge(
             result.success(null)
             return
         }
-        if (listVideoDevices().isEmpty()) {
+        if (firstVideoDevice() == null) {
             status("error", "No USB webcam found. Plug it in through the OTG adapter and try again.")
             result.success(null)
             return
@@ -184,127 +199,65 @@ class UsbWebcamBridge(
         result.success(null)
     }
 
+    private val usbListener = object : USBMonitor.OnDeviceConnectListener {
+        override fun onAttach(device: UsbDevice) {}
+
+        override fun onDetach(device: UsbDevice) {
+            if (device == selected && (running || starting)) {
+                shutDown()
+                status("error", "The USB webcam was unplugged.")
+            }
+        }
+
+        override fun onDeviceOpen(device: UsbDevice, ctrlBlock: USBMonitor.UsbControlBlock, createNew: Boolean) {
+            if (device != selected || !starting) return
+            block = ctrlBlock
+            cam.post { openAttempt() }
+        }
+
+        override fun onDeviceClose(device: UsbDevice, ctrlBlock: USBMonitor.UsbControlBlock) {}
+
+        override fun onCancel(device: UsbDevice) {
+            if (device == selected) {
+                shutDown()
+                status("error", "USB access for the webcam was not allowed.")
+            }
+        }
+
+        override fun onError(device: UsbDevice, e: USBMonitor.USBException) {
+            Log.e(TAG, "USB webcam error", e)
+            shutDown()
+            status("error", "Could not open the USB webcam (${e.message}). Unplug it, plug it back in and try again.")
+        }
+    }
+
     private fun beginOpening() {
-        shutDownHelper()
-        searchAttempts = 0
-        val h = CameraHelper()
-        helper = h
-        h.setStateCallback(object : ICameraHelper.StateCallback {
-            override fun onAttach(device: UsbDevice) {
-                if (selected == null && starting && isVideo(device)) pick(device)
-            }
-
-            override fun onDeviceOpen(device: UsbDevice, isFirstOpen: Boolean) {
-                attempts = emptyList()
-                attemptIndex = 0
-                helper?.openCamera()
-            }
-
-            override fun onCameraOpen(device: UsbDevice) {
-                val hh = helper ?: return
-                openGeneration++
-                val generation = openGeneration
-                val size = hh.previewSize
-                frameWidth = size?.width ?: 0
-                frameHeight = size?.height ?: 0
-                val supported = try { hh.supportedSizeList } catch (e: Exception) { null } ?: emptyList()
-                knownSizes = supported + listOfNotNull(size)
-                if (attempts.isEmpty()) {
-                    attempts = buildAttempts(supported)
-                    supportSummary = summarise(supported)
-                }
-                directCallbacks.set(0)
-                directPictures.set(0)
-                readerPictures.set(0)
-                lastDirectAt = 0L
-                detachReader(hh)
-                attachReader(hh)
-                hh.setFrameCallback(frameCallback, UVCCamera.PIXEL_FORMAT_NV21)
-                hh.startPreview()
-                running = true
-                starting = false
-                startDiagnostics()
-                main.post {
-                    sink?.success(
-                        mapOf(
-                            "state" to "running",
-                            "message" to "USB webcam ready",
-                            "width" to frameWidth,
-                            "height" to frameHeight,
-                        ),
-                    )
-                }
-                // Some webcams refuse some size / format combinations and then simply send nothing.
-                main.postDelayed({ checkPicturesArrive(generation) }, WATCHDOG_MS)
-            }
-
-            override fun onCameraClose(device: UsbDevice) {}
-            override fun onDeviceClose(device: UsbDevice) {}
-
-            override fun onDetach(device: UsbDevice) {
-                if (device == selected) {
-                    val wasActive = running || starting
-                    shutDownHelper()
-                    if (wasActive) status("error", "The USB webcam was unplugged.")
-                }
-            }
-
-            override fun onCancel(device: UsbDevice) {
-                if (device == selected) {
-                    selected = null
-                    starting = false
-                    status("error", "USB access for the webcam was not allowed.")
-                }
-            }
-
-            override fun onError(device: UsbDevice, e: CameraException) {
-                Log.e(TAG, "USB webcam error", e)
-                starting = false
-                val busy = e.code == CameraException.CAMERA_OPEN_ERROR_BUSY
-                status(
-                    "error",
-                    if (busy) "The USB webcam is busy. Unplug it, plug it back in and try again."
-                    else "Could not open the USB webcam. Unplug it, plug it back in and try again.",
-                )
-            }
-        })
-        // Normally onAttach reports a webcam that is already plugged in. As a safety net, also look for it.
-        searchForDevice()
-    }
-
-    private fun searchForDevice() {
-        main.postDelayed({
-            if (!starting || selected != null) return@postDelayed
-            val list = try {
-                helper?.deviceList
-            } catch (e: Exception) {
-                null
-            }
-            val device = list?.firstOrNull { isVideo(it) }
-            if (device != null) {
-                pick(device)
-            } else if (++searchAttempts < 20) {
-                searchForDevice()
-            } else {
-                starting = false
-                status("error", "The phone could not see the USB webcam. Unplug it and plug it back in.")
-            }
-        }, 400)
-    }
-
-    private fun pick(device: UsbDevice) {
+        val device = firstVideoDevice()
+        if (device == null) {
+            starting = false
+            status("error", "The phone could not see the USB webcam. Unplug it and plug it back in.")
+            return
+        }
         selected = device
-        // This asks Android for permission to use the device (a dialog the first time).
-        helper?.selectDevice(device)
+        attempts = emptyList()
+        attemptIndex = 0
+        supportSummary = ""
+        lastNote = ""
+        lastLog = ""
+        val m = USBMonitor(activity, usbListener)
+        monitor = m
+        m.register()
+        // Asks Android for permission to use the device (a dialog the first time), then opens it.
+        m.requestPermission(device)
     }
 
-    /** One way of opening the webcam: a size / format (null = the library's own default) and USB quirks. */
-    private class Attempt(val size: Size?, val quirks: Int, val label: String)
+    /** One way of opening the webcam: size / format (null = the webcam's default), USB quirks, own surface or not. */
+    private class Attempt(val size: Size?, val quirks: Int, val surface: Boolean, val label: String)
 
-    private var attempts: List<Attempt> = emptyList()
-    private var attemptIndex = 0
-    private var openGeneration = 0
-    private var supportSummary = ""
+    @Volatile private var attempts: List<Attempt> = emptyList()
+    @Volatile private var attemptIndex = 0
+    @Volatile private var openGeneration = 0
+    @Volatile private var supportSummary = ""
 
     private fun describe(s: Size): String {
         val kind = if (s.type == UVCCamera.UVC_VS_FRAME_MJPEG) "MJPEG" else "uncompressed"
@@ -317,76 +270,150 @@ class UsbWebcamBridge(
     }
 
     /**
-     * The library's default first, then moderate sizes (compressed first), then small ones, and finally the
-     * "fix bandwidth" workaround that some webcams need for uncompressed video.
+     * The webcam's default first, then moderate sizes (compressed first, with and without our own surface), then
+     * small ones, with the "fix bandwidth" workaround some webcams need for uncompressed video.
      */
     private fun buildAttempts(sizes: List<Size>): List<Attempt> {
-        val out = mutableListOf(Attempt(null, 0, "the library default"))
+        val out = mutableListOf(Attempt(null, 0, true, "the webcam's default"))
         val compressed = sizes.filter { it.type == UVCCamera.UVC_VS_FRAME_MJPEG }
         val raw = sizes.filter { it.type != UVCCamera.UVC_VS_FRAME_MJPEG }
         fun nearest(list: List<Size>, width: Int) = list.minByOrNull { abs(it.width - width) }
         fun smallest(list: List<Size>) = list.minByOrNull { it.width * it.height }
-        fun add(size: Size?, quirks: Int, note: String) {
+        fun add(size: Size?, quirks: Int, surface: Boolean, note: String) {
             if (size == null) return
             if (out.any { it.size?.width == size.width && it.size?.height == size.height &&
-                    it.size?.type == size.type && it.quirks == quirks }) return
-            out.add(Attempt(size, quirks, describe(size) + note))
+                    it.size?.type == size.type && it.quirks == quirks && it.surface == surface }) return
+            out.add(Attempt(size, quirks, surface, describe(size) + note))
         }
-        add(nearest(compressed, 640), 0, "")
-        add(nearest(raw, 640), 0, "")
-        add(nearest(raw, 640), UVCCamera.UVC_QUIRK_FIX_BANDWIDTH, " (fixed bandwidth)")
-        add(smallest(compressed), 0, "")
-        add(smallest(raw), 0, "")
-        add(smallest(raw), UVCCamera.UVC_QUIRK_FIX_BANDWIDTH, " (fixed bandwidth)")
-        add(nearest(compressed, 1280), 0, "")
+        add(nearest(compressed, 640), 0, true, "")
+        add(nearest(compressed, 640), 0, false, " (no surface)")
+        add(nearest(raw, 640), 0, true, "")
+        add(nearest(raw, 640), UVCCamera.UVC_QUIRK_FIX_BANDWIDTH, true, " (fixed bandwidth)")
+        add(smallest(compressed), 0, true, "")
+        add(smallest(raw), UVCCamera.UVC_QUIRK_FIX_BANDWIDTH, true, " (fixed bandwidth)")
         return out
     }
 
-    /** The app's own recent log lines about USB / camera work, to show why a webcam stays silent. */
-    private fun recentLog(): String {
-        return try {
-            val process = ProcessBuilder(
-                "logcat", "-d", "-t", "600", "--pid=" + android.os.Process.myPid(), "-v", "brief",
-            ).redirectErrorStream(true).start()
-            val lines = process.inputStream.bufferedReader().readLines()
-            process.destroy()
-            val keep = Regex("uvc|usb|libusb|preview|render|isoc|stream|bandwidth|error|fail|denied|permission", RegexOption.IGNORE_CASE)
-            val picked = lines.filter { keep.containsMatchIn(it) && !it.contains("flutter", ignoreCase = true) }
-                .map { it.take(140) }
-                .distinct()
-                .takeLast(14)
-            if (picked.isEmpty()) "(nothing relevant in the phone log)" else picked.joinToString(" | ")
-        } catch (e: Exception) {
-            "(could not read the phone log: ${e.javaClass.simpleName})"
+    /** Camera thread: open the webcam with the current attempt and start the pictures. */
+    private fun openAttempt() {
+        val b = block ?: return
+        if (!starting && !running) return
+        closeCamera()
+        val attempt = attempts.getOrNull(attemptIndex)
+        val param = if (attempt?.size != null) UVCParam(attempt.size, attempt.quirks) else UVCParam()
+        val c = try {
+            UVCCamera(param)
+        } catch (e: Throwable) {
+            failAll("The USB camera library could not start on this phone (${e.javaClass.simpleName}: ${e.message}).")
+            return
         }
+        val result = try {
+            c.open(b)
+        } catch (e: Exception) {
+            -1000
+        }
+        if (result != 0) {
+            try {
+                c.destroy()
+            } catch (_: Exception) {
+            }
+            lastNote = "opening with ${attempt?.label ?: "the webcam's default"} failed (code $result)"
+            nextAttempt()
+            return
+        }
+        camera = c
+        val supported = try { c.supportedSizeList } catch (e: Exception) { null } ?: emptyList()
+        if (attempts.isEmpty()) {
+            attempts = buildAttempts(supported)
+            supportSummary = summarise(supported)
+        }
+        val size = c.previewSize
+        frameWidth = size?.width ?: 0
+        frameHeight = size?.height ?: 0
+        knownSizes = supported + listOfNotNull(size)
+        directCallbacks.set(0)
+        directPictures.set(0)
+        readerPictures.set(0)
+        lastDirectAt = 0L
+        val current = attempts.getOrNull(attemptIndex)
+        if (current?.surface != false) attachReader(c)
+        try {
+            c.setFrameCallback(frameCallback, UVCCamera.PIXEL_FORMAT_NV21)
+            c.startPreview()
+        } catch (e: Exception) {
+            lastNote = "starting the pictures failed: ${e.javaClass.simpleName}"
+        }
+        lastNote = "trying ${current?.label ?: "the webcam's default"} (${attemptIndex + 1}/${attempts.size})"
+        val generation = ++openGeneration
+        if (!running) {
+            running = true
+            starting = false
+            main.post {
+                startDiagnostics()
+                sink?.success(
+                    mapOf(
+                        "state" to "running",
+                        "message" to "USB webcam ready",
+                        "width" to frameWidth,
+                        "height" to frameHeight,
+                    ),
+                )
+            }
+        }
+        // Some webcams refuse some size / format combinations and then simply send nothing.
+        cam.postDelayed({ checkPicturesArrive(generation) }, WATCHDOG_MS)
     }
 
-    private fun picturesSoFar() =directCallbacks.get() + readerPictures.get()
+    private fun picturesSoFar() = directCallbacks.get() + readerPictures.get()
 
+    /** Camera thread. */
     private fun checkPicturesArrive(generation: Int) {
         if (generation != openGeneration || !running) return
         if (picturesSoFar() > 0) return
-        val h = helper ?: return
+        nextAttempt()
+    }
+
+    /** Camera thread. */
+    private fun nextAttempt() {
         attemptIndex++
         if (attemptIndex >= attempts.size) {
-            val tried = attempts.joinToString("; ") { it.label }
-            val log = recentLog()
-            shutDown()
-            status(
-                "error",
+            val tried = attempts.joinToString("; ") { it.label }.ifEmpty { "the webcam's default" }
+            failAll(
                 "The USB webcam opened but sent no pictures with any setting tried ($tried). " +
-                    "The webcam reports: $supportSummary. Phone log: $log",
+                    "The webcam reports: ${supportSummary.ifEmpty { "nothing" }}. Phone log: ${recentLog(14, " | ")}",
             )
             return
         }
-        val next = attempts[attemptIndex]
-        lastNote = "no pictures yet; trying ${next.label} (${attemptIndex + 1}/${attempts.size})"
-        try {
-            h.stopPreview()
-        } catch (_: Exception) {
+        openAttempt()
+    }
+
+    private fun failAll(message: String) {
+        main.post {
+            shutDown()
+            status("error", message)
         }
-        h.closeCamera()
-        h.openCamera(UVCParam(next.size, next.quirks))
+    }
+
+    /** The app's own recent log lines about USB / camera work, to show why a webcam stays silent. */
+    private fun recentLog(count: Int, separator: String): String {
+        return try {
+            val process = ProcessBuilder(
+                "logcat", "-d", "-t", "800", "--pid=" + android.os.Process.myPid(), "-v", "brief",
+            ).redirectErrorStream(true).start()
+            val lines = process.inputStream.bufferedReader().readLines()
+            process.destroy()
+            val keep = Regex(
+                "uvc|usb|libusb|preview|render|isoc|stream|bandwidth|error|fail|denied|permission|frame",
+                RegexOption.IGNORE_CASE,
+            )
+            val picked = lines.filter { keep.containsMatchIn(it) && !it.contains("flutter", ignoreCase = true) }
+                .map { it.take(130) }
+                .distinct()
+                .takeLast(count)
+            if (picked.isEmpty()) "(nothing relevant in the phone log)" else picked.joinToString(separator)
+        } catch (e: Exception) {
+            "(could not read the phone log: ${e.javaClass.simpleName})"
+        }
     }
 
     // -------------------------------------------------------------------------------- the pictures
@@ -426,14 +453,19 @@ class UsbWebcamBridge(
         }
     }
 
-    /** Pictures the library drew onto our reader; used only while the direct callback is silent. */
-    private fun attachReader(h: ICameraHelper) {
-        val w = if (frameWidth > 0) frameWidth else TARGET_WIDTH
-        val ht = if (frameHeight > 0) frameHeight else TARGET_WIDTH * 9 / 16
+    /** Camera thread: our own surface as the webcam's preview window; used while the direct callback is silent. */
+    private fun attachReader(c: UVCCamera) {
+        val w = if (frameWidth > 0) frameWidth else 640
+        val ht = if (frameHeight > 0) frameHeight else 480
         try {
             val r = ImageReader.newInstance(w, ht, PixelFormat.RGBA_8888, 3)
             r.setOnImageAvailableListener({ ir ->
-                val image = try { ir.acquireLatestImage() } catch (e: Exception) { null } ?: return@setOnImageAvailableListener
+                val image = try {
+                    ir.acquireLatestImage()
+                } catch (e: Exception) {
+                    lastNote = "second path: ${e.javaClass.simpleName} ${e.message?.take(70) ?: ""}"
+                    null
+                } ?: return@setOnImageAvailableListener
                 try {
                     readerPictures.incrementAndGet()
                     val now = SystemClock.elapsedRealtime()
@@ -459,23 +491,10 @@ class UsbWebcamBridge(
                 }
             }, readerHandler)
             reader = r
-            h.addSurface(r.surface, false)
+            c.setPreviewDisplay(r.surface)
         } catch (e: Exception) {
             lastNote = "second path unavailable: ${e.javaClass.simpleName}"
             Log.w(TAG, "Could not set up the second picture path", e)
-        }
-    }
-
-    private fun detachReader(h: ICameraHelper) {
-        val r = reader ?: return
-        reader = null
-        try {
-            h.removeSurface(r.surface)
-        } catch (_: Exception) {
-        }
-        try {
-            r.close()
-        } catch (_: Exception) {
         }
     }
 
@@ -483,16 +502,20 @@ class UsbWebcamBridge(
     private fun startDiagnostics() {
         if (diagTicking) return
         diagTicking = true
+        var ticks = 0
         val tick = object : Runnable {
             override fun run() {
                 if (!running) {
                     diagTicking = false
                     return
                 }
+                val waiting = picturesSoFar() == 0
+                if (waiting && ticks++ % 2 == 0) logHandler.post { lastLog = recentLog(6, "\n") }
                 val message = "webcam opened ${frameWidth}x$frameHeight; direct " +
                     "${directCallbacks.get()} received/${directPictures.get()} sent; second path " +
                     "${readerPictures.get()}" + (if (lastNote.isNotEmpty()) "; $lastNote" else "") +
-                    (if (picturesSoFar() == 0 && supportSummary.isNotEmpty()) "; webcam supports: $supportSummary" else "")
+                    (if (waiting && supportSummary.isNotEmpty()) "; webcam supports: $supportSummary" else "") +
+                    (if (waiting && lastLog.isNotEmpty()) "\nphone log:\n$lastLog" else "")
                 sink?.success(
                     mapOf(
                         "state" to "diag",
@@ -513,41 +536,48 @@ class UsbWebcamBridge(
 
     // --------------------------------------------------------------------------------- closing
 
+    /** Camera thread: stop and release the current webcam session (the USB permission stays). */
+    private fun closeCamera() {
+        val c = camera
+        camera = null
+        if (c != null) {
+            try {
+                c.setFrameCallback(null, UVCCamera.PIXEL_FORMAT_NV21)
+            } catch (_: Exception) {
+            }
+            try {
+                c.stopPreview()
+            } catch (_: Exception) {
+            }
+            try {
+                c.destroy()
+            } catch (_: Exception) {
+            }
+        }
+        val r = reader
+        reader = null
+        try {
+            r?.close()
+        } catch (_: Exception) {
+        }
+    }
+
     private fun shutDown() {
         pendingPermissionResult = null
         starting = false
-        shutDownHelper()
-    }
-
-    private fun shutDownHelper() {
         running = false
         selected = null
-        val h = helper ?: return
-        helper = null
-        try {
-            reader?.let { h.removeSurface(it.surface) }
-        } catch (_: Exception) {
-        }
-        try {
-            reader?.close()
-        } catch (_: Exception) {
-        }
-        reader = null
-        try {
-            h.setFrameCallback(null, UVCCamera.PIXEL_FORMAT_NV21)
-        } catch (_: Exception) {
-        }
-        try {
-            h.stopPreview()
-        } catch (_: Exception) {
-        }
-        try {
-            h.closeCamera()
-        } catch (_: Exception) {
-        }
-        try {
-            h.release()
-        } catch (_: Exception) {
+        block = null
+        val m = monitor
+        monitor = null
+        cam.removeCallbacksAndMessages(null)
+        cam.post {
+            openGeneration++
+            closeCamera()
+            try {
+                m?.destroy()
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -557,7 +587,6 @@ class UsbWebcamBridge(
         const val EVENTS = "road_inspection/usb_webcam/events"
         private const val REQUEST_CAMERA = 4711
         private const val USB_CLASS_VIDEO = 14
-        private const val TARGET_WIDTH = 1280
         private const val JPEG_QUALITY = 75
         private const val MIN_FRAME_GAP_MS = 100L
         private const val WATCHDOG_MS = 4000L

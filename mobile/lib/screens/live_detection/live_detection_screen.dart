@@ -58,7 +58,8 @@ class _UsbFrameImage extends StatelessWidget {
           return ColoredBox(
             color: Colors.black,
             child: Center(
-              child: Padding(
+              // Scrollable: the status can include several lines of the phone log.
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.all(12),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -79,7 +80,7 @@ class _UsbFrameImage extends StatelessWidget {
                               child: Text(
                                 text,
                                 textAlign: TextAlign.center,
-                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                style: const TextStyle(color: Colors.white70, fontSize: 11),
                               ),
                             ),
                     ),
