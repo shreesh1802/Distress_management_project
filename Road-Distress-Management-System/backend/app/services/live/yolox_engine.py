@@ -67,6 +67,44 @@ def _load_checkpoint(path: str):
             return torch.load(path, map_location="cpu", weights_only=False)
 
 
+def pick_device(requested: Optional[str]) -> "torch.device":
+    """
+    The device detection runs on. "auto" (the default) = the first NVIDIA GPU if PyTorch can use one,
+    else the CPU. Asking for a GPU that is not there falls back to the CPU with a warning instead of
+    failing, so the same settings work on a laptop and on a GPU machine.
+    """
+    choice = (requested or "auto").strip().lower()
+    has_gpu = torch.cuda.is_available()
+    if choice == "auto":
+        return torch.device("cuda" if has_gpu else "cpu")
+    if choice == "cpu":
+        return torch.device("cpu")
+    if choice == "cuda" or choice.startswith("cuda:"):
+        if not has_gpu:
+            logger.warning("LIVE_DEVICE=%s but PyTorch sees no CUDA GPU here; running on the CPU.", requested)
+            return torch.device("cpu")
+        device = torch.device(choice)
+        if device.index is not None and device.index >= torch.cuda.device_count():
+            logger.warning("LIVE_DEVICE=%s but only %d GPU(s) exist; using cuda:0.", requested,
+                           torch.cuda.device_count())
+            return torch.device("cuda:0")
+        return device
+    logger.warning("Unknown LIVE_DEVICE=%r (use auto, cpu, cuda or cuda:N); running on the CPU.", requested)
+    return torch.device("cpu")
+
+
+def use_half_precision(requested: Optional[str], device: "torch.device") -> bool:
+    """float16 only makes sense on a GPU; "auto" turns it on there and leaves the CPU in float32."""
+    choice = (requested or "auto").strip().lower()
+    if device.type != "cuda":
+        if choice in ("1", "true", "yes", "on"):
+            logger.warning("LIVE_HALF_PRECISION is ignored on the CPU (float16 is slower there).")
+        return False
+    if choice in ("0", "false", "no", "off"):
+        return False
+    return True
+
+
 class YOLOXDetector:
     """
     Wraps a single YOLOX model (exp file + checkpoint) behind a simple
@@ -85,6 +123,8 @@ class YOLOXDetector:
         fallback_exp_name: Optional[str] = None,
         fallback_num_classes: Optional[int] = None,
         fallback_class_names: Optional[List[str]] = None,
+        device: Optional[str] = "auto",
+        half_precision: Optional[str] = "auto",
     ):
         if not YOLOX_AVAILABLE:
             raise RuntimeError(f"YOLOX/torch not installed: {_IMPORT_ERROR}")
@@ -135,14 +175,47 @@ class YOLOXDetector:
         ckpt = _load_checkpoint(ckpt_to_load)
         self.model.load_state_dict(ckpt["model"], strict=True)
 
+        # The checkpoint is always read onto the CPU; move the model to the GPU when there is one.
+        self.device = pick_device(device)
+        self.half = use_half_precision(half_precision, self.device)
+        self.model.to(self.device)
+        if self.half:
+            self.model.half()
+        if self.device.type == "cuda":
+            torch.backends.cudnn.benchmark = True   # every frame has the same input size
+            self._warm_up()
+
         if not use_fallback:
             self.class_names = list(self.exp.class_names)
 
         self.preproc = ValTransform(legacy=False)
         logger.info(
-            f"YOLOX '{model_source}' loaded ({'fallback' if use_fallback else 'configured'}). "
-            f"Classes: {self.class_names}"
+            f"YOLOX '{model_source}' loaded ({'fallback' if use_fallback else 'configured'}) on "
+            f"{self.device_label}. Classes: {self.class_names}"
         )
+
+    @property
+    def device_label(self) -> str:
+        """e.g. "cpu" or "cuda (NVIDIA T4, float16)" -- shown in /live/status (no paths)."""
+        device = getattr(self, "device", None)
+        if device is None or device.type != "cuda":
+            return "cpu"
+        try:
+            name = torch.cuda.get_device_name(device)
+        except Exception:
+            name = "GPU"
+        return f"cuda ({name}, {'float16' if self.half else 'float32'})"
+
+    def _warm_up(self) -> None:
+        """One throw-away pass so the first real frame does not pay for GPU start-up."""
+        try:
+            size = self.exp.test_size
+            dummy = torch.zeros((1, 3, size[0], size[1]), device=self.device)
+            with torch.no_grad():
+                self.model(dummy.half() if self.half else dummy)
+            torch.cuda.synchronize(self.device)
+        except Exception as exc:  # a failed warm-up only costs speed on the first frame
+            logger.warning("GPU warm-up for '%s' failed: %s", self.model_source, exc)
 
     def detect(self, frame: Any) -> List[Dict[str, Any]]:
         """
@@ -157,7 +230,11 @@ class YOLOXDetector:
         ratio = min(self.exp.test_size[0] / height, self.exp.test_size[1] / width)
 
         img, _ = self.preproc(frame, None, self.exp.test_size)
-        img = torch.from_numpy(img).unsqueeze(0).float()
+        device = getattr(self, "device", None)
+        img = torch.from_numpy(img).unsqueeze(0)
+        if device is not None and device.type != "cpu":
+            img = img.to(device, non_blocking=True)
+        img = img.half() if getattr(self, "half", False) else img.float()
 
         with torch.no_grad():
             outputs = self.model(img)
@@ -169,7 +246,8 @@ class YOLOXDetector:
         if outputs is None:
             return []
 
-        outputs = outputs.cpu()
+        # Back to the CPU in float32 for the box / score maths below (a no-op on the CPU path).
+        outputs = outputs.cpu().float()
         bboxes = outputs[:, 0:4] / ratio
         scores = outputs[:, 4] * outputs[:, 5]
         classes = outputs[:, 6]

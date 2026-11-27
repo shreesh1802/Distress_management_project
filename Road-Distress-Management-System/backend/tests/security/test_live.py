@@ -228,7 +228,8 @@ def test_live_status_has_no_filesystem_paths(client, make_user):
         configured_ckpt_file = "C:/secret/live_test/ckpt.pth"
 
     info = LiveCameraManager._public_model_info(FakeDetector())
-    assert info == {"source": "fallback", "exp_source": "built-in:yolox-m", "class_names": ["pothole"]}
+    assert info == {"source": "fallback", "exp_source": "built-in:yolox-m", "class_names": ["pothole"],
+                    "device": "cpu"}
     FakeDetector.exp_source = "C:/secret/live_test/exp.py"
     assert "secret" not in json.dumps(LiveCameraManager._public_model_info(FakeDetector()))
 

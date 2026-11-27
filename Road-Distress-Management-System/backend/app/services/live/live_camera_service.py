@@ -122,7 +122,8 @@ class LiveCameraManager:
                 fallback_ckpt=cfg.FALLBACK_PAVEMENT_CKPT,
                 fallback_exp_name=cfg.FALLBACK_PAVEMENT_EXP_NAME,
                 fallback_num_classes=cfg.FALLBACK_PAVEMENT_NUM_CLASSES,
-                fallback_class_names=cfg.FALLBACK_PAVEMENT_CLASS_NAMES)
+                fallback_class_names=cfg.FALLBACK_PAVEMENT_CLASS_NAMES,
+                device=cfg.DEVICE, half_precision=cfg.HALF_PRECISION)
         if self._signage is None:
             self._signage = YOLOXDetector(
                 cfg.SIGNAGE_EXP_FILE, cfg.SIGNAGE_CKPT, "signage",
@@ -130,7 +131,8 @@ class LiveCameraManager:
                 fallback_ckpt=cfg.FALLBACK_SIGNAGE_CKPT,
                 fallback_exp_name=cfg.FALLBACK_SIGNAGE_EXP_NAME,
                 fallback_num_classes=cfg.FALLBACK_SIGNAGE_NUM_CLASSES,
-                fallback_class_names=cfg.FALLBACK_SIGNAGE_CLASS_NAMES)
+                fallback_class_names=cfg.FALLBACK_SIGNAGE_CLASS_NAMES,
+                device=cfg.DEVICE, half_precision=cfg.HALF_PRECISION)
 
         # Record which model source/architecture loaded, for /live/status and /live/ws.
         # Filesystem paths (checkpoint / exp file locations) are deliberately NOT included:
@@ -145,6 +147,8 @@ class LiveCameraManager:
             "source": detector.source,                                  # "configured" | "fallback"
             "exp_source": exp_source if exp_source.startswith("built-in:") else "exp-file",
             "class_names": detector.class_names,
+            # "cpu" or e.g. "cuda (NVIDIA T4, float16)": where detection runs (no paths).
+            "device": getattr(detector, "device_label", "cpu"),
         }
 
     def _reset_session_state(self, source: str, latitude: Optional[float], longitude: Optional[float]) -> None:
