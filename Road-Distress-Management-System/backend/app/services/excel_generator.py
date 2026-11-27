@@ -19,6 +19,7 @@ from app.models.maintenance import MaintenanceTask
 from app.services.repair_report_sections import add_repair_strategy_sheet, row_recommendation
 from app.services.field_notes_report import add_field_notes_sheet
 from app.services.repair_strategies import BITUMINOUS
+from app.core.timezones import format_report_time, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -190,12 +191,12 @@ def generate_video_excel_report(db: Session, video_id: int, pavement: str = BITU
     ws1.cell(row=4, column=1, value="Project Name:").font = bold_font
     ws1.cell(row=4, column=2, value="Road Distress Management Audit").font = regular_font
     ws1.cell(row=4, column=5, value="Generated Date:").font = bold_font
-    ws1.cell(row=4, column=6, value=datetime.now().strftime("%Y-%m-%d %H:%M:%S")).font = regular_font
+    ws1.cell(row=4, column=6, value=format_report_time(utc_now())).font = regular_font
 
     ws1.cell(row=5, column=1, value="Road Identifier:").font = bold_font
     ws1.cell(row=5, column=2, value=road_name).font = regular_font
     ws1.cell(row=5, column=5, value="Inspection Date:").font = bold_font
-    ws1.cell(row=5, column=6, value=video.upload_timestamp.strftime("%Y-%m-%d")).font = regular_font
+    ws1.cell(row=5, column=6, value=format_report_time(video.upload_timestamp, "%Y-%m-%d", with_zone=False)).font = regular_font
 
     ws1.cell(row=6, column=1, value="Route Name:").font = bold_font
     ws1.cell(row=6, column=2, value=route_name).font = regular_font

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.safe_paths import resolve_upload_path
 from app.services.observation_service import list_for_video
+from app.core.timezones import format_report_time
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ def _notes_for(db: Session, video_id: int) -> list:
 
 def _when(obs: Any) -> str:
     created = getattr(obs, "created_at", None)
-    return created.strftime("%d %b %Y %H:%M:%S") if created else ""
+    return format_report_time(created, "%d %b %Y %H:%M:%S") if created else ""
 
 
 def _place(obs: Any) -> str:

@@ -3,10 +3,10 @@ CRUD operations for the RoadDistress entity.
 """
 
 from typing import List, Optional
-from datetime import datetime
 from sqlalchemy.orm import Session
 from app.models.distress import RoadDistress
 from app.schemas.distress import RoadDistressCreate, RoadDistressUpdate
+from app.core.timezones import utc_now
 
 
 import logging
@@ -40,7 +40,7 @@ def create_distress(db: Session, distress_in: RoadDistressCreate) -> RoadDistres
         longitude=distress_in.longitude,
         image_url=distress_in.image_url,
         status=distress_in.status,
-        detected_at=distress_in.detected_at or datetime.now(),
+        detected_at=distress_in.detected_at or utc_now(),
         video_id=distress_in.video_id,
         frame_number=distress_in.frame_number,
         video_timestamp=distress_in.video_timestamp,

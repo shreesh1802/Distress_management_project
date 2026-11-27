@@ -21,6 +21,7 @@ from app.models.maintenance import MaintenanceTask
 from app.services.repair_report_sections import repair_strategy_flowables, row_recommendation
 from app.services.field_notes_report import field_notes_flowables
 from app.services.repair_strategies import BITUMINOUS
+from app.core.timezones import format_report_time, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,7 @@ def generate_video_pdf_report(db: Session, video_id: int, pavement: str = BITUMI
     meta_data = [
         [
             Paragraph("<b>Project:</b> Infrastructure Safety Audit", body_style),
-            Paragraph(f"<b>Generated Date:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", body_style)
+            Paragraph(f"<b>Generated Date:</b> {format_report_time(utc_now())}", body_style)
         ],
         [
             Paragraph(f"<b>Video File:</b> {esc(video.filename)}", body_style),

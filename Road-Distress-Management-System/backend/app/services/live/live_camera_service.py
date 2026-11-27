@@ -20,12 +20,12 @@ import random
 import logging
 import threading
 from collections import deque
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 
 from app.services.live import live_config as cfg
+from app.core.timezones import format_report_time, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +307,7 @@ class LiveCameraManager:
         with self._session_lock:
             if self._session_video_id is None:
                 session_video = UploadedVideo(
-                    filename=f"Live session {datetime.utcnow():%Y-%m-%d %H:%M} UTC",
+                    filename=f"Live session {format_report_time(utc_now(), '%Y-%m-%d %H:%M')}",
                     filepath=None,
                     processing_status="completed",
                     progress=100,
@@ -390,7 +390,7 @@ class LiveCameraManager:
             return
 
         with self._lock:
-            self.stats["started_at"] = datetime.utcnow().isoformat()
+            self.stats["started_at"] = utc_now().isoformat()
 
         frame_count = 0
         t0 = time.time()
@@ -501,7 +501,7 @@ class LiveCameraManager:
                         self._event_seq += 1
                         self._events.append({
                             "seq": self._event_seq,
-                            "time": datetime.utcnow().isoformat(),
+                            "time": utc_now().isoformat(),
                             "class_name": det["class_name"],
                             "confidence": round(det["confidence"], 4),
                             "severity": severity,
@@ -569,7 +569,7 @@ class LiveCameraManager:
                     longitude=lon,
                     image_url=rel_path,
                     status="detected",
-                    detected_at=datetime.utcnow(),
+                    detected_at=utc_now(),
                     frame_number=frame_number,
                     video_timestamp=round(elapsed, 3),
                     source_type="live",

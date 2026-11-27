@@ -98,7 +98,7 @@ def _seed_demo_data(db) -> None:
     from app.models.video import UploadedVideo
     from app.models.distress import RoadDistress
     from app.models.user import User
-    from datetime import datetime
+    from app.core.timezones import utc_now
 
     admin_user = db.query(User).filter(User.id == 1).first()
     if admin_user is None:
@@ -122,9 +122,9 @@ def _seed_demo_data(db) -> None:
             progress=100,
             processing_stage="Completed",
             processing_duration=48.5,
-            upload_timestamp=datetime.now(),
-            created_at=datetime.now(),
-            updated_at=datetime.now(),
+            upload_timestamp=utc_now(),
+            created_at=utc_now(),
+            updated_at=utc_now(),
             uploader_id=1
         )
         db.add(video_20)
@@ -153,7 +153,7 @@ def _seed_demo_data(db) -> None:
                 confidence_score=det["conf"],
                 latitude=det["lat"],
                 longitude=det["lng"],
-                detected_at=datetime.now(),
+                detected_at=utc_now(),
                 status="detected",
                 image_url=crop_rel,
                 frame_number=frame_no,
